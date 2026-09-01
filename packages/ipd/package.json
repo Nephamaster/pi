@@ -1,0 +1,41 @@
+{
+	"name": "@earendil-works/pi-ipd",
+	"version": "0.84.4",
+	"description": "IPD workflow IR, asset registries, and compiler for pi",
+	"private": true,
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"CHANGELOG.md"
+	],
+	"scripts": {
+		"clean": "shx rm -rf dist",
+		"build": "tsgo -p tsconfig.build.json && shx mkdir -p dist/ledger/migrations && shx cp src/ledger/migrations/*.sql dist/ledger/migrations/",
+		"test": "vitest --run"
+	},
+	"dependencies": {
+		"@earendil-works/pi-agent-core": "^0.84.4",
+		"@earendil-works/pi-ai": "^0.84.4",
+		"@earendil-works/pi-coding-agent": "^0.84.4",
+		"typebox": "1.3.7",
+		"yaml": "2.9.0"
+	},
+	"devDependencies": {
+		"@types/node": "22.19.19",
+		"shx": "0.4.0",
+		"typescript": "5.9.3",
+		"vitest": "4.1.9"
+	},
+	"engines": {
+		"node": ">=24"
+	}
+}

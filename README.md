@@ -30,6 +30,7 @@ To learn more about Pi:
 | **[@earendil-works/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
 | **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
 | **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
+| **[@earendil-works/pi-ipd](packages/ipd)** | Private IPD workflow assets, schemas, and deterministic compiler |
 | **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
 | **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
 
