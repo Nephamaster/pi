@@ -42,3 +42,8 @@ plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 collect.sh
+
+# outputs
+outputs
+history
+TODO.md
