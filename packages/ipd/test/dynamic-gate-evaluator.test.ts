@@ -181,12 +181,21 @@ describe("DynamicGateEvaluator", () => {
 
 	it("starts an independent Reviewer with the actual Review Bundle after mechanical PASS", async () => {
 		const fixture = await createFixture();
-		const result = await fixture.evaluator.evaluate({ ...fixture.input, reviewerTokenBudget: 1_234 });
+		const result = await fixture.evaluator.evaluate({
+			...fixture.input,
+			reviewerTokenBudget: 1_234,
+			reviewerTimeoutMs: 7_200_000,
+			previousEvaluations: [{ criterionId: "produce-gate-semantic", result: "PASS" }],
+		});
 		expect(result.decision).toBe("PASS");
 		const reviewerCall = fixture.nodeRunner.calls.find((call) => call.kind === "reviewer");
 		expect(reviewerCall?.agentCard.id).toBe("reviewer");
 		if (reviewerCall?.kind === "reviewer") {
 			expect(reviewerCall.tokenBudget).toBe(1_234);
+			expect(reviewerCall.timeoutMs).toBe(7_200_000);
+			expect(reviewerCall.context).toMatchObject({
+				previousEvaluations: [{ criterionId: "produce-gate-semantic", result: "PASS" }],
+			});
 			const text = reviewerCall.reviewBundle.materials.find(
 				(material) => material.kind === "text" && material.role === "review",
 			);
@@ -234,6 +243,14 @@ describe("DynamicGateEvaluator", () => {
 
 	it("routes conflicting or inconclusive reviews through Staff arbitration", async () => {
 		const fixture = await createFixture();
+		const qualityGovernor = compileCard({
+			id: "quality-governor",
+			name: "Quality Governor",
+			description: "Arbitrates evidence conflicts",
+			responsibilities: ["Resolve Gate evidence conflicts"],
+			nonResponsibilities: ["Produce business Artifacts"],
+			capabilities: ["staff", "quality-governance"],
+		});
 		const secondReviewer = compileCard({
 			id: "reviewer-two",
 			name: "Second Reviewer",
@@ -250,10 +267,12 @@ describe("DynamicGateEvaluator", () => {
 			...fixture.input,
 			gate,
 			agentCards: [...fixture.input.agentCards, secondReviewer],
+			staffAgentCards: [fixture.cards.staff, qualityGovernor],
 		});
 		expect(result.decision).toBe("REWORK");
 		expect(result.staffDecision?.action).toBe("route_rework");
 		expect(fixture.nodeRunner.calls.filter((call) => call.kind === "reviewer")).toHaveLength(2);
 		expect(fixture.nodeRunner.calls.filter((call) => call.kind === "staff")).toHaveLength(1);
+		expect(fixture.nodeRunner.calls.find((call) => call.kind === "staff")?.agentCard.id).toBe("quality-governor");
 	});
 });

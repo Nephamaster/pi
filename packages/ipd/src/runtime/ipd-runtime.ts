@@ -33,6 +33,7 @@ export interface IpdRuntimeAssetContext {
 export interface PreparedIpdRuntimeAssets {
 	agentCards: readonly CompiledAgentCard[];
 	plannerCard: CompiledAgentCard;
+	staffCoreCards: readonly CompiledAgentCard[];
 	workflowAssets: readonly WorkflowAssetRecord[];
 	planner: IpdWorkflowPlanningService;
 }
@@ -163,7 +164,9 @@ export class IpdRuntime implements Disposable {
 			skill: input.skill,
 			agentCards: assets.agentCards,
 			plannerCard: assets.plannerCard,
+			staffCoreCards: assets.staffCoreCards,
 			templates,
+			workflowTemplateId: input.workflowTemplateId,
 			globalBudget: globalBudget(tokenBudget, expectedDurationMs, input.hardTokenLimit),
 			cwd: input.context.cwd,
 			runDefaultModel: input.context.runDefaultModel,
@@ -228,7 +231,9 @@ export class IpdRuntime implements Disposable {
 		} catch (error) {
 			throw new IpdRuntimeError("run_not_found", error instanceof Error ? error.message : String(error));
 		}
-		const openEscalation = [...snapshot.escalations].reverse().find((item) => item.status === "open");
+		const openEscalation = [...snapshot.escalations]
+			.reverse()
+			.find((item) => item.status === "open" && item.target === "user");
 		const artifacts = snapshot.artifacts
 			.filter((artifact) => artifact.status === "accepted")
 			.map((artifact) => {
@@ -273,13 +278,14 @@ export class IpdRuntime implements Disposable {
 			runId,
 			status,
 			summary: `${summaries[status]}（Run: ${runId}）`,
-			question: openEscalation
-				? {
-						escalationId: openEscalation.id,
-						prompt: openEscalation.question,
-						context: JSON.stringify(openEscalation.context),
-					}
-				: undefined,
+			question:
+				status === "waiting_user" && openEscalation
+					? {
+							escalationId: openEscalation.id,
+							prompt: openEscalation.question,
+							context: JSON.stringify(openEscalation.context),
+						}
+					: undefined,
 			artifacts: artifacts.length > 0 ? artifacts : undefined,
 			failure: isIpdFailure(snapshot.run.failure) ? snapshot.run.failure : undefined,
 			usage,

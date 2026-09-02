@@ -67,7 +67,7 @@ function validateNodePermissions(
 	card: CompiledAgentCard,
 	path: string,
 	diagnostics: IpdDiagnostic[],
-): void {
+): { readScopes: string[]; writeScopes: string[] } {
 	const scopes = normalizeNodeScopes(node, path, diagnostics);
 	if (node.permissions.workspace === "write" && card.permissions.workspace !== "write") {
 		diagnostics.push(
@@ -115,6 +115,7 @@ function validateNodePermissions(
 			);
 		}
 	}
+	return scopes;
 }
 
 function hasCapabilities(card: CompiledAgentCard, capabilities: readonly string[]): boolean {
@@ -324,6 +325,21 @@ export function compileWorkflow(value: unknown, context: WorkflowCompileContext)
 	}
 
 	const cardMap = new Map(context.agentCards.map((card) => [cardKey(card), card]));
+	const fixedStaffCoreKeys = context.fixedStaffCore.map(cardKey);
+	const workflowStaffCoreKeys = workflow.staff.core.map(cardKey);
+	if (
+		fixedStaffCoreKeys.length !== workflowStaffCoreKeys.length ||
+		fixedStaffCoreKeys.some((key, index) => workflowStaffCoreKeys[index] !== key)
+	) {
+		diagnostics.push(
+			diagnostic(
+				"staff_core_mismatch",
+				"/staff/core",
+				"Workflow Staff Core must exactly match the fixed Staff Core supplied by the Runtime",
+			),
+		);
+	}
+	const fixedStaffCoreKeySet = new Set(fixedStaffCoreKeys);
 	const nodeIds = new Set(workflow.nodes.map((node) => node.id));
 	const acceptanceIds = new Set(workflow.acceptanceCriteria.map((criterion) => criterion.id));
 	diagnostics.push(
@@ -366,7 +382,52 @@ export function compileWorkflow(value: unknown, context: WorkflowCompileContext)
 				diagnostic("unknown_agent_card", `${path}/agentCardRef`, `Unknown AgentCard: ${node.agentCardRef.id}`),
 			);
 		} else {
-			validateNodePermissions(node, card, path, diagnostics);
+			const scopes = validateNodePermissions(node, card, path, diagnostics);
+			if (fixedStaffCoreKeySet.has(cardKey(card))) {
+				diagnostics.push(
+					diagnostic(
+						"employee_role_conflict",
+						`${path}/agentCardRef`,
+						`Fixed Staff Core member ${card.id} cannot produce a business Artifact`,
+					),
+				);
+			}
+			for (const [capabilityIndex, capability] of node.requiredCapabilities.entries()) {
+				if (!card.capabilities.includes(capability)) {
+					diagnostics.push(
+						diagnostic(
+							"required_capability_missing",
+							`${path}/requiredCapabilities/${capabilityIndex}`,
+							`AgentCard ${card.id} does not provide required capability ${capability}`,
+						),
+					);
+				}
+			}
+			const knowledgeBases = new Map(card.knowledgeBases.map((knowledgeBase) => [knowledgeBase.id, knowledgeBase]));
+			for (const [knowledgeIndex, knowledgeBaseRef] of node.knowledgeBaseRefs.entries()) {
+				const knowledgeBase = knowledgeBases.get(knowledgeBaseRef);
+				if (!knowledgeBase) {
+					diagnostics.push(
+						diagnostic(
+							"knowledge_base_unknown",
+							`${path}/knowledgeBaseRefs/${knowledgeIndex}`,
+							`AgentCard ${card.id} does not provide knowledge base ${knowledgeBaseRef}`,
+						),
+					);
+					continue;
+				}
+				for (const knowledgePath of knowledgeBase.paths) {
+					if (!scopes.readScopes.some((readScope) => scopeContains(readScope, knowledgePath))) {
+						diagnostics.push(
+							diagnostic(
+								"knowledge_base_permission_exceeded",
+								`${path}/knowledgeBaseRefs/${knowledgeIndex}`,
+								`Node read scopes do not cover knowledge base ${knowledgeBaseRef} path ${knowledgePath}`,
+							),
+						);
+					}
+				}
+			}
 			for (const [toolIndex, tool] of node.tools.entries()) {
 				if (!context.toolNames.has(tool)) {
 					diagnostics.push(diagnostic("unknown_tool", `${path}/tools/${toolIndex}`, `Unknown tool: ${tool}`));

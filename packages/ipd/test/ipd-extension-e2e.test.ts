@@ -26,13 +26,19 @@ import {
 	GraphEngine,
 	IpdRuntime,
 	type IpdRuntimeAssetContext,
-	type IpdToolCommandSchema,
+	type IpdToolCommandParametersSchema,
 	MechanicalChecker,
 	type PreparedIpdRuntimeAssets,
 	SqliteIpdLedger,
 	WorkflowPlanner,
 } from "../src/index.ts";
-import { createCompileContext, createTestCards, createValidWorkflow, TEST_SKILL } from "./fixtures.ts";
+import {
+	createCompileContext,
+	createTestCards,
+	createValidWorkflow,
+	createWorkflowSubmissionMessages,
+	TEST_SKILL,
+} from "./fixtures.ts";
 
 const roots: string[] = [];
 
@@ -43,7 +49,7 @@ afterEach(async () => {
 interface RegisteredExtension {
 	beforeAgentStart?: (event: BeforeAgentStartEvent, context: ExtensionContext) => unknown;
 	sessionShutdown?: (event: SessionShutdownEvent, context: ExtensionContext) => unknown;
-	tool?: ToolDefinition<typeof IpdToolCommandSchema, IpdExtensionDetails>;
+	tool?: ToolDefinition<typeof IpdToolCommandParametersSchema, IpdExtensionDetails>;
 }
 
 function extensionApi(registered: RegisteredExtension): ExtensionAPI {
@@ -56,7 +62,7 @@ function extensionApi(registered: RegisteredExtension): ExtensionAPI {
 				registered.sessionShutdown = handler as RegisteredExtension["sessionShutdown"];
 			}
 		},
-		registerTool(tool: ToolDefinition<typeof IpdToolCommandSchema, IpdExtensionDetails>) {
+		registerTool(tool: ToolDefinition<typeof IpdToolCommandParametersSchema, IpdExtensionDetails>) {
 			registered.tool = tool;
 		},
 	} as unknown as ExtensionAPI;
@@ -130,6 +136,7 @@ describe("IPD Extension", () => {
 				return {
 					agentCards: [cards.executor, cards.reviewer, cards.staff],
 					plannerCard: cards.staff,
+					staffCoreCards: [cards.staff],
 					workflowAssets: [],
 					planner: {
 						planAndFreeze(request) {
@@ -150,7 +157,7 @@ describe("IPD Extension", () => {
 		});
 
 		faux.setResponses([
-			fauxAssistantMessage(fauxToolCall("submit_workflow", candidate), { stopReason: "toolUse" }),
+			...createWorkflowSubmissionMessages(candidate),
 			fauxAssistantMessage(
 				fauxToolCall("submit_artifact", {
 					summary: "Completed Artifact",
@@ -199,6 +206,8 @@ describe("IPD Extension", () => {
 		const registered: RegisteredExtension = {};
 		registerIpdExtension(extensionApi(registered), { runtimeFactory: async () => runtime });
 		if (!registered.beforeAgentStart || !registered.tool) throw new Error("IPD Extension did not register");
+		expect(JSON.stringify(registered.tool.parameters)).toContain('"status"');
+		expect(registered.tool.parameters.properties).toHaveProperty("runId");
 		const context = {
 			cwd: root,
 			model: faux.getModel(),
@@ -227,12 +236,12 @@ describe("IPD Extension", () => {
 		expect(started.details.artifacts).toHaveLength(1);
 		expect(started.content[0]).toMatchObject({ type: "text" });
 		expect(prepareCount).toBe(1);
-		expect(faux.state.callCount).toBe(4);
+		expect(faux.state.callCount).toBe(9);
 
 		const duplicate = await registered.tool.execute("tool-start", startCommand, toolAbort.signal, undefined, context);
 		expect(duplicate.details).toEqual(started.details);
 		expect(prepareCount).toBe(1);
-		expect(faux.state.callCount).toBe(4);
+		expect(faux.state.callCount).toBe(9);
 
 		const unknown = await registered.tool.execute(
 			"tool-unknown-skill",
@@ -369,6 +378,18 @@ describe("IPD Extension", () => {
 			skill: { name: skill.name, hash: skill.hash },
 			globalBudget: candidate.globalBudget,
 		});
+		ledger.transitionRun({ runId: "cancel-run", idempotencyKey: "cancel-compiling", status: "compiling" });
+		ledger.freezeWorkflow({ runId: "cancel-run", idempotencyKey: "cancel-freeze", workflow: compiled.value });
+		ledger.transitionRun({ runId: "cancel-run", idempotencyKey: "cancel-running", status: "running" });
+		ledger.createEscalation({
+			runId: "cancel-run",
+			idempotencyKey: "cancel-escalation",
+			escalationId: "cancel-open-escalation",
+			target: "user",
+			question: "This question must not survive in the public cancelled result",
+			context: {},
+		});
+		ledger.transitionRun({ runId: "cancel-run", idempotencyKey: "cancel-waiting", status: "waiting_user" });
 		const cancelled = await registered.tool.execute(
 			"tool-cancel",
 			{ action: "cancel", runId: "cancel-run", reason: "No longer needed" },
@@ -377,6 +398,7 @@ describe("IPD Extension", () => {
 			context,
 		);
 		expect("error" in cancelled.details ? undefined : cancelled.details.status).toBe("cancelled");
+		expect("error" in cancelled.details ? undefined : cancelled.details.question).toBeUndefined();
 		const cancelledAgain = await registered.tool.execute(
 			"tool-cancel-again",
 			{ action: "cancel", runId: "cancel-run", reason: "Already cancelled" },

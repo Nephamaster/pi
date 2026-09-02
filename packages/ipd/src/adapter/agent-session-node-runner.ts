@@ -1,18 +1,19 @@
+import { execFile as execFileCallback } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { extname, isAbsolute, resolve } from "node:path";
+import { promisify } from "node:util";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
 	createAgentSessionFromServices,
 	createAgentSessionServices,
+	createReadToolDefinition,
 	type ModelRuntime,
 	SessionManager,
 	SettingsManager,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type { Static, TSchema } from "typebox";
-import type { WorkflowDefinition } from "../ir/schemas.ts";
 import { scopeContains } from "../ir/scopes.ts";
 import type { CompiledAgentCard } from "../ir/types.ts";
 import type {
@@ -31,15 +32,14 @@ import { buildDecisionPrompt, buildExecutionPrompt, type NodePromptPackage } fro
 import {
 	createSubmissionTool,
 	SingleSubmission,
-	type SubmissionTool,
 	type SubmitArtifact,
 	SubmitArtifactSchema,
 	type SubmitDecision,
 	SubmitDecisionSchema,
 	type SubmitReview,
 	SubmitReviewSchema,
-	SubmitWorkflowSchema,
 } from "./structured-submissions.ts";
+import { createWorkflowSubmissionTools, WorkflowSubmissionBuilder } from "./workflow-submission-builder.ts";
 
 interface ActiveSession {
 	session: AgentSession;
@@ -52,6 +52,12 @@ interface StructuredRunResult<T> {
 	trace: NodeRunTrace;
 }
 
+interface SubmissionCapture<T> {
+	readonly value: T | undefined;
+	readonly attempts: number;
+	readonly valid: boolean;
+}
+
 export interface AgentSessionNodeRunnerOptions {
 	modelRuntime: ModelRuntime;
 	agentDir: string;
@@ -59,9 +65,55 @@ export interface AgentSessionNodeRunnerOptions {
 	now?: () => number;
 	idFactory?: () => string;
 	customTools?: readonly ToolDefinition[];
+	maxExecutionToolCalls?: number;
 }
 
 const BUILTIN_TOOL_NAMES = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell"]);
+const MAX_STRUCTURED_SUBMISSION_ERRORS = 3;
+const MAX_PLANNER_TOOL_CALLS = 64;
+const DEFAULT_MAX_EXECUTION_TOOL_CALLS = 96;
+const execFile = promisify(execFileCallback);
+const UNSUPPORTED_TEXT_EXTENSIONS = new Set([".bin", ".docx", ".pptx", ".xlsx", ".zip"]);
+
+function createSafeReadTool(cwd: string): ToolDefinition {
+	const base = createReadToolDefinition(cwd);
+	const safe: ReturnType<typeof createReadToolDefinition> = {
+		...base,
+		description: `${base.description} PDF files are converted with pdftotext. Office archives and unknown binary files must use a Skill or Artifact View instead of raw text read.`,
+		async execute(toolCallId, parameters, signal, onUpdate, context) {
+			const extension = extname(parameters.path).toLowerCase();
+			if (extension === ".pdf") {
+				const path = isAbsolute(parameters.path) ? parameters.path : resolve(cwd, parameters.path);
+				try {
+					const { stdout } = await execFile("pdftotext", ["-layout", path, "-"], {
+						encoding: "utf8",
+						maxBuffer: 2_000_000,
+						signal,
+					});
+					const lines = stdout.split("\n");
+					const start = Math.max(0, Math.floor(parameters.offset ?? 1) - 1);
+					const limit = Math.max(1, Math.floor(parameters.limit ?? 2_000));
+					const selected = lines.slice(start, start + limit);
+					return {
+						content: [{ type: "text", text: selected.join("\n") }],
+						details: undefined,
+					};
+				} catch (error) {
+					throw new Error(
+						`PDF text extraction failed for ${parameters.path}: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
+			}
+			if (UNSUPPORTED_TEXT_EXTENSIONS.has(extension)) {
+				throw new Error(
+					`Binary file ${parameters.path} cannot be read as text. Use the assigned Skill converter or an Artifact View derivative.`,
+				);
+			}
+			return base.execute(toolCallId, parameters, signal, onUpdate, context);
+		},
+	};
+	return safe as unknown as ToolDefinition;
+}
 
 function failure(code: NodeRunFailure["code"], message: string): NodeRunFailure {
 	return { code, message };
@@ -99,6 +151,23 @@ function validateExecutionConfiguration(input: ExecutionNodeRunInput): string | 
 	}
 	for (const tool of input.node.tools) {
 		if (!input.agentCard.tools.includes(tool)) return `Execution Node tool is not allowed by AgentCard: ${tool}`;
+	}
+	for (const capability of input.node.requiredCapabilities) {
+		if (!input.agentCard.capabilities.includes(capability)) {
+			return `Execution Node capability is not provided by AgentCard: ${capability}`;
+		}
+	}
+	const knowledgeBases = new Map(
+		input.agentCard.knowledgeBases.map((knowledgeBase) => [knowledgeBase.id, knowledgeBase]),
+	);
+	for (const knowledgeBaseRef of input.node.knowledgeBaseRefs) {
+		const knowledgeBase = knowledgeBases.get(knowledgeBaseRef);
+		if (!knowledgeBase) return `Execution Node knowledge base is not provided by AgentCard: ${knowledgeBaseRef}`;
+		for (const path of knowledgeBase.paths) {
+			if (!input.node.permissions.readScopes.some((scope) => scopeContains(scope, path))) {
+				return `Execution Node read scope does not cover knowledge base ${knowledgeBaseRef}: ${path}`;
+			}
+		}
 	}
 	if (input.node.permissions.workspace === "write" && input.agentCard.permissions.workspace !== "write") {
 		return "Execution Node requests write access from a read-only AgentCard";
@@ -162,6 +231,7 @@ export class AgentSessionNodeRunner implements NodeRunner {
 	private readonly now: () => number;
 	private readonly idFactory: () => string;
 	private readonly customTools: readonly ToolDefinition[];
+	private readonly maxExecutionToolCalls: number;
 	private readonly active = new Map<string, ActiveSession>();
 
 	constructor(options: AgentSessionNodeRunnerOptions) {
@@ -171,6 +241,10 @@ export class AgentSessionNodeRunner implements NodeRunner {
 		this.now = options.now ?? Date.now;
 		this.idFactory = options.idFactory ?? randomUUID;
 		this.customTools = [...(options.customTools ?? [])];
+		this.maxExecutionToolCalls = options.maxExecutionToolCalls ?? DEFAULT_MAX_EXECUTION_TOOL_CALLS;
+		if (!Number.isInteger(this.maxExecutionToolCalls) || this.maxExecutionToolCalls < 1) {
+			throw new Error("maxExecutionToolCalls must be a positive integer");
+		}
 	}
 
 	async runExecutionNode(input: ExecutionNodeRunInput): Promise<ExecutionNodeRunResult> {
@@ -195,7 +269,13 @@ export class AgentSessionNodeRunner implements NodeRunner {
 			parameters: SubmitArtifactSchema,
 			capture,
 		});
-		const executed = await this.runStructured(input, buildExecutionPrompt(input), "submit_artifact", tool, capture);
+		const executed = await this.runStructured(
+			input,
+			buildExecutionPrompt(input),
+			["submit_artifact"],
+			[tool],
+			capture,
+		);
 		if (!executed.submission) {
 			return {
 				ok: false,
@@ -248,15 +328,15 @@ export class AgentSessionNodeRunner implements NodeRunner {
 		}
 		const prompt = buildDecisionPrompt(input);
 		if (input.kind === "workflow_planner") {
-			const capture = new SingleSubmission<WorkflowDefinition>();
-			const tool = createSubmissionTool({
-				name: "submit_workflow",
-				label: "Submit Workflow",
-				description: "Submit the complete candidate WorkflowDefinition exactly once.",
-				parameters: SubmitWorkflowSchema,
+			const capture = new WorkflowSubmissionBuilder(input.checks, input.workflowConstraints, input.initialWorkflow);
+			const tools = createWorkflowSubmissionTools(capture);
+			const executed = await this.runStructured(
+				input,
+				prompt,
+				tools.map((tool) => tool.name),
+				tools,
 				capture,
-			});
-			const executed = await this.runStructured(input, prompt, "submit_workflow", tool, capture);
+			);
 			return executed.submission
 				? { ok: true, kind: input.kind, submission: executed.submission, trace: executed.trace }
 				: {
@@ -275,7 +355,7 @@ export class AgentSessionNodeRunner implements NodeRunner {
 				parameters: SubmitReviewSchema,
 				capture,
 			});
-			const executed = await this.runStructured(input, prompt, "submit_review", tool, capture);
+			const executed = await this.runStructured(input, prompt, ["submit_review"], [tool], capture);
 			if (!executed.submission) {
 				return {
 					ok: false,
@@ -308,7 +388,7 @@ export class AgentSessionNodeRunner implements NodeRunner {
 			parameters: SubmitDecisionSchema,
 			capture,
 		});
-		const executed = await this.runStructured(input, prompt, "submit_decision", tool, capture);
+		const executed = await this.runStructured(input, prompt, ["submit_decision"], [tool], capture);
 		if (!executed.submission) {
 			return {
 				ok: false,
@@ -341,13 +421,13 @@ export class AgentSessionNodeRunner implements NodeRunner {
 		await active.session.waitForIdle();
 	}
 
-	private async runStructured<TParameters extends TSchema>(
+	private async runStructured<TSubmission>(
 		input: ExecutionNodeRunInput | DecisionNodeRunInput,
 		prompt: NodePromptPackage,
-		submissionToolName: string,
-		submissionTool: SubmissionTool<TParameters>,
-		capture: SingleSubmission<Static<TParameters>>,
-	): Promise<StructuredRunResult<Static<TParameters>>> {
+		submissionToolNames: readonly string[],
+		submissionTools: readonly ToolDefinition[],
+		capture: SubmissionCapture<TSubmission>,
+	): Promise<StructuredRunResult<TSubmission>> {
 		const startedAt = this.now();
 		const modelSelection = resolveModel(
 			input.agentCard,
@@ -376,6 +456,7 @@ export class AgentSessionNodeRunner implements NodeRunner {
 		let timedOut = false;
 		let externallyAborted = input.signal?.aborted ?? false;
 		let caughtError: unknown;
+		let guardFailure: NodeRunFailure | undefined;
 		try {
 			const settingsManager = SettingsManager.inMemory({}, { projectTrusted: false });
 			const services = await createAgentSessionServices({
@@ -400,23 +481,112 @@ export class AgentSessionNodeRunner implements NodeRunner {
 				};
 			}
 			const sessionManager = SessionManager.create(input.cwd, this.sessionDir);
-			const effectiveTools = input.agentCard.tools.filter((tool) => tool !== submissionToolName);
+			const submissionToolNameSet = new Set(submissionToolNames);
+			const effectiveTools = input.agentCard.tools.filter((tool) => !submissionToolNameSet.has(tool));
 			if (input.kind === "execution") {
 				const nodeTools = new Set(input.node.tools);
 				effectiveTools.splice(0, effectiveTools.length, ...effectiveTools.filter((tool) => nodeTools.has(tool)));
 			}
 			const effectiveCustomTools = this.customTools.filter((tool) => effectiveTools.includes(tool.name));
+			const internalToolOverrides = effectiveTools.includes("read") ? [createSafeReadTool(input.cwd)] : [];
 			const created = await createAgentSessionFromServices({
 				services,
 				sessionManager,
 				model: selectedModel,
 				thinkingLevel: modelSelection.thinkingLevel,
-				tools: [...effectiveTools, submissionToolName],
-				customTools: [...effectiveCustomTools, submissionTool],
+				tools: [...effectiveTools, ...submissionToolNames],
+				customTools: [...effectiveCustomTools, ...internalToolOverrides, ...submissionTools],
 			});
 			session = created.session;
 			const active: ActiveSession = { session, abortRequested: false };
 			this.active.set(input.instanceId, active);
+			let generatedTokens = 0;
+			let plannerToolCalls = 0;
+			let executionToolCalls = 0;
+			let submissionErrorTurns = 0;
+			let tokenWarning80Sent = false;
+			let tokenWarning90Sent = false;
+			const queueWarning = (message: string) => {
+				void session?.steer(message).catch(() => undefined);
+			};
+			const stopForGuard = (nextFailure: NodeRunFailure) => {
+				if (guardFailure) return;
+				guardFailure = nextFailure;
+				active.abortRequested = true;
+				void session?.abort();
+			};
+			const unsubscribeSession = session.subscribe((event) => {
+				if (event.type === "message_end" && event.message.role === "assistant") {
+					generatedTokens += event.message.usage.output;
+					if (input.tokenBudget !== undefined && generatedTokens > input.tokenBudget) {
+						stopForGuard(
+							failure(
+								"budget_exceeded",
+								`${input.kind === "workflow_planner" ? "Planner" : "Node"} generated ${generatedTokens} tokens and exceeded its cumulative ${input.tokenBudget} token budget`,
+							),
+						);
+					} else if (input.kind === "execution" && input.tokenBudget !== undefined) {
+						const ratio = generatedTokens / input.tokenBudget;
+						if (ratio >= 0.9 && !tokenWarning90Sent) {
+							tokenWarning90Sent = true;
+							queueWarning(
+								"Runtime token budget is at 90%. Stop broad searches and optional validation. Finish the minimum required files and call submit_artifact now.",
+							);
+						} else if (ratio >= 0.8 && !tokenWarning80Sent) {
+							tokenWarning80Sent = true;
+							queueWarning(
+								"Runtime token budget is at 80%. Stop expanding scope, preserve current work, and reserve the remaining budget for verification and submit_artifact.",
+							);
+						}
+					}
+				}
+				if (input.kind === "workflow_planner" && event.type === "tool_execution_start") {
+					plannerToolCalls++;
+					if (plannerToolCalls > MAX_PLANNER_TOOL_CALLS) {
+						stopForGuard(
+							failure(
+								"invalid_submission",
+								`Planner exceeded the ${MAX_PLANNER_TOOL_CALLS} tool-call limit without finalizing a Workflow`,
+							),
+						);
+					}
+				}
+				if (input.kind === "execution" && event.type === "tool_execution_start") {
+					executionToolCalls++;
+					if (executionToolCalls === Math.ceil(this.maxExecutionToolCalls * 0.8)) {
+						queueWarning(
+							`Runtime Tool budget is at 80% (${executionToolCalls}/${this.maxExecutionToolCalls}). Stop optional commands and prepare submit_artifact.`,
+						);
+					}
+					if (executionToolCalls > this.maxExecutionToolCalls) {
+						stopForGuard(
+							failure(
+								"tool_limit_exceeded",
+								`Execution Node exceeded the ${this.maxExecutionToolCalls} Tool-call limit without submitting an Artifact`,
+							),
+						);
+					}
+				}
+				if (event.type === "turn_end") {
+					const submissionResults = event.toolResults.filter((result) =>
+						submissionToolNameSet.has(result.toolName),
+					);
+					if (submissionResults.length === 0) return;
+					if (submissionResults.some((result) => result.isError)) {
+						submissionErrorTurns++;
+					} else {
+						submissionErrorTurns = 0;
+					}
+					if (submissionErrorTurns >= MAX_STRUCTURED_SUBMISSION_ERRORS) {
+						stopForGuard(
+							failure(
+								"invalid_submission",
+								`Structured submission failed in ${submissionErrorTurns} consecutive assistant turns; aborting instead of retrying indefinitely`,
+							),
+						);
+					}
+				}
+			});
 			const onAbort = () => {
 				externallyAborted = true;
 				active.abortRequested = true;
@@ -424,6 +594,25 @@ export class AgentSessionNodeRunner implements NodeRunner {
 			};
 			input.signal?.addEventListener("abort", onAbort, { once: true });
 			const timeoutMs = input.timeoutMs ?? input.agentCard.defaultBudget.timeoutMs;
+			const deadlineWarnings =
+				input.kind === "execution"
+					? [
+							setTimeout(
+								() =>
+									queueWarning(
+										"Runtime deadline is at 80%. Stop expanding scope and reserve the remaining time for final verification and submit_artifact.",
+									),
+								Math.max(1, Math.floor(timeoutMs * 0.8)),
+							),
+							setTimeout(
+								() =>
+									queueWarning(
+										"Runtime deadline is at 90%. Do not run broad scans or optional checks. Submit the current reviewable Artifact now.",
+									),
+								Math.max(1, Math.floor(timeoutMs * 0.9)),
+							),
+						]
+					: [];
 			const timeout = setTimeout(() => {
 				timedOut = true;
 				active.abortRequested = true;
@@ -436,14 +625,17 @@ export class AgentSessionNodeRunner implements NodeRunner {
 				caughtError = error;
 			} finally {
 				clearTimeout(timeout);
+				for (const warning of deadlineWarnings) clearTimeout(warning);
 				input.signal?.removeEventListener("abort", onAbort);
+				unsubscribeSession();
 				this.active.delete(input.instanceId);
 			}
 
 			const trace = this.createTrace(input, session, selectedModel, startedAt);
 			if (timedOut) return { failure: failure("timeout", `Node exceeded ${timeoutMs} ms`), trace };
-			if (externallyAborted || active.abortRequested)
-				return { failure: failure("aborted", "Node was aborted"), trace };
+			if (externallyAborted) return { failure: failure("aborted", "Node was aborted"), trace };
+			if (guardFailure) return { failure: guardFailure, trace };
+			if (active.abortRequested) return { failure: failure("aborted", "Node was aborted"), trace };
 			if (caughtError) {
 				const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
 				const code = /auth|api key|login/i.test(message) ? "auth_error" : "provider_error";
@@ -455,7 +647,10 @@ export class AgentSessionNodeRunner implements NodeRunner {
 			if (!capture.valid) {
 				const code = capture.attempts === 0 ? "missing_submission" : "invalid_submission";
 				return {
-					failure: failure(code, `Expected exactly one ${submissionToolName} call, received ${capture.attempts}`),
+					failure: failure(
+						code,
+						`Expected a completed ${submissionToolNames.at(-1) ?? "submission"}, received ${capture.attempts} finalization attempts`,
+					),
 					trace,
 				};
 			}

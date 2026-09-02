@@ -1,6 +1,6 @@
 import { freezeDeep, hashJson } from "./hash.ts";
 import { type AgentCardAsset, AgentCardAssetSchema, type CompiledAgentCard } from "./schemas.ts";
-import { normalizeScope } from "./scopes.ts";
+import { normalizeScope, scopeContains } from "./scopes.ts";
 import type { AgentCardCompileContext, IpdDiagnostic, ParsedAsset } from "./types.ts";
 import { validateSchema } from "./validation.ts";
 
@@ -10,6 +10,15 @@ export const AGENT_CARD_DEFAULTS = {
 		selection: "run_default",
 		thinkingLevel: "inherit",
 	},
+	applicableScenarios: [] as string[],
+	principles: [] as string[],
+	deliverables: [] as string[],
+	promptProfile: {
+		approach: [] as string[],
+		communication: [] as string[],
+		verification: [] as string[],
+	},
+	knowledgeBases: [] as Array<{ id: string; description: string; paths: string[] }>,
 	skills: [] as string[],
 	tools: ["read"],
 	permissions: {
@@ -133,6 +142,30 @@ export function compileAgentCard(
 		source,
 		diagnostics,
 	);
+	const knowledgeBaseIds = new Set<string>();
+	const knowledgeBases = (asset.knowledgeBases ?? AGENT_CARD_DEFAULTS.knowledgeBases).map((knowledgeBase, index) => {
+		if (knowledgeBaseIds.has(knowledgeBase.id)) {
+			diagnostics.push({
+				code: "duplicate_id",
+				path: `/knowledgeBases/${index}/id`,
+				message: `Duplicate AgentCard knowledge base: ${knowledgeBase.id}`,
+				source,
+			});
+		}
+		knowledgeBaseIds.add(knowledgeBase.id);
+		const paths = resolveScopes(knowledgeBase.paths ?? [], `/knowledgeBases/${index}/paths`, source, diagnostics);
+		for (const [pathIndex, path] of paths.entries()) {
+			if (!readScopes.some((scope) => scopeContains(scope, path))) {
+				diagnostics.push({
+					code: "permission_exceeded",
+					path: `/knowledgeBases/${index}/paths/${pathIndex}`,
+					message: `Knowledge base path exceeds AgentCard read scopes: ${path}`,
+					source,
+				});
+			}
+		}
+		return { id: knowledgeBase.id, description: knowledgeBase.description, paths };
+	});
 	if (workspace === "read" && writeScopes.length > 0) {
 		diagnostics.push({
 			code: "permission_exceeded",
@@ -160,6 +193,15 @@ export function compileAgentCard(
 		responsibilities: [...asset.responsibilities],
 		nonResponsibilities: [...asset.nonResponsibilities],
 		capabilities: unique(asset.capabilities),
+		applicableScenarios: unique(asset.applicableScenarios ?? AGENT_CARD_DEFAULTS.applicableScenarios),
+		principles: unique(asset.principles ?? AGENT_CARD_DEFAULTS.principles),
+		deliverables: unique(asset.deliverables ?? AGENT_CARD_DEFAULTS.deliverables),
+		promptProfile: {
+			approach: unique(asset.promptProfile?.approach ?? AGENT_CARD_DEFAULTS.promptProfile.approach),
+			communication: unique(asset.promptProfile?.communication ?? AGENT_CARD_DEFAULTS.promptProfile.communication),
+			verification: unique(asset.promptProfile?.verification ?? AGENT_CARD_DEFAULTS.promptProfile.verification),
+		},
+		knowledgeBases,
 		model,
 		skills: unique(asset.skills ?? AGENT_CARD_DEFAULTS.skills),
 		tools: unique(asset.tools ?? AGENT_CARD_DEFAULTS.tools),

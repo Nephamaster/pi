@@ -160,12 +160,14 @@ export class DynamicGateEvaluator implements GateEvaluator {
 						runDefaultModel: input.runDefaultModel,
 						runDefaultThinkingLevel: input.runDefaultThinkingLevel,
 						tokenBudget: input.reviewerTokenBudget,
+						timeoutMs: input.reviewerTimeoutMs,
 						gate,
 						reviewBundle: bundle,
 						context: {
 							requirementId: assignment.requirementId,
 							final: input.final,
 							artifactIds: input.artifacts.map((artifact) => artifact.manifest.id),
+							previousEvaluations: input.previousEvaluations ?? null,
 						},
 						signal: input.signal,
 					});
@@ -246,9 +248,10 @@ export class DynamicGateEvaluator implements GateEvaluator {
 		aggregationEvidence: JsonValue,
 	): Promise<GateEvaluationResult> {
 		const excluded = new Set(input.executorAgentCardRefs.map((ref) => `${ref.id}@${ref.version}#${ref.hash}`));
-		const staff = [...input.staffAgentCards]
+		const eligibleStaff = [...input.staffAgentCards]
 			.filter((card) => !excluded.has(`${card.id}@${card.version}#${card.hash}`))
-			.sort((left, right) => left.id.localeCompare(right.id))[0];
+			.sort((left, right) => left.id.localeCompare(right.id));
+		const staff = eligibleStaff.find((card) => card.capabilities.includes("quality-governance")) ?? eligibleStaff[0];
 		if (!staff) {
 			return {
 				decision: "BLOCKED",
@@ -270,6 +273,7 @@ export class DynamicGateEvaluator implements GateEvaluator {
 			skills: [input.skill],
 			runDefaultModel: input.runDefaultModel,
 			runDefaultThinkingLevel: input.runDefaultThinkingLevel,
+			timeoutMs: input.reviewerTimeoutMs,
 			allowedActions: ["route_rework", "block_gate", "fail_run"],
 			context: {
 				gateId: input.gate.id,

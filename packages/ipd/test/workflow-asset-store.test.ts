@@ -46,4 +46,15 @@ describe("FileWorkflowAssetStore", () => {
 		await expect(store.save(workflow, hash)).rejects.toBeInstanceOf(WorkflowAssetWriteError);
 		expect(JSON.parse(await readFile(created.record.source, "utf8"))).toMatchObject({ objective: "corrupted" });
 	});
+
+	it("requires a version increment when Workflow content changes", async () => {
+		const root = await createRoot();
+		const workflow = createValidWorkflow();
+		const store = new FileWorkflowAssetStore({ directory: root });
+		await store.save(workflow, hashJson(workflow));
+		const changed = structuredClone(workflow);
+		changed.objective = "Changed objective under the same version";
+
+		await expect(store.save(changed, hashJson(changed))).rejects.toThrow("increment its version");
+	});
 });

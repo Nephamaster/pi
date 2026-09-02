@@ -7,6 +7,10 @@ The package currently targets Node.js 24 and includes an AgentSession adapter fo
 isolated Execution and Decision nodes plus Compiler-guided ST Workflow planning and
 immutable Workflow Asset storage. Its deterministic Graph Engine schedules frozen
 Workflows through Node and Gate state transitions recorded in the SQLite Ledger.
+AgentCards remain independent employee assets and describe specialized role boundaries,
+applicable scenarios, operating principles, prompt profiles, knowledge references,
+models, tools, permissions, and budgets. A fixed Staff Core uses a versioned Workflow
+Authoring Guide and cannot be replaced by the Workflow it plans.
 Dynamic Gates combine deterministic checks, independent semantic Reviewers, strict
 Criterion aggregation, and Staff arbitration without majority-vote approval.
 Budget governance aggregates every AgentSession usage trace, emits soft and hard
@@ -21,3 +25,5 @@ The `ipd` Extension example exposes `start`, `resume`, `status`, and `cancel` Ac
 It snapshots a mandatory Pi Skill, loads AgentCards and Workflow Assets at start,
 forwards the current cwd/model/AbortSignal, and returns concise text with a complete
 structured result for questions, accepted Artifacts, failures, and usage.
+
+Developer documentation starts at [`docs/README.md`](docs/README.md).

@@ -38,6 +38,8 @@ export interface GateEvaluationInput {
 	runDefaultModel: Model<Api>;
 	runDefaultThinkingLevel: ThinkingLevel;
 	reviewerTokenBudget?: number;
+	reviewerTimeoutMs?: number;
+	previousEvaluations?: JsonValue;
 	signal?: AbortSignal;
 }
 

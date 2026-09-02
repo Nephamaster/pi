@@ -1,3 +1,4 @@
+import { type AssistantMessage, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import Type from "typebox";
 import {
 	type AgentCardAsset,
@@ -5,6 +6,12 @@ import {
 	type AgentCardRef,
 	type CompiledAgentCard,
 	compileAgentCard,
+	WORKFLOW_ACCEPTANCE_TOOL_NAME,
+	WORKFLOW_FINAL_TOOL_NAME,
+	WORKFLOW_FINALIZE_TOOL_NAME,
+	WORKFLOW_HEADER_TOOL_NAME,
+	WORKFLOW_NODE_GATE_TOOL_NAME,
+	WORKFLOW_NODE_TOOL_NAME,
 	type WorkflowCompileContext,
 	type WorkflowDefinition,
 } from "../src/index.ts";
@@ -43,6 +50,15 @@ export function createTestCards(): {
 		responsibilities: ["Produce the assigned artifact"],
 		nonResponsibilities: ["Approve its own artifact"],
 		capabilities: ["content"],
+		applicableScenarios: ["A bounded business Artifact needs implementation"],
+		principles: ["Submit evidence, not completion claims"],
+		deliverables: ["Primary Artifact", "Reviewable derivative"],
+		promptProfile: {
+			approach: ["Work only from accepted inputs"],
+			communication: ["State assumptions and file paths"],
+			verification: ["Check the output contract before submission"],
+		},
+		knowledgeBases: [{ id: "workspace-inputs", description: "Run Skill and accepted inputs", paths: ["."] }],
 		tools: ["read", "write"],
 		permissions: {
 			workspace: "write",
@@ -65,7 +81,14 @@ export function createTestCards(): {
 		description: "Coordinates workflow decisions",
 		responsibilities: ["Coordinate the workflow"],
 		nonResponsibilities: ["Produce business artifacts"],
-		capabilities: ["staff"],
+		capabilities: [
+			"staff",
+			"staff-core",
+			"workflow-planning",
+			"delivery-governance",
+			"budget-governance",
+			"quality-governance",
+		],
 	});
 	return { executor, reviewer, staff };
 }
@@ -131,6 +154,8 @@ export function createValidWorkflow(cards = createTestCards()): WorkflowDefiniti
 				id: "produce",
 				objective: "Produce content for the requested business outcome",
 				agentCardRef: cardRef(cards.executor),
+				requiredCapabilities: ["content"],
+				knowledgeBaseRefs: cards.executor.knowledgeBases.map((knowledgeBase) => knowledgeBase.id),
 				dependsOn: [],
 				inputs: [],
 				output: {
@@ -159,9 +184,73 @@ export function createValidWorkflow(cards = createTestCards()): WorkflowDefiniti
 	};
 }
 
+function authoringGate(gate: WorkflowDefinition["finalGate"]) {
+	return {
+		...gate,
+		mechanicalCriteria: gate.mechanicalCriteria.map(({ parameters, ...criterion }) => ({
+			...criterion,
+			parametersJson: JSON.stringify(parameters),
+		})),
+	};
+}
+
+function authoringNode(node: WorkflowDefinition["nodes"][number]) {
+	return {
+		id: node.id,
+		objective: node.objective,
+		agentCardRef: node.agentCardRef,
+		requiredCapabilities: node.requiredCapabilities,
+		knowledgeBaseRefs: node.knowledgeBaseRefs,
+		dependsOn: node.dependsOn,
+		inputs: node.inputs,
+		output: node.output,
+		tools: node.tools,
+		permissions: node.permissions,
+		budget: node.budget,
+		rework: node.rework,
+		routes: node.routes,
+	};
+}
+
+export function createWorkflowSubmissionMessages(workflow: WorkflowDefinition): AssistantMessage[] {
+	const header = {
+		schemaVersion: workflow.schemaVersion,
+		id: workflow.id,
+		version: workflow.version,
+		name: workflow.name,
+		objective: workflow.objective,
+		source: workflow.source,
+		...(workflow.sourceTemplateId ? { sourceTemplateId: workflow.sourceTemplateId } : {}),
+	};
+	return [
+		fauxAssistantMessage(fauxToolCall(WORKFLOW_HEADER_TOOL_NAME, header), { stopReason: "toolUse" }),
+		...workflow.acceptanceCriteria.map((criterion) =>
+			fauxAssistantMessage(fauxToolCall(WORKFLOW_ACCEPTANCE_TOOL_NAME, criterion), { stopReason: "toolUse" }),
+		),
+		...workflow.nodes.flatMap((node) => [
+			fauxAssistantMessage(fauxToolCall(WORKFLOW_NODE_TOOL_NAME, authoringNode(node)), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				fauxToolCall(WORKFLOW_NODE_GATE_TOOL_NAME, { nodeId: node.id, gate: authoringGate(node.gate) }),
+				{ stopReason: "toolUse" },
+			),
+		]),
+		fauxAssistantMessage(
+			fauxToolCall(WORKFLOW_FINAL_TOOL_NAME, {
+				finalArtifactNodeIds: workflow.finalArtifactNodeIds,
+				finalGate: authoringGate(workflow.finalGate),
+			}),
+			{ stopReason: "toolUse" },
+		),
+		fauxAssistantMessage(fauxToolCall(WORKFLOW_FINALIZE_TOOL_NAME, { confirmation: "finalize" }), {
+			stopReason: "toolUse",
+		}),
+	];
+}
+
 export function createCompileContext(cards = createTestCards()): WorkflowCompileContext {
 	return {
 		agentCards: [cards.executor, cards.reviewer, cards.staff],
+		fixedStaffCore: [cardRef(cards.staff)],
 		runSkill: { name: TEST_SKILL, hash: TEST_SKILL_HASH },
 		skillNames: new Set([TEST_SKILL]),
 		toolNames: TEST_TOOLS,

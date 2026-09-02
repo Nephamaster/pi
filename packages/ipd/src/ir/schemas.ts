@@ -78,6 +78,24 @@ export const AgentCardBudgetAssetSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+export const AgentCardPromptProfileAssetSchema = Type.Object(
+	{
+		approach: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+		communication: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+		verification: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+	},
+	{ additionalProperties: false },
+);
+
+export const AgentCardKnowledgeBaseAssetSchema = Type.Object(
+	{
+		id: IdentifierSchema,
+		description: NonEmptyStringSchema,
+		paths: Type.Optional(Type.Array(NonEmptyStringSchema, { uniqueItems: true })),
+	},
+	{ additionalProperties: false },
+);
+
 export const AgentCardAssetSchema = Type.Object(
 	{
 		id: IdentifierSchema,
@@ -87,6 +105,11 @@ export const AgentCardAssetSchema = Type.Object(
 		responsibilities: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
 		nonResponsibilities: Type.Array(NonEmptyStringSchema),
 		capabilities: Type.Array(IdentifierSchema, { minItems: 1 }),
+		applicableScenarios: Type.Optional(Type.Array(NonEmptyStringSchema)),
+		principles: Type.Optional(Type.Array(NonEmptyStringSchema)),
+		deliverables: Type.Optional(Type.Array(NonEmptyStringSchema)),
+		promptProfile: Type.Optional(AgentCardPromptProfileAssetSchema),
+		knowledgeBases: Type.Optional(Type.Array(AgentCardKnowledgeBaseAssetSchema)),
 		model: Type.Optional(AgentCardModelAssetSchema),
 		skills: Type.Optional(Type.Array(IdentifierSchema)),
 		tools: Type.Optional(Type.Array(IdentifierSchema)),
@@ -106,6 +129,19 @@ export interface CompiledAgentCard {
 	responsibilities: string[];
 	nonResponsibilities: string[];
 	capabilities: string[];
+	applicableScenarios: string[];
+	principles: string[];
+	deliverables: string[];
+	promptProfile: {
+		approach: string[];
+		communication: string[];
+		verification: string[];
+	};
+	knowledgeBases: Array<{
+		id: string;
+		description: string;
+		paths: string[];
+	}>;
 	model:
 		| { selection: "run_default"; thinkingLevel: ThinkingLevel | "inherit" }
 		| { selection: "explicit"; provider: string; id: string; thinkingLevel: ThinkingLevel | "inherit" };
@@ -268,6 +304,8 @@ export const ExecutionNodeDefinitionSchema = Type.Object(
 		id: IdentifierSchema,
 		objective: NonEmptyStringSchema,
 		agentCardRef: AgentCardRefSchema,
+		requiredCapabilities: Type.Array(IdentifierSchema, { minItems: 1, uniqueItems: true }),
+		knowledgeBaseRefs: Type.Array(IdentifierSchema, { uniqueItems: true }),
 		dependsOn: Type.Array(IdentifierSchema, { uniqueItems: true }),
 		inputs: Type.Array(ArtifactBindingSchema),
 		output: ArtifactContractSchema,

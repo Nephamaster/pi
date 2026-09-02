@@ -3,7 +3,7 @@ import { type ModelRegistry, ModelRuntime, type ToolDefinition } from "@earendil
 import { createDefaultArtifactViewRegistry } from "../artifact/review-bundle.ts";
 import { DynamicGateEvaluator } from "../gate/dynamic-gate-evaluator.ts";
 import { createArtifactIntegrityCheckExecutor, MechanicalChecker } from "../gate/mechanical-checker.ts";
-import type { IpdDiagnostic } from "../ir/types.ts";
+import type { CompiledAgentCard, IpdDiagnostic } from "../ir/types.ts";
 import { SqliteIpdLedger } from "../ledger/sqlite-ledger.ts";
 import { loadAgentCardAssets, loadWorkflowAssets } from "../registry/asset-loader.ts";
 import { CheckExecutorRegistry } from "../registry/check-executor-registry.ts";
@@ -31,6 +31,28 @@ export interface CreateDefaultIpdRuntimeOptions {
 
 function diagnosticMessage(diagnostics: readonly IpdDiagnostic[]): string {
 	return diagnostics.map((item) => `${item.source ?? "asset"}${item.path}: ${item.message}`).join("\n");
+}
+
+export interface FixedStaffCoreSelection {
+	plannerCard: CompiledAgentCard;
+	staffCoreCards: readonly CompiledAgentCard[];
+}
+
+export function selectFixedStaffCore(cards: readonly CompiledAgentCard[]): FixedStaffCoreSelection {
+	const staffCorePool = [...cards]
+		.filter((card) => card.capabilities.includes("staff-core"))
+		.sort((left, right) => left.id.localeCompare(right.id));
+	if (staffCorePool.length === 0) {
+		throw new IpdRuntimeError("staff_agent_missing", "AgentCard Pool 中没有固定 staff-core 成员");
+	}
+	const plannerCard = staffCorePool.find((card) => card.capabilities.includes("workflow-planning"));
+	if (!plannerCard) {
+		throw new IpdRuntimeError("staff_agent_missing", "固定 Staff Core 中没有 workflow-planning 成员");
+	}
+	return {
+		plannerCard,
+		staffCoreCards: [plannerCard, ...staffCorePool.filter((card) => card.hash !== plannerCard.hash)],
+	};
 }
 
 class FileIpdRuntimeAssetProvider implements IpdRuntimeAssetProvider {
@@ -81,12 +103,7 @@ class FileIpdRuntimeAssetProvider implements IpdRuntimeAssetProvider {
 		if (cards.cards.length === 0) {
 			throw new IpdRuntimeError("agent_card_assets_missing", "AgentCard 目录中没有可用配置");
 		}
-		const plannerCard = [...cards.cards]
-			.filter((card) => card.capabilities.includes("staff"))
-			.sort((left, right) => left.id.localeCompare(right.id))[0];
-		if (!plannerCard) {
-			throw new IpdRuntimeError("staff_agent_missing", "AgentCard Pool 中没有具备 staff capability 的 ST Core");
-		}
+		const { plannerCard, staffCoreCards } = selectFixedStaffCore(cards.cards);
 
 		const workflows = await loadWorkflowAssets(workflowDirectories);
 		if (!workflows.ok) {
@@ -102,6 +119,7 @@ class FileIpdRuntimeAssetProvider implements IpdRuntimeAssetProvider {
 		return {
 			agentCards: cards.cards,
 			plannerCard,
+			staffCoreCards,
 			workflowAssets: workflows.assets,
 			planner: new WorkflowPlanner({
 				ledger: this.ledger,

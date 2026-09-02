@@ -229,4 +229,64 @@ describe("compileWorkflow", () => {
 		if (result.ok) return;
 		expect(result.diagnostics.map((item) => item.code)).toContain("unreachable_node");
 	});
+
+	it("rejects changes to the Runtime-supplied fixed Staff Core", () => {
+		const cards = createTestCards();
+		const workflow = createValidWorkflow(cards);
+		workflow.staff.core = [cardRef(cards.reviewer)];
+		const result = compileWorkflow(workflow, createCompileContext(cards));
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.diagnostics.map((item) => item.code)).toContain("staff_core_mismatch");
+	});
+
+	it("rejects an employee missing a Node required capability", () => {
+		const workflow = createValidWorkflow();
+		workflow.nodes[0].requiredCapabilities = ["content", "missing-capability"];
+		const result = compileWorkflow(workflow, createCompileContext());
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.diagnostics).toContainEqual(
+				expect.objectContaining({
+					code: "required_capability_missing",
+					path: "/nodes/0/requiredCapabilities/1",
+				}),
+			);
+		}
+	});
+
+	it("validates Node knowledge-base ownership and read scope", () => {
+		const unknown = createValidWorkflow();
+		unknown.nodes[0].knowledgeBaseRefs = ["missing-knowledge"];
+		const unknownResult = compileWorkflow(unknown, createCompileContext());
+		expect(unknownResult.ok).toBe(false);
+		if (!unknownResult.ok) {
+			expect(unknownResult.diagnostics.map((item) => item.code)).toContain("knowledge_base_unknown");
+		}
+
+		const unreadable = createValidWorkflow();
+		unreadable.nodes[0].permissions.readScopes = ["inputs"];
+		const unreadableResult = compileWorkflow(unreadable, createCompileContext());
+		expect(unreadableResult.ok).toBe(false);
+		if (!unreadableResult.ok) {
+			expect(unreadableResult.diagnostics.map((item) => item.code)).toContain("knowledge_base_permission_exceeded");
+		}
+	});
+
+	it("prevents a fixed Staff Core member from producing business Artifacts", () => {
+		const cards = createTestCards();
+		const workflow = createValidWorkflow(cards);
+		workflow.nodes[0].agentCardRef = cardRef(cards.staff);
+		workflow.nodes[0].requiredCapabilities = ["staff"];
+		workflow.nodes[0].knowledgeBaseRefs = [];
+		workflow.nodes[0].tools = ["read"];
+		workflow.nodes[0].permissions = {
+			workspace: "read",
+			readScopes: ["."],
+			writeScopes: [],
+			externalActions: false,
+		};
+		const result = compileWorkflow(workflow, createCompileContext(cards));
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.diagnostics.map((item) => item.code)).toContain("employee_role_conflict");
+	});
 });

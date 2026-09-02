@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,7 +52,6 @@ class FakeNodeRunner implements NodeRunner {
 	readonly aborted: string[] = [];
 	maxActive = 0;
 	private active = 0;
-	private readonly workspace: string;
 	private readonly barrierNodes: Set<string>;
 	private barrierReleased = false;
 	private readonly barrierWaiters: Array<() => void> = [];
@@ -71,7 +71,6 @@ class FakeNodeRunner implements NodeRunner {
 		delayMs?: number;
 		staffSubmission?: StaffDecisionSubmission;
 	}) {
-		this.workspace = options.workspace;
 		this.barrierNodes = new Set(options.barrierNodes ?? []);
 		this.blockedNodes = new Set(options.blockedNodes ?? []);
 		this.failureOnceNodes = new Set(options.failureOnceNodes ?? []);
@@ -121,11 +120,12 @@ class FakeNodeRunner implements NodeRunner {
 					trace: this.trace(input),
 				};
 			}
-			await mkdir(join(this.workspace, "outputs"), { recursive: true });
-			const primary = `outputs/${input.node.id}-${input.attemptId}-primary.txt`;
-			const review = `outputs/${input.node.id}-${input.attemptId}-review.txt`;
-			await writeFile(join(this.workspace, primary), `primary:${input.node.id}:${input.attemptId}`);
-			await writeFile(join(this.workspace, review), `review:${input.node.id}:${input.attemptId}`);
+			const outputDirectory = input.node.permissions.writeScopes[0] ?? "outputs";
+			await mkdir(join(input.cwd, outputDirectory), { recursive: true });
+			const primary = `${outputDirectory}/${input.node.id}-${input.attemptId}-primary.txt`;
+			const review = `${outputDirectory}/${input.node.id}-${input.attemptId}-review.txt`;
+			await writeFile(join(input.cwd, primary), `primary:${input.node.id}:${input.attemptId}`);
+			await writeFile(join(input.cwd, review), `review:${input.node.id}:${input.attemptId}`);
 			return {
 				ok: true,
 				submission: {
@@ -206,10 +206,10 @@ class FakeNodeRunner implements NodeRunner {
 
 class FakeStaffDecisionRunner implements NodeRunner {
 	readonly calls: DecisionNodeRunInput[] = [];
-	private readonly submission: StaffDecisionSubmission;
+	private readonly submissions: StaffDecisionSubmission[];
 
-	constructor(submission: StaffDecisionSubmission) {
-		this.submission = submission;
+	constructor(submission: StaffDecisionSubmission | StaffDecisionSubmission[]) {
+		this.submissions = Array.isArray(submission) ? [...submission] : [submission];
 	}
 
 	async runExecutionNode(input: ExecutionNodeRunInput): Promise<ExecutionNodeRunResult> {
@@ -230,7 +230,8 @@ class FakeStaffDecisionRunner implements NodeRunner {
 				trace: this.trace(input),
 			};
 		}
-		return { ok: true, kind: input.kind, submission: this.submission, trace: this.trace(input) };
+		const submission = this.submissions[Math.min(this.calls.length - 1, this.submissions.length - 1)];
+		return { ok: true, kind: input.kind, submission, trace: this.trace(input) };
 	}
 
 	async abort(): Promise<void> {}
@@ -373,6 +374,7 @@ function cloneNode(workflow: WorkflowDefinition, id: string, artifactType: strin
 	node.objective = `Produce ${id}`;
 	node.output.id = `${id}-output`;
 	node.output.artifactType = artifactType;
+	node.knowledgeBaseRefs = [];
 	node.permissions.writeScopes = writeScopes;
 	node.gate.id = `${id}-gate`;
 	node.gate.mechanicalCriteria[0].id = `${id}-mechanical`;
@@ -384,9 +386,9 @@ function cloneNode(workflow: WorkflowDefinition, id: string, artifactType: strin
 }
 
 async function waitForCondition(predicate: () => boolean): Promise<void> {
-	for (let attempt = 0; attempt < 100; attempt++) {
+	for (let attempt = 0; attempt < 1_000; attempt++) {
 		if (predicate()) return;
-		await new Promise((resolve) => setImmediate(resolve));
+		await new Promise((resolve) => setTimeout(resolve, 1));
 	}
 	throw new Error("Condition was not reached");
 }
@@ -511,6 +513,30 @@ describe("GraphEngine", () => {
 			expect(fixture.nodeRunner.calls.filter((call) => call.nodeId === "upstream")[1].reworkInstructions).toEqual([
 				"upstream requires rework",
 			]);
+			const rejectedAttemptId = "run-1:node:upstream:attempt:1";
+			const acceptedAttemptId = "run-1:node:upstream:attempt:2";
+			expect(
+				existsSync(join(fixture.root, "outputs", "upstream", `upstream-${rejectedAttemptId}-primary.txt`)),
+			).toBe(false);
+			expect(
+				existsSync(
+					join(
+						fixture.root,
+						".pi",
+						"ipd",
+						"attempts",
+						"run-1",
+						rejectedAttemptId,
+						"workspace",
+						"outputs",
+						"upstream",
+						`upstream-${rejectedAttemptId}-primary.txt`,
+					),
+				),
+			).toBe(true);
+			expect(
+				existsSync(join(fixture.root, "outputs", "upstream", `upstream-${acceptedAttemptId}-primary.txt`)),
+			).toBe(true);
 		} finally {
 			fixture.ledger.close();
 		}
@@ -529,6 +555,19 @@ describe("GraphEngine", () => {
 			expect(result.snapshot.nodes).toHaveLength(1);
 			expect(result.snapshot.nodes[0]).toMatchObject({ status: "failed" });
 			expect(result.snapshot.nodes[0].error).toMatchObject({ category: "provider_error" });
+		} finally {
+			fixture.ledger.close();
+		}
+	});
+
+	it("retries a retryable technical failure from the running state", async () => {
+		const fixture = await createFixture({ providerFailureOnceNodes: ["produce"] });
+		try {
+			const result = await fixture.engine.run("run-1", fixture.context);
+			expect(result.status).toBe("succeeded");
+			expect(result.snapshot.nodes.map((node) => node.status)).toEqual(["rework_pending", "succeeded"]);
+			expect(result.snapshot.nodes[0].error).toMatchObject({ category: "provider_error", retryable: true });
+			expect(fixture.nodeRunner.calls).toHaveLength(2);
 		} finally {
 			fixture.ledger.close();
 		}
@@ -563,6 +602,50 @@ describe("GraphEngine", () => {
 			expect(result.status).toBe("waiting_user");
 			expect(result.snapshot.escalations).toHaveLength(1);
 			expect(result.snapshot.escalations[0].target).toBe("user");
+			const resumed = await fixture.engine.resume(
+				"run-1",
+				result.snapshot.escalations[0].id,
+				"Create a revised Workflow instead of exceeding the frozen Attempt limit",
+				fixture.context,
+			);
+			expect(resumed.status).toBe("failed");
+			expect(resumed.snapshot.run.failure).toMatchObject({
+				code: "replan_required",
+				category: "quality_failure",
+			});
+			expect(resumed.snapshot.nodes).toHaveLength(1);
+		} finally {
+			fixture.ledger.close();
+		}
+	});
+
+	it("routes exhausted Staff governance to replan without creating an impossible retry", async () => {
+		const fixture = await createFixture({
+			staffSubmission: {
+				action: "request_replan",
+				rationale: "The frozen Attempt limit is exhausted; create a new Workflow version",
+				evidence: { next: "replan" },
+			},
+			workflow(workflow) {
+				workflow.nodes[0].rework.maxAttempts = 1;
+				workflow.nodes[0].routes.exhausted = "staff";
+			},
+		});
+		fixture.gateEvaluator.setDecisions("produce", ["REWORK"]);
+		try {
+			const result = await fixture.engine.run("run-1", fixture.context);
+			expect(result.status).toBe("failed");
+			expect(result.snapshot.run.failure).toMatchObject({
+				code: "replan_required",
+				category: "quality_failure",
+			});
+			expect(result.snapshot.decisions).toContainEqual(
+				expect.objectContaining({
+					type: "attempts_exhausted_resolution",
+					action: "request_replan",
+				}),
+			);
+			expect(result.snapshot.escalations).toEqual([]);
 		} finally {
 			fixture.ledger.close();
 		}
@@ -680,6 +763,9 @@ describe("GraphEngine", () => {
 			expect(result.snapshot.nodes.map((node) => node.status)).toEqual(["interrupted"]);
 			expect(result.snapshot.escalations[0].target).toBe("staff");
 			expect(fixture.nodeRunner.calls).toEqual([]);
+			await expect(
+				fixture.engine.resume("run-1", result.snapshot.escalations[0].id, "Retry it", fixture.context),
+			).rejects.toMatchObject({ code: "invalid_resume" });
 		} finally {
 			fixture.ledger.close();
 		}
@@ -771,6 +857,51 @@ describe("GraphEngine", () => {
 			expect(result.status).toBe("succeeded");
 			expect(fixture.gateEvaluator.reviewerTokenBudgets).toEqual([1_234, 1_234]);
 			expect(result.snapshot.events.map((event) => event.type)).toContain("budget_warning");
+		} finally {
+			fixture.ledger.close();
+		}
+	});
+
+	it("feeds a soft-budget Escalation answer into a new Staff Decision attempt", async () => {
+		const fixture = await createFixture();
+		const budgetRunner = new FakeStaffDecisionRunner([
+			{
+				action: "reduce_future_budget",
+				rationale: "Reduce review cost, but the evidence is incomplete",
+				evidence: {},
+			},
+			{
+				action: "continue_over_budget",
+				rationale: "The user explicitly approved continuing without a review reduction",
+				evidence: {},
+			},
+		]);
+		const engine = new GraphEngine({
+			ledger: fixture.ledger,
+			nodeRunner: fixture.nodeRunner,
+			gateEvaluator: fixture.gateEvaluator,
+			budgetController: new StaffBudgetController({ ledger: fixture.ledger, nodeRunner: budgetRunner }),
+		});
+		recordSyntheticUsage(fixture.ledger, 80_000);
+		try {
+			const waiting = await engine.run("run-1", fixture.context);
+			expect(waiting.status).toBe("waiting_user");
+			const escalation = waiting.snapshot.escalations[0];
+			const resumed = await engine.resume(
+				"run-1",
+				escalation.id,
+				"Continue over budget without reducing the Reviewer budget",
+				fixture.context,
+			);
+			expect(resumed.status).toBe("succeeded");
+			expect(budgetRunner.calls).toHaveLength(2);
+			expect(budgetRunner.calls[0].instanceId).not.toBe(budgetRunner.calls[1].instanceId);
+			expect(budgetRunner.calls[1].context).toMatchObject({
+				userAnswer: "Continue over budget without reducing the Reviewer budget",
+			});
+			expect(resumed.snapshot.decisions).toContainEqual(
+				expect.objectContaining({ type: "budget_control_80", action: "continue_over_budget" }),
+			);
 		} finally {
 			fixture.ledger.close();
 		}

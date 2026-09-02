@@ -10,11 +10,12 @@ import {
 	type IpdAvailableSkill,
 	IpdRuntime,
 	IpdRuntimeError,
-	IpdToolCommandSchema,
+	IpdToolCommandParametersSchema,
 	IpdToolController,
 	IpdToolControllerError,
 	type IpdToolExecutionError,
 	type IpdToolResult,
+	parseIpdToolCommand,
 } from "../src/index.ts";
 
 export type IpdExtensionDetails = IpdToolResult | { error: IpdToolExecutionError };
@@ -29,13 +30,22 @@ function executionSignal(toolSignal: AbortSignal | undefined, contextSignal: Abo
 }
 
 function resultText(result: IpdToolResult): string {
+	const lines = [result.summary];
+	if (result.failure) {
+		lines.push(
+			`失败：${result.failure.code} [${result.failure.category}] ${result.failure.message}（retryable=${result.failure.retryable}）`,
+		);
+		if (result.failure.nodeId) lines.push(`失败节点：${result.failure.nodeId}`);
+		if (result.failure.attemptId) lines.push(`失败 Attempt：${result.failure.attemptId}`);
+		if (result.failure.gateRunId) lines.push(`失败 Gate：${result.failure.gateRunId}`);
+	}
 	if (result.question) {
-		return `${result.summary}\n需要用户回答：${result.question.prompt}\nEscalation ID：${result.question.escalationId}`;
+		lines.push(`需要用户回答：${result.question.prompt}`, `Escalation ID：${result.question.escalationId}`);
 	}
 	if (result.artifacts && result.artifacts.length > 0) {
-		return `${result.summary}\n已验收 Artifact：${result.artifacts.map((artifact) => artifact.id).join("、")}`;
+		lines.push(`已验收 Artifact：${result.artifacts.map((artifact) => artifact.id).join("、")}`);
 	}
-	return result.summary;
+	return lines.join("\n");
 }
 
 function executionError(error: unknown): IpdToolExecutionError {
@@ -85,16 +95,21 @@ export function registerIpdExtension(pi: ExtensionAPI, options: IpdExtensionOpti
 			promptSnippet: "使用 IPD 运行需要多角色执行和质量门验收的长程任务",
 			promptGuidelines: [
 				"start 必须提供当前 Pi 上下文中存在的 skillName。",
+				"可用 action 只有 start、resume、status、cancel；查询运行状态使用 status，不要发明 approve、get 或 retry。",
 				"当结果为 waiting_user 时，向用户展示 question，并用相同 runId 和 escalationId 调用 resume。",
 				"不要从文本推断状态；以结构化 details.status、details.question 和 details.artifacts 为准。",
+				"当 details.failure.retryable 为 false 时，不要自动创建新的 Run。",
 			],
-			parameters: IpdToolCommandSchema,
+			parameters: IpdToolCommandParametersSchema,
+			constrainedSampling: { type: "json_schema", strict: "prefer" },
+			prepareArguments: parseIpdToolCommand,
 			executionMode: "parallel",
 			async execute(toolCallId, command, signal, _onUpdate, ctx) {
 				try {
+					const parsedCommand = parseIpdToolCommand(command);
 					const result = await (
 						await controller(ctx)
-					).execute(toolCallId, command, {
+					).execute(toolCallId, parsedCommand, {
 						cwd: ctx.cwd,
 						projectTrusted: ctx.isProjectTrusted(),
 						model: ctx.model as Model<Api> | undefined,

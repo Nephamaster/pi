@@ -1,4 +1,4 @@
-import { link, mkdir, open, readFile, unlink } from "node:fs/promises";
+import { link, mkdir, open, readdir, readFile, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { hashJson } from "../ir/hash.ts";
@@ -45,6 +45,14 @@ export class FileWorkflowAssetStore implements WorkflowAssetStore {
 		await mkdir(directory, { recursive: true });
 		const extension = this.format === "json" ? "json" : "yaml";
 		const path = join(directory, `${hash}.${extension}`);
+		const existingVersions = (await readdir(directory)).filter(
+			(name) => !name.startsWith(".") && (name.endsWith(".json") || name.endsWith(".yaml") || name.endsWith(".yml")),
+		);
+		if (!existingVersions.includes(`${hash}.${extension}`) && existingVersions.length > 0) {
+			throw new WorkflowAssetWriteError(
+				`Workflow ${workflow.id}@${workflow.version} already has different content; increment its version before saving`,
+			);
+		}
 		const content =
 			this.format === "json"
 				? `${JSON.stringify(workflow, null, "\t")}\n`

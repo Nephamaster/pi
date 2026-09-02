@@ -16,12 +16,15 @@ import type { SqliteIpdLedger } from "../ledger/sqlite-ledger.ts";
 import type { WorkflowVersionRecord } from "../ledger/types.ts";
 import type { WorkflowAssetStore } from "../registry/workflow-asset-store.ts";
 import { createIpdFailure, type IpdFailureCategory } from "../runtime/failure.ts";
+import { WORKFLOW_AUTHORING_GUIDE_VERSION } from "./workflow-authoring-guide.ts";
 
 export type WorkflowPlanningFailureCode =
 	| "missing_skill"
 	| "invalid_skill"
 	| "invalid_agent_pool"
 	| "planner_failed"
+	| "planner_invalid_submission"
+	| "planner_budget_exceeded"
 	| "compiler_exhausted"
 	| "asset_write_failed"
 	| "ledger_failed";
@@ -50,7 +53,9 @@ export interface PlanAndFreezeWorkflowRequest {
 	skill?: SkillSnapshot;
 	agentCards: readonly CompiledAgentCard[];
 	plannerCard: CompiledAgentCard;
+	staffCoreCards: readonly CompiledAgentCard[];
 	templates: readonly WorkflowAssetRecord[];
+	workflowTemplateId?: string;
 	globalBudget: WorkflowDefinition["globalBudget"];
 	cwd: string;
 	runDefaultModel: Model<Api>;
@@ -71,6 +76,28 @@ function cardIdentity(card: CompiledAgentCard): string {
 	return `${card.id}@${card.version}#${card.hash}`;
 }
 
+function cardSummary(card: CompiledAgentCard, staffCore: boolean) {
+	return {
+		ref: { id: card.id, version: card.version, hash: card.hash },
+		staffCore,
+		name: card.name,
+		description: card.description,
+		applicableScenarios: card.applicableScenarios,
+		responsibilities: card.responsibilities,
+		nonResponsibilities: card.nonResponsibilities,
+		capabilities: card.capabilities,
+		principles: card.principles,
+		deliverables: card.deliverables,
+		promptProfile: card.promptProfile,
+		knowledgeBases: card.knowledgeBases,
+		model: card.model,
+		skills: card.skills,
+		tools: card.tools,
+		permissions: card.permissions,
+		defaultBudget: card.defaultBudget,
+	};
+}
+
 function planningFailure(
 	code: WorkflowPlanningFailureCode,
 	message: string,
@@ -83,6 +110,8 @@ function planningFailureCategory(code: WorkflowPlanningFailureCode): IpdFailureC
 	if (code === "compiler_exhausted") return "compile_error";
 	if (code === "asset_write_failed") return "artifact_error";
 	if (code === "planner_failed") return "provider_error";
+	if (code === "planner_invalid_submission") return "validation_error";
+	if (code === "planner_budget_exceeded") return "budget_exceeded";
 	if (["missing_skill", "invalid_skill", "invalid_agent_pool"].includes(code)) return "validation_error";
 	return "internal_error";
 }
@@ -122,12 +151,43 @@ export class WorkflowPlanner {
 			};
 		}
 		const plannerIdentity = cardIdentity(request.plannerCard);
-		if (!request.agentCards.some((card) => cardIdentity(card) === plannerIdentity)) {
+		const poolIdentities = new Set(request.agentCards.map(cardIdentity));
+		if (!poolIdentities.has(plannerIdentity)) {
 			return {
 				ok: false,
 				failure: planningFailure(
 					"invalid_agent_pool",
 					"Planner AgentCard is not part of the loaded AgentCard Pool",
+				),
+				traces,
+				revisions: 0,
+			};
+		}
+		if (request.staffCoreCards.length === 0) {
+			return {
+				ok: false,
+				failure: planningFailure("invalid_agent_pool", "Fixed Staff Core must contain at least one AgentCard"),
+				traces,
+				revisions: 0,
+			};
+		}
+		if (request.staffCoreCards.some((card) => !poolIdentities.has(cardIdentity(card)))) {
+			return {
+				ok: false,
+				failure: planningFailure(
+					"invalid_agent_pool",
+					"Fixed Staff Core contains an AgentCard outside the loaded Pool",
+				),
+				traces,
+				revisions: 0,
+			};
+		}
+		if (!request.staffCoreCards.some((card) => cardIdentity(card) === plannerIdentity)) {
+			return {
+				ok: false,
+				failure: planningFailure(
+					"invalid_agent_pool",
+					"Planner AgentCard must be a member of the fixed Staff Core",
 				),
 				traces,
 				revisions: 0,
@@ -183,16 +243,40 @@ export class WorkflowPlanner {
 				runDefaultThinkingLevel: request.runDefaultThinkingLevel,
 				tokenBudget: request.globalBudget.staffTokens,
 				context: this.createPlannerContext(request, revision, previousCandidate, previousDiagnostics),
+				checks: this.checks,
+				workflowConstraints: {
+					skill: { name: request.skill.name, hash: request.skill.hash },
+					globalBudget: request.globalBudget,
+					staff: {
+						core: request.staffCoreCards.map((card) => ({
+							id: card.id,
+							version: card.version,
+							hash: card.hash,
+						})),
+					},
+				},
+				initialWorkflow:
+					previousCandidate ??
+					(request.workflowTemplateId
+						? request.templates.find((template) => template.workflow.id === request.workflowTemplateId)?.workflow
+						: undefined),
 				signal: request.signal,
 			});
 			traces.push(result.trace);
 			this.recordPlannerUsage(request.runId, result.trace);
 			if (!result.ok || result.kind !== "workflow_planner") {
 				const message = !result.ok ? result.failure.message : "Planner returned an unexpected Decision kind";
-				await this.failRun(request.runId, revision, "planner_failed", message, [], traces);
+				const code =
+					!result.ok && result.failure.code === "budget_exceeded"
+						? "planner_budget_exceeded"
+						: !result.ok && ["invalid_submission", "missing_submission"].includes(result.failure.code)
+							? "planner_invalid_submission"
+							: "planner_failed";
+				const retryable = !result.ok && result.failure.code === "provider_error";
+				await this.failRun(request.runId, revision, code, message, [], traces, retryable);
 				return {
 					ok: false,
-					failure: planningFailure("planner_failed", message),
+					failure: planningFailure(code, message),
 					traces,
 					revisions: revision,
 				};
@@ -200,6 +284,11 @@ export class WorkflowPlanner {
 
 			const candidate = result.submission;
 			const planningDiagnostics: IpdDiagnostic[] = [];
+			const fixedStaffCore = request.staffCoreCards.map((card) => ({
+				id: card.id,
+				version: card.version,
+				hash: card.hash,
+			}));
 			if (hashJson(candidate.globalBudget) !== hashJson(request.globalBudget)) {
 				planningDiagnostics.push({
 					code: "budget_invalid",
@@ -209,6 +298,7 @@ export class WorkflowPlanner {
 			}
 			const compiled = compileWorkflow(candidate, {
 				agentCards: request.agentCards,
+				fixedStaffCore,
 				runSkill: { name: request.skill.name, hash: request.skill.hash },
 				skillNames: new Set([request.skill.name, ...request.agentCards.flatMap((card) => card.skills)]),
 				toolNames: this.toolNames,
@@ -306,29 +396,37 @@ export class WorkflowPlanner {
 	) {
 		return toJsonValue({
 			revision,
+			workflowAuthoringGuideVersion: WORKFLOW_AUTHORING_GUIDE_VERSION,
 			globalBudget: request.globalBudget,
-			agentCards: request.agentCards.map((card) => ({
-				ref: { id: card.id, version: card.version, hash: card.hash },
-				name: card.name,
-				description: card.description,
-				capabilities: card.capabilities,
-				model: card.model,
-				skills: card.skills,
-				tools: card.tools,
-				permissions: card.permissions,
-				defaultBudget: card.defaultBudget,
-			})),
+			fixedStaffCore: request.staffCoreCards.map((card) => cardSummary(card, true)),
+			agentCards: request.agentCards.map((card) =>
+				cardSummary(
+					card,
+					request.staffCoreCards.some((staffCard) => cardIdentity(staffCard) === cardIdentity(card)),
+				),
+			),
 			workflowAssets: request.templates.map((template) => ({
 				id: template.workflow.id,
 				version: template.workflow.version,
 				hash: template.hash,
 				definition: template.workflow,
 			})),
+			preloadedWorkflow:
+				previousCandidate !== undefined
+					? { source: "previous_candidate", id: previousCandidate.id, version: previousCandidate.version }
+					: request.workflowTemplateId
+						? { source: "template", id: request.workflowTemplateId }
+						: null,
+			mechanicalChecks: this.checks.map((check) => ({
+				id: check.id,
+				parameters: check.parameters,
+			})),
 			compilerRules: {
 				onlyExecutionNodes: true,
 				everyNodeRequiresMechanicalAndSemanticGate: true,
 				artifactSuccessPathMustBeDag: true,
 				workflowMustReferenceLoadedAgentCards: true,
+				workflowMustPreserveFixedStaffCore: true,
 			},
 			previousCandidate: previousCandidate ?? null,
 			previousDiagnostics,
@@ -342,6 +440,7 @@ export class WorkflowPlanner {
 		message: string,
 		diagnostics: readonly IpdDiagnostic[],
 		traces: readonly NodeRunTrace[],
+		retryable = false,
 	): Promise<void> {
 		try {
 			this.ledger.recordDecision({
@@ -362,7 +461,7 @@ export class WorkflowPlanner {
 						code,
 						category: planningFailureCategory(code),
 						message,
-						retryable: code === "planner_failed",
+						retryable,
 						runId,
 						traceId: this.ledger.getRun(runId)?.traceId ?? "",
 						cause: toJsonValue({ diagnostics }),

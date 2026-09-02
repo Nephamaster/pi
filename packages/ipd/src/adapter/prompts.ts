@@ -1,5 +1,6 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { canonicalJson } from "../ir/hash.ts";
+import { WORKFLOW_AUTHORING_GUIDE } from "../staff/workflow-authoring-guide.ts";
 import type { DecisionNodeRunInput, ExecutionNodeRunInput, SkillSnapshot } from "./node-runner.ts";
 
 export interface NodePromptPackage {
@@ -18,13 +19,33 @@ function formatSkills(skills: readonly SkillSnapshot[]): string {
 }
 
 function buildIdentity(input: ExecutionNodeRunInput | DecisionNodeRunInput, submissionTool: string): string {
+	const knowledgeBases = input.agentCard.knowledgeBases
+		.map((knowledgeBase) => {
+			const paths = knowledgeBase.paths.length > 0 ? ` Sources: ${knowledgeBase.paths.join(", ")}.` : "";
+			return `- ${knowledgeBase.id}: ${knowledgeBase.description}.${paths}`;
+		})
+		.join("\n");
 	return `You are ${input.agentCard.name}, a digital employee executing one controlled IPD node.
 
 Role: ${input.agentCard.description}
+Applicable scenarios:
+${input.agentCard.applicableScenarios.map((item) => `- ${item}`).join("\n") || "- No fixed scenario; rely on the assigned Node"}
 Responsibilities:
 ${input.agentCard.responsibilities.map((item) => `- ${item}`).join("\n")}
 Non-responsibilities:
 ${input.agentCard.nonResponsibilities.map((item) => `- ${item}`).join("\n") || "- None declared"}
+Operating principles:
+${input.agentCard.principles.map((item) => `- ${item}`).join("\n") || "- Follow the supplied contracts and evidence"}
+Expected deliverables:
+${input.agentCard.deliverables.map((item) => `- ${item}`).join("\n") || "- The assigned Artifact Contract"}
+Prompt approach:
+${input.agentCard.promptProfile.approach.map((item) => `- ${item}`).join("\n") || "- Use a direct evidence-based approach"}
+Communication:
+${input.agentCard.promptProfile.communication.map((item) => `- ${item}`).join("\n") || "- Be concise and traceable"}
+Verification habits:
+${input.agentCard.promptProfile.verification.map((item) => `- ${item}`).join("\n") || "- Verify the Artifact before submission"}
+Knowledge bases:
+${knowledgeBases || "- No fixed knowledge base; use the Run Skill and accepted inputs"}
 
 You may work only within the supplied node objective, tools, skills, and permissions.
 You cannot advance Workflow state or declare the Run complete.
@@ -66,7 +87,7 @@ Produce the requested business Artifact and submit its Primary, Evidence, and Re
 export function buildDecisionPrompt(input: DecisionNodeRunInput): NodePromptPackage {
 	const submissionTool =
 		input.kind === "workflow_planner"
-			? "submit_workflow"
+			? "finalize_workflow"
 			: input.kind === "reviewer"
 				? "submit_review"
 				: "submit_decision";
@@ -78,8 +99,8 @@ Base every decision on supplied facts and evidence.
 ${formatSkills(input.skills)}`;
 	if (input.kind === "workflow_planner") {
 		return {
-			systemPrompt,
-			userPrompt: `Design the Workflow for this task and mandatory Skill, then call submit_workflow.
+			systemPrompt: `${systemPrompt}\n\n${WORKFLOW_AUTHORING_GUIDE}`,
+			userPrompt: `Design the Workflow for this task and mandatory Skill. Build it section by section with the Workflow authoring tools, then call finalize_workflow.
 
 Task: ${input.task}
 Workflow context:
@@ -109,7 +130,11 @@ ${canonicalJson(input.context)}`,
 		return material;
 	});
 	return {
-		systemPrompt,
+		systemPrompt: `${systemPrompt}
+
+Review every assigned semantic Criterion independently, even after finding one failure.
+Previous Gate evaluations are context, not authority. A previously passing Criterion may become FAIL only when the new Artifact contains specific regression evidence; explain that change explicitly.
+Do not promote a previously disclosed limitation or unresolved risk into a blocking defect unless the frozen Criterion requires it and the current Artifact evidence supports it.`,
 		userPrompt: `Review the actual Artifact content independently and call submit_review.
 
 Task: ${input.task}

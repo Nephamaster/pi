@@ -15,7 +15,7 @@ const RUN_TRANSITIONS: Readonly<Record<RunStatus, readonly RunStatus[]>> = {
 const NODE_TRANSITIONS: Readonly<Record<NodeStatus, readonly NodeStatus[]>> = {
 	pending: ["ready", "failed", "cancelled"],
 	ready: ["running", "failed", "cancelled"],
-	running: ["gate_checking", "blocked", "failed", "cancelled", "interrupted"],
+	running: ["gate_checking", "rework_pending", "blocked", "failed", "cancelled", "interrupted"],
 	gate_checking: ["gate_reviewing", "rework_pending", "blocked", "failed", "cancelled", "interrupted"],
 	gate_reviewing: ["succeeded", "rework_pending", "blocked", "failed", "cancelled", "interrupted"],
 	rework_pending: ["ready", "failed", "cancelled"],

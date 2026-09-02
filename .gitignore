@@ -47,3 +47,5 @@ collect.sh
 outputs
 history
 TODO.md
+checkpoint/
+benchmark/

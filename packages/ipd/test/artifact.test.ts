@@ -100,6 +100,25 @@ describe("Artifact Manifest", () => {
 		expect(validation.diagnostics.map((item) => item.code)).toContain("artifact_hash_mismatch");
 	});
 
+	it("rejects files whose declared MIME does not match their content", async () => {
+		const workspace = await createWorkspace();
+		await writeFile(join(workspace, "outputs", "primary.txt"), "primary");
+		await writeFile(join(workspace, "outputs", "manifest.json"), "# Artifact Manifest\n");
+		const contract = createValidWorkflow().nodes[0].output;
+		await expect(
+			createArtifactManifest({
+				workspace,
+				contract,
+				submission: submission([
+					{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" },
+					{ role: "review", path: "outputs/manifest.json", mimeType: "application/json" },
+				]),
+			}),
+		).rejects.toMatchObject({
+			diagnostics: expect.arrayContaining([expect.objectContaining({ code: "artifact_content_invalid" })]),
+		});
+	});
+
 	it("rejects missing files, missing roles, and workspace escapes", async () => {
 		const workspace = await createWorkspace();
 		const contract = createValidWorkflow().nodes[0].output;

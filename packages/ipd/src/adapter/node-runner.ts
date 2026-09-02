@@ -4,7 +4,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ArtifactManifest, ArtifactSubmission } from "../artifact/manifest.ts";
 import type { ReviewBundle } from "../artifact/review-bundle.ts";
 import type { ExecutionNodeDefinition, GateDefinition, WorkflowDefinition } from "../ir/schemas.ts";
-import type { CompiledAgentCard, JsonValue } from "../ir/types.ts";
+import type { CheckDefinition, CompiledAgentCard, JsonValue } from "../ir/types.ts";
 
 export interface SkillSnapshot {
 	name: string;
@@ -46,6 +46,8 @@ export type NodeRunFailureCode =
 	| "blocked"
 	| "missing_submission"
 	| "invalid_submission"
+	| "budget_exceeded"
+	| "tool_limit_exceeded"
 	| "timeout"
 	| "aborted";
 
@@ -80,6 +82,9 @@ export interface ExecutionNodeRunInput extends CommonRunInput {
 export interface WorkflowPlannerRunInput extends CommonRunInput {
 	kind: "workflow_planner";
 	context: JsonValue;
+	checks: readonly CheckDefinition[];
+	workflowConstraints: Pick<WorkflowDefinition, "skill" | "globalBudget" | "staff">;
+	initialWorkflow?: WorkflowDefinition;
 }
 
 export interface ReviewerRunInput extends CommonRunInput {

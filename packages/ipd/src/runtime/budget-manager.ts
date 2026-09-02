@@ -149,7 +149,8 @@ export class StaffBudgetController implements BudgetController {
 			};
 		}
 
-		const staff = [...staffAgentCards].sort((left, right) => left.id.localeCompare(right.id))[0];
+		const orderedStaff = [...staffAgentCards].sort((left, right) => left.id.localeCompare(right.id));
+		const staff = orderedStaff.find((card) => card.capabilities.includes("budget-governance")) ?? orderedStaff[0];
 		if (!staff) {
 			return this.waitForUser(
 				runId,
@@ -160,7 +161,12 @@ export class StaffBudgetController implements BudgetController {
 				"No Staff Core AgentCard is available",
 			);
 		}
-		const instanceId = `${runId}:budget:staff:${threshold}`;
+		const escalationPrefix = `${runId}:budget:soft-limit:${threshold}`;
+		const budgetEscalations = snapshot.escalations.filter((item) => item.id.startsWith(escalationPrefix));
+		const latestUserAnswer = [...budgetEscalations]
+			.reverse()
+			.find((item) => item.status === "answered" && item.answer !== undefined)?.answer;
+		const instanceId = `${runId}:budget:staff:${threshold}:${budgetEscalations.length + 1}`;
 		const result = await this.nodeRunner.runDecisionNode({
 			kind: "staff",
 			runId,
@@ -180,6 +186,7 @@ export class StaffBudgetController implements BudgetController {
 				softLimit,
 				hardLimit: hardLimit ?? null,
 				currentReviewerTokenBudget: this.reviewerTokenBudget(workflow, snapshot) ?? null,
+				userAnswer: latestUserAnswer ?? null,
 			},
 			signal: context.signal,
 		});

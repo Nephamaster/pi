@@ -47,6 +47,8 @@ const NODE_FAILURE_CATEGORIES: Readonly<Record<NodeRunFailureCode, IpdFailureCat
 	blocked: "blocked",
 	missing_submission: "validation_error",
 	invalid_submission: "validation_error",
+	budget_exceeded: "budget_exceeded",
+	tool_limit_exceeded: "tool_error",
 	timeout: "timeout",
 	aborted: "cancelled",
 };

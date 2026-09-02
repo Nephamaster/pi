@@ -13,10 +13,11 @@ import {
 	hashJson,
 	type PlanAndFreezeWorkflowRequest,
 	SqliteIpdLedger,
+	WORKFLOW_HEADER_TOOL_NAME,
 	type WorkflowAssetRecord,
 	WorkflowPlanner,
 } from "../src/index.ts";
-import { createTestCards, createValidWorkflow, TEST_SKILL } from "./fixtures.ts";
+import { createTestCards, createValidWorkflow, createWorkflowSubmissionMessages, TEST_SKILL } from "./fixtures.ts";
 
 const roots: string[] = [];
 
@@ -72,6 +73,7 @@ async function createFixture(runId = "run-1") {
 		skill,
 		agentCards: [cards.executor, cards.reviewer, cards.staff],
 		plannerCard: cards.staff,
+		staffCoreCards: [cards.staff],
 		templates: [],
 		globalBudget: candidate.globalBudget,
 		cwd: root,
@@ -87,11 +89,15 @@ describe("WorkflowPlanner", () => {
 		const fixture = await createFixture();
 		await writeFile(fixture.skill.path, "CHANGED_AFTER_SNAPSHOT");
 		let plannerPrompt = "";
+		let plannerContext = "";
+		const responses = createWorkflowSubmissionMessages(fixture.candidate);
 		fixture.faux.setResponses([
 			(context) => {
 				plannerPrompt = context.systemPrompt ?? "";
-				return fauxAssistantMessage(fauxToolCall("submit_workflow", fixture.candidate), { stopReason: "toolUse" });
+				plannerContext = JSON.stringify(context.messages);
+				return responses[0];
 			},
+			...responses.slice(1),
 		]);
 		try {
 			const result = await fixture.planner.planAndFreeze(fixture.request);
@@ -100,6 +106,14 @@ describe("WorkflowPlanner", () => {
 			expect(result.revisions).toBe(1);
 			expect(plannerPrompt).toContain("ORIGINAL_SKILL_CONTENT");
 			expect(plannerPrompt).not.toContain("CHANGED_AFTER_SNAPSHOT");
+			expect(plannerPrompt).toContain("IPD Workflow Authoring Guide v1.5.2");
+			expect(plannerPrompt).toContain("Build Execution Nodes around those Artifacts");
+			expect(plannerPrompt).toContain("submit_workflow_header");
+			expect(plannerContext).toContain("Produce the assigned artifact");
+			expect(plannerContext).toContain("Approve its own artifact");
+			expect(plannerContext).toContain("fixedStaffCore");
+			expect(plannerContext).toContain("mechanicalChecks");
+			expect(plannerContext).toContain("artifact-exists");
 			expect(existsSync(result.asset.source)).toBe(true);
 			const snapshot = fixture.ledger.getRunSnapshot("run-1");
 			expect(snapshot.run.status).toBe("ready");
@@ -118,17 +132,48 @@ describe("WorkflowPlanner", () => {
 		}
 	});
 
+	it("injects the fixed Staff Core instead of asking the Planner to reproduce it", async () => {
+		const fixture = await createFixture();
+		const changedCore = structuredClone(fixture.candidate);
+		changedCore.staff.core = [
+			{
+				id: fixture.cards.reviewer.id,
+				version: fixture.cards.reviewer.version,
+				hash: fixture.cards.reviewer.hash,
+			},
+		];
+		fixture.faux.setResponses(createWorkflowSubmissionMessages(changedCore));
+		try {
+			const result = await fixture.planner.planAndFreeze(fixture.request);
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.revisions).toBe(1);
+			expect(result.compiled.definition.staff.core).toEqual([
+				{
+					id: fixture.cards.staff.id,
+					version: fixture.cards.staff.version,
+					hash: fixture.cards.staff.hash,
+				},
+			]);
+		} finally {
+			fixture.ledger.close();
+		}
+	});
+
 	it("repairs a Compiler-rejected candidate on the next Planner revision", async () => {
 		const fixture = await createFixture();
 		const invalid = structuredClone(fixture.candidate);
 		invalid.nodes[0].agentCardRef.hash = "0".repeat(64);
 		let repairPrompt = "";
+		const invalidResponses = createWorkflowSubmissionMessages(invalid);
+		const correctedResponses = createWorkflowSubmissionMessages(fixture.candidate);
 		fixture.faux.setResponses([
-			fauxAssistantMessage(fauxToolCall("submit_workflow", invalid), { stopReason: "toolUse" }),
+			...invalidResponses,
 			(context) => {
 				repairPrompt = JSON.stringify(context.messages);
-				return fauxAssistantMessage(fauxToolCall("submit_workflow", fixture.candidate), { stopReason: "toolUse" });
+				return correctedResponses[2];
 			},
+			correctedResponses[correctedResponses.length - 1],
 		]);
 		try {
 			const result = await fixture.planner.planAndFreeze(fixture.request);
@@ -157,11 +202,14 @@ describe("WorkflowPlanner", () => {
 		derived.name = "Derived Workflow";
 		derived.source = "template";
 		derived.sourceTemplateId = template.id;
-		fixture.faux.setResponses([
-			fauxAssistantMessage(fauxToolCall("submit_workflow", derived), { stopReason: "toolUse" }),
-		]);
+		const derivedResponses = createWorkflowSubmissionMessages(derived);
+		fixture.faux.setResponses([derivedResponses[0], derivedResponses[derivedResponses.length - 1]]);
 		try {
-			const result = await fixture.planner.planAndFreeze({ ...fixture.request, templates });
+			const result = await fixture.planner.planAndFreeze({
+				...fixture.request,
+				templates,
+				workflowTemplateId: template.id,
+			});
 			expect(result.ok).toBe(true);
 			if (!result.ok) return;
 			expect(result.asset.workflow.id).toBe("derived-workflow");
@@ -177,8 +225,8 @@ describe("WorkflowPlanner", () => {
 		const invalid = structuredClone(fixture.candidate);
 		invalid.nodes[0].agentCardRef.hash = "0".repeat(64);
 		fixture.faux.setResponses([
-			fauxAssistantMessage(fauxToolCall("submit_workflow", invalid), { stopReason: "toolUse" }),
-			fauxAssistantMessage(fauxToolCall("submit_workflow", invalid), { stopReason: "toolUse" }),
+			...createWorkflowSubmissionMessages(invalid),
+			...createWorkflowSubmissionMessages(invalid),
 		]);
 		try {
 			const result = await fixture.planner.planAndFreeze({ ...fixture.request, maxRevisions: 2 });
@@ -190,6 +238,26 @@ describe("WorkflowPlanner", () => {
 			expect(snapshot.run.status).toBe("failed");
 			expect(snapshot.workflow).toBeUndefined();
 			expect(snapshot.decisions.map((decision) => decision.action)).toEqual(["reject", "reject", "fail"]);
+		} finally {
+			fixture.ledger.close();
+		}
+	});
+
+	it("fails fast and marks repeated malformed Planner submissions as non-retryable", async () => {
+		const fixture = await createFixture();
+		fixture.faux.setResponses(
+			Array.from({ length: 3 }, () =>
+				fauxAssistantMessage(fauxToolCall(WORKFLOW_HEADER_TOOL_NAME, {}), { stopReason: "toolUse" }),
+			),
+		);
+		try {
+			const result = await fixture.planner.planAndFreeze(fixture.request);
+			expect(result.ok).toBe(false);
+			if (result.ok) return;
+			expect(result.failure.code).toBe("planner_invalid_submission");
+			const failure = fixture.ledger.getRunSnapshot("run-1").run.failure as { retryable?: boolean };
+			expect(failure.retryable).toBe(false);
+			expect(fixture.faux.state.callCount).toBe(3);
 		} finally {
 			fixture.ledger.close();
 		}

@@ -27,6 +27,11 @@ export type IpdDiagnosticCode =
 	| "rework_route_invalid"
 	| "reviewer_unavailable"
 	| "reviewer_not_independent"
+	| "staff_core_mismatch"
+	| "required_capability_missing"
+	| "knowledge_base_unknown"
+	| "knowledge_base_permission_exceeded"
+	| "employee_role_conflict"
 	| "budget_invalid"
 	| "final_artifact_invalid"
 	| "final_coverage_incomplete"
@@ -35,6 +40,7 @@ export type IpdDiagnosticCode =
 	| "artifact_missing"
 	| "artifact_role_missing"
 	| "artifact_type_invalid"
+	| "artifact_content_invalid"
 	| "artifact_size_mismatch"
 	| "artifact_hash_mismatch"
 	| "review_bundle_missing"
@@ -60,6 +66,7 @@ export interface CheckDefinition {
 
 export interface WorkflowCompileContext {
 	agentCards: readonly CompiledAgentCard[];
+	fixedStaffCore: readonly AgentCardRef[];
 	runSkill: SkillRef;
 	skillNames: ReadonlySet<string>;
 	toolNames: ReadonlySet<string>;
