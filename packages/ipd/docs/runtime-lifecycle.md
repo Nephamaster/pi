@@ -221,7 +221,6 @@ interface WorkspaceLockRequest {
   ownerId: string;
   readScopes: string[];
   writeScopes: string[];
-  usesBash?: boolean;
 }
 ```
 
@@ -234,18 +233,18 @@ interface WorkspaceLockRequest {
 - 队列避免后来的冲突请求越过更早等待者；
 - Abort 会移除等待请求。
 
-### 9.1 Bash 为什么保守
+### 9.1 GraphEngine 的实际锁范围
 
-如果 Node Tool 包含 `bash`，Lock Manager 将请求规范化为：
+Execution Attempt 已在独立工作目录中运行，共享输入和 accepted Artifact 按不可变输入处理。因此 GraphEngine 当前提交给 Lock Manager 的范围是：
 
 ```text
-readScopes = ["."]
-writeScopes = ["."]
+readScopes = []
+writeScopes = Node permissions.writeScopes
 ```
 
-因此 Bash Node 会与所有工作区读写 Node 串行。这是因为当前 Runtime 无法从任意 Shell 命令静态推导真实文件副作用。
+Tool 名称不改变调度范围。包含 `bash`、`write` 或 `edit` 的节点，只要声明的写范围互不重叠，就可以并行执行；写范围相同或存在父子包含关系时仍会串行。
 
-仅使用 read/write/edit 等已知 Tool 且声明不冲突的精确 Scope，才能获得并行执行。
+这只是调度与发布边界，不等同于操作系统级路径沙箱。节点仍必须在 Workflow 中声明精确写范围，Artifact 发布时 Runtime 会再次校验每个文件都落在该范围内。
 
 ## 10. 技术失败与重试
 

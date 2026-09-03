@@ -45,3 +45,4 @@
 - Fixed Workflow Asset version conflicts so Planner receives a targeted `/version` Diagnostic and can resubmit a higher SemVer instead of terminating the Run as `asset_write_failed`.
 - Fixed Compiler and Runtime Reviewer selection drift by using one deterministic global matching allocator that enforces mutually exclusive AgentCard assignments across every Gate requirement.
 - Removed Escalation `resume` from the model Tool schema; only the user-triggered `/ipd-resume` command can collect, confirm, submit, and record the provenance of a human answer.
+- Fixed independent execution Nodes being serialized when one used Bash; workspace scheduling now relies on frozen write scopes instead of widening Bash access to the whole Run workspace.

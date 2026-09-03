@@ -33,22 +33,25 @@ describe("WorkspaceLockManager", () => {
 		writer.release();
 	});
 
-	it("treats Bash as an exclusive whole-workspace writer", async () => {
+	it("serializes overlapping writers without blocking an independent writer", async () => {
 		const manager = new WorkspaceLockManager();
-		const reader = await manager.acquire({ ownerId: "reader", readScopes: ["inputs"], writeScopes: [] });
-		let acquired = false;
-		const bashPromise = manager
-			.acquire({ ownerId: "bash", readScopes: [], writeScopes: [], usesBash: true })
+		const data = await manager.acquire({ ownerId: "data", readScopes: [], writeScopes: ["outputs/data"] });
+		const design = await manager.acquire({ ownerId: "design", readScopes: [], writeScopes: ["outputs/design"] });
+		let replacementAcquired = false;
+		const replacementPromise = manager
+			.acquire({ ownerId: "data-replacement", readScopes: [], writeScopes: ["outputs/data/charts"] })
 			.then((handle) => {
-				acquired = true;
+				replacementAcquired = true;
 				return handle;
 			});
 		await Promise.resolve();
-		expect(acquired).toBe(false);
-		reader.release();
-		const bash = await bashPromise;
-		expect(manager.getActiveOwners()).toEqual(["bash"]);
-		bash.release();
+		expect(manager.getActiveOwners()).toEqual(["data", "design"]);
+		expect(replacementAcquired).toBe(false);
+		data.release();
+		const replacement = await replacementPromise;
+		expect(replacementAcquired).toBe(true);
+		design.release();
+		replacement.release();
 	});
 
 	it("removes aborted pending requests", async () => {

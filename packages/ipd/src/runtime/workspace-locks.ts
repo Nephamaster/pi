@@ -4,7 +4,6 @@ export interface WorkspaceLockRequest {
 	ownerId: string;
 	readScopes: readonly string[];
 	writeScopes: readonly string[];
-	usesBash?: boolean;
 }
 
 interface NormalizedWorkspaceLockRequest {
@@ -50,7 +49,6 @@ function requestsConflict(left: NormalizedWorkspaceLockRequest, right: Normalize
 
 function normalizeRequest(request: WorkspaceLockRequest): NormalizedWorkspaceLockRequest {
 	if (!request.ownerId.trim()) throw new WorkspaceLockError("invalid_scope", "Workspace Lock ownerId is required");
-	if (request.usesBash) return { ownerId: request.ownerId, readScopes: ["."], writeScopes: ["."] };
 	const normalize = (values: readonly string[]): string[] => {
 		const normalized: string[] = [];
 		for (const value of values) {

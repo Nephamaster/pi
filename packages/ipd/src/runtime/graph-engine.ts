@@ -362,7 +362,6 @@ export class GraphEngine {
 								ownerId: item.attempt.attemptId,
 								readScopes: [],
 								writeScopes: item.node.permissions.writeScopes,
-								usesBash: item.node.tools.includes("bash"),
 							},
 							active.controller.signal,
 						)

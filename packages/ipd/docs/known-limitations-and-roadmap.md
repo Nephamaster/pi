@@ -113,7 +113,8 @@ Compiler、NodeRunner Prompt 和 WorkspaceLock 使用 read/write scope，但内�
 
 特别是 Bash：
 
-- 调度上按全工作区读写锁处理；
+- 调度只依据 Workflow 冻结的 `writeScopes`，不会因使用 Bash 自动扩大到整个工作区；
+- Bash 在节点独立 Attempt Workspace 中执行，Gate PASS 后只有 Manifest 内且落在声明写范围的文件会被发布；
 - 命令仍由本地 shell 执行；
 - IPD 不分析 Shell 命令真实路径和副作用。
 

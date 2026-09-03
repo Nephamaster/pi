@@ -476,6 +476,43 @@ describe("GraphEngine", () => {
 		}
 	});
 
+	it("does not serialize non-conflicting writers merely because one Node uses Bash", async () => {
+		const bashExecutor = compileCard({
+			id: "bash-executor",
+			name: "Bash Executor",
+			description: "Produces an isolated Artifact with approved local commands",
+			responsibilities: ["Produce the assigned Artifact"],
+			nonResponsibilities: ["Approve its own Artifact"],
+			capabilities: ["content"],
+			tools: ["read", "write", "bash"],
+			permissions: {
+				workspace: "write",
+				readScopes: ["."],
+				writeScopes: ["outputs"],
+				externalActions: false,
+			},
+		});
+		const fixture = await createFixture({
+			executorCard: bashExecutor,
+			barrierNodes: ["data", "design"],
+			workflow(workflow) {
+				const data = cloneNode(workflow, "data", "data", ["outputs/data"]);
+				const design = cloneNode(workflow, "design", "design", ["outputs/design"]);
+				data.tools = ["read", "write", "bash"];
+				workflow.nodes = [data, design];
+				workflow.finalArtifactNodeIds = ["data", "design"];
+				workflow.finalGate.routes.rework = "data";
+			},
+		});
+		try {
+			const result = await fixture.engine.run("run-1", fixture.context);
+			expect(result.status).toBe("succeeded");
+			expect(fixture.nodeRunner.maxActive).toBeGreaterThanOrEqual(2);
+		} finally {
+			fixture.ledger.close();
+		}
+	});
+
 	it("serializes conflicting writers", async () => {
 		const fixture = await createFixture({
 			delayMs: 10,
