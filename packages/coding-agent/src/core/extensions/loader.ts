@@ -197,6 +197,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		setLabel: notInitialized,
 		getActiveTools: notInitialized,
 		getAllTools: notInitialized,
+		getToolDefinitions: notInitialized,
 		setActiveTools: notInitialized,
 		// registerTool() is valid during extension load; refresh is only needed post-bind.
 		refreshTools: () => {},
@@ -402,6 +403,11 @@ function createExtensionAPI(
 		getAllTools() {
 			assertActive();
 			return runtime.getAllTools();
+		},
+
+		getToolDefinitions() {
+			assertActive();
+			return runtime.getToolDefinitions();
 		},
 
 		setActiveTools(toolNames: string[]): void {

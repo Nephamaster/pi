@@ -53,13 +53,16 @@ tools:
   - grep
   - find
   - write
+  - web_search
+  - fetch_content
+  - source_check
 permissions:
   workspace: write
   readScopes:
     - .
   writeScopes:
     - outputs/research
-  externalActions: false
+  externalActions: true
 defaultBudget:
   tokens: 18000
   timeoutMs: 1200000

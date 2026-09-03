@@ -262,7 +262,7 @@ defaultBudget:
   timeoutMs: 900000
 ```
 
-当前 Execution Node 通常使用 Workflow 中的 Node Budget；Decision Node 没有显式预算时使用 Card 默认 Timeout。Planner、Budget Staff 和 blocked Staff 会使用 Workflow 的 `staffTokens` 限制输出 Token。
+AgentCard Budget 是未声明 Run 预算模式时的独立调用默认值。bounded IPD Run 使用 Workflow/Node 显式预算；unbounded IPD Run 不设置 Token/Timeout，也不会回退到 Card 默认值形成隐含限制。
 
 ## 12. 默认值
 

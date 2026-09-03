@@ -13,17 +13,8 @@ import type { IpdDiagnostic, JsonValue } from "../ir/types.ts";
 import { validateSchema } from "../ir/validation.ts";
 import { hashFile } from "./hash-file.ts";
 
-export const ArtifactFileRoleSchema = Type.Union([
-	Type.Literal("primary"),
-	Type.Literal("evidence"),
-	Type.Literal("review"),
-]);
-
-export type ArtifactFileRole = Static<typeof ArtifactFileRoleSchema>;
-
 const ArtifactSubmissionFileSchema = Type.Object(
 	{
-		role: ArtifactFileRoleSchema,
 		path: NonEmptyStringSchema,
 		mimeType: NonEmptyStringSchema,
 	},
@@ -49,7 +40,6 @@ export type ArtifactSubmission = Static<typeof ArtifactSubmissionSchema>;
 
 export const ArtifactManifestFileSchema = Type.Object(
 	{
-		role: ArtifactFileRoleSchema,
 		path: NonEmptyStringSchema,
 		mimeType: NonEmptyStringSchema,
 		sha256: Type.String({ minLength: 64, maxLength: 64, pattern: "^[a-f0-9]{64}$" }),
@@ -216,24 +206,6 @@ async function resolveArtifactPath(
 	return { value: { normalizedPath, absolutePath: fileRealPath }, diagnostics: [] };
 }
 
-function validateRequiredRoles(
-	contract: ArtifactContract,
-	roles: readonly ArtifactFileRole[],
-	path = "/files",
-): IpdDiagnostic[] {
-	return contract.requiredRoles.flatMap((role) =>
-		roles.includes(role)
-			? []
-			: [
-					{
-						code: "artifact_role_missing" as const,
-						path,
-						message: `Artifact contract requires a ${role} file`,
-					},
-				],
-	);
-}
-
 export async function createArtifactManifest(options: {
 	workspace: string;
 	contract: ArtifactContract;
@@ -249,12 +221,6 @@ export async function createArtifactManifest(options: {
 			message: `Artifact Contract mismatch: expected ${options.contract.id}, received ${parsed.value.contractId}`,
 		});
 	}
-	diagnostics.push(
-		...validateRequiredRoles(
-			options.contract,
-			parsed.value.files.map((file) => file.role),
-		),
-	);
 	const seenPaths = new Set<string>();
 	const files: ArtifactManifest["files"] = [];
 	for (const [index, file] of parsed.value.files.entries()) {
@@ -283,7 +249,6 @@ export async function createArtifactManifest(options: {
 			...(await validateFileContent(resolved.value.absolutePath, file.mimeType, `/files/${index}/mimeType`)),
 		);
 		files.push({
-			role: file.role,
 			path: resolved.value.normalizedPath,
 			mimeType: file.mimeType,
 			sha256: await hashFile(resolved.value.absolutePath),
@@ -309,12 +274,6 @@ export async function validateArtifactManifest(options: {
 			message: `Artifact Contract mismatch: expected ${options.contract.id}, received ${parsed.value.contractId}`,
 		});
 	}
-	diagnostics.push(
-		...validateRequiredRoles(
-			options.contract,
-			parsed.value.files.map((file) => file.role),
-		),
-	);
 	const seenPaths = new Set<string>();
 	for (const [index, file] of parsed.value.files.entries()) {
 		const resolved = await resolveArtifactPath(options.workspace, file.path, `/files/${index}/path`);

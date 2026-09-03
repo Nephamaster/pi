@@ -18,7 +18,7 @@ async function createWorkspace(): Promise<string> {
 	return root;
 }
 
-function submission(files: Array<{ role: "primary" | "evidence" | "review"; path: string; mimeType: string }>) {
+function submission(files: Array<{ path: string; mimeType: string }>) {
 	return {
 		id: "artifact-1",
 		runId: "run-1",
@@ -42,8 +42,8 @@ describe("Artifact Manifest", () => {
 			workspace,
 			contract,
 			submission: submission([
-				{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" },
-				{ role: "review", path: "outputs/review.txt", mimeType: "text/plain" },
+				{ path: "outputs/primary.txt", mimeType: "text/plain" },
+				{ path: "outputs/review.txt", mimeType: "text/plain" },
 			]),
 		});
 
@@ -59,8 +59,8 @@ describe("Artifact Manifest", () => {
 		const contract = createValidWorkflow().nodes[0].output;
 		const opaqueSubmission = {
 			...submission([
-				{ role: "primary" as const, path: "outputs/primary.txt", mimeType: "text/plain" },
-				{ role: "review" as const, path: "outputs/review.txt", mimeType: "text/plain" },
+				{ path: "outputs/primary.txt", mimeType: "text/plain" },
+				{ path: "outputs/review.txt", mimeType: "text/plain" },
 			]),
 			id: "019d1234-5678-7000-8000-000000000001",
 			runId: "019d1234-5678-7000-8000-000000000002",
@@ -89,8 +89,8 @@ describe("Artifact Manifest", () => {
 			workspace,
 			contract,
 			submission: submission([
-				{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" },
-				{ role: "review", path: "outputs/review.txt", mimeType: "text/plain" },
+				{ path: "outputs/primary.txt", mimeType: "text/plain" },
+				{ path: "outputs/review.txt", mimeType: "text/plain" },
 			]),
 		});
 		await writeFile(join(workspace, "outputs", "primary.txt"), "other");
@@ -110,8 +110,8 @@ describe("Artifact Manifest", () => {
 				workspace,
 				contract,
 				submission: submission([
-					{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" },
-					{ role: "review", path: "outputs/manifest.json", mimeType: "application/json" },
+					{ path: "outputs/primary.txt", mimeType: "text/plain" },
+					{ path: "outputs/manifest.json", mimeType: "application/json" },
 				]),
 			}),
 		).rejects.toMatchObject({
@@ -119,7 +119,7 @@ describe("Artifact Manifest", () => {
 		});
 	});
 
-	it("rejects missing files, missing roles, and workspace escapes", async () => {
+	it("rejects missing files, duplicate paths, and workspace escapes", async () => {
 		const workspace = await createWorkspace();
 		const contract = createValidWorkflow().nodes[0].output;
 		await writeFile(join(workspace, "outputs", "primary.txt"), "primary");
@@ -138,8 +138,8 @@ describe("Artifact Manifest", () => {
 					workspace,
 					contract,
 					submission: submission([
-						{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" },
-						{ role: "review", path, mimeType: "text/plain" },
+						{ path: "outputs/primary.txt", mimeType: "text/plain" },
+						{ path, mimeType: "text/plain" },
 					]),
 				});
 				throw new Error("Expected ArtifactValidationError");
@@ -153,10 +153,13 @@ describe("Artifact Manifest", () => {
 			createArtifactManifest({
 				workspace,
 				contract,
-				submission: submission([{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" }]),
+				submission: submission([
+					{ path: "outputs/primary.txt", mimeType: "text/plain" },
+					{ path: "outputs/primary.txt", mimeType: "text/plain" },
+				]),
 			}),
 		).rejects.toMatchObject({
-			diagnostics: expect.arrayContaining([expect.objectContaining({ code: "artifact_role_missing" })]),
+			diagnostics: expect.arrayContaining([expect.objectContaining({ code: "duplicate_id" })]),
 		});
 	});
 });

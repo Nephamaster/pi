@@ -29,38 +29,32 @@ provider / model / instanceId details
 分类：
 
 - Planner、Staff arbitration、Budget Decision、blocked Staff → `staff`；
-- 首次业务 Attempt → `execution`；
+- 第一次非 interrupted 的业务质量 Attempt → `execution`；
 - Dynamic Reviewer → `review`；
-- Attempt Number > 1 的业务执行 → `rework`。
+- 后续非 interrupted 的质量 Attempt → `rework`；技术中断后的重放不自动改成质量返工。
 
 Tool Result 汇总所有记录，不使用模型自报预算。
 
 ## 2. 预算定义
 
 ```ts
-interface BudgetDefinition {
-  tokens: number;
-  timeoutMs: number;
-  staffTokens: number;
-  reviewerTokens: number;
-  reworkTokens: number;
-  hardTokenLimit?: number;
-}
+type BudgetDefinition =
+  | { mode: "unbounded"; expectedDurationMs?: number }
+  | {
+      mode: "bounded";
+      tokens: number;
+      timeLimitMs: number;
+      expectedDurationMs?: number;
+      staffTokens: number;
+      reviewerTokens: number;
+      reworkTokens: number;
+      hardTokenLimit?: number;
+    };
 ```
 
-`tokens` 是 Run 软预算。`hardTokenLimit` 只有 Tool 调用明确提供时存在。
+`ipd.start` 的 `ifBudget` 默认是 false，因此默认生成 `mode=unbounded`。该模式仍记录全部 Usage，但 IPD 不执行 Token 或时间预算阻断，也不会回退 AgentCard 默认预算形成隐含限制。
 
-IpdRuntime 默认：
-
-```text
-tokens = 100000
-timeoutMs = 3600000
-staffTokens = floor(tokens × 15%)
-reviewerTokens = floor(tokens × 20%)
-reworkTokens = floor(tokens × 15%)
-```
-
-每项至少为 1。Compiler 还要求节点预算与三类预留不超过软预算。
+只有用户明确设置 `ifBudget=true` 并同时提供 `tokenBudget` 与 `timeBudgetMs` 时，Runtime 才创建 bounded 预算。此时 `staffTokens/reviewerTokens/reworkTokens` 分别按 15%/20%/15% 预留，Compiler 要求 bounded Node 预算和三类预留不超过软预算。`expectedDurationMs` 只是预估，不是限制。
 
 ## 3. BudgetController
 
@@ -78,9 +72,11 @@ waiting_user
 failed
 ```
 
-`NoopBudgetController` 只汇总 Usage，不产生治理动作；默认 Runtime 使用 `StaffBudgetController`。
+`NoopBudgetController` 只汇总 Usage，不产生治理动作；默认 Runtime 使用 `StaffBudgetController`。当 Workflow 为 unbounded 时，StaffBudgetController 同样只汇总并直接 continue，不产生 80%/100% 阈值。
 
 ## 4. 软预算阈值
+
+以下规则只适用于 bounded Workflow。
 
 ```text
 totalTokens < 80%      → continue
@@ -146,7 +142,7 @@ ST 没有继续越过 Hard Limit 的动作。Escalation Context 包含统一 `bu
 
 如果用户 Resume 后限制没有外部变化，下一轮会创建新的序号 Escalation 并再次 waiting_user，不会绕过限制。
 
-当前 Tool API 没有“修改已冻结 Hard Limit”Action，所以正常处理方式是取消 Run，或由未来受控 API 创建新预算策略。不要把普通 resume 描述为可以提高 Hard Limit。
+当前 Tool API 没有“修改已冻结 Hard Limit”Action，所以正常处理方式是取消 Run，或由未来受控 API 创建新预算策略。不要把 `/ipd-resume` 描述为可以提高 Hard Limit。
 
 ## 6. Blocked
 
@@ -216,9 +212,9 @@ Graph 路径使用：
 
 预算路径使用带阈值和递增序号的 ID，允许用户回答后限制仍未解决时创建下一条开放记录。
 
-## 9. 严格 Resume
+## 9. 用户专用 Resume
 
-Resume 前置条件：
+模型 Tool Schema 不包含 `resume`、`answer` 或 `escalationId`。用户输入 `/ipd-resume <runId> <escalationId>` 后，Pi UI 采集回答并二次确认，再调用内部 Resume，并以 `user_answer_receipt/source=user_command` 记录来源。前置条件：
 
 1. answer 非空；
 2. Run 状态是 waiting_user；
@@ -232,7 +228,8 @@ Resume 前置条件：
 ```text
 Escalation open → answered
 若关联且未耗尽的 blocked Node：记录 user_answer / retry_node Decision
-若 reason=attempts_exhausted：回答后以 replan_required 结束当前冻结 Run，不创建越界 Attempt
+若 reason=attempts_exhausted：记录 workflow_amendment_request，同一 Run → replanning
+若 reason=unknown_outcome：把核验答案记录为 retry_node Decision，再从 Checkpoint 开始新 Session
 若属于软预算：下一次 Budget Staff Context 接收 userAnswer，并以新 instanceId 再决策
 其他合法恢复：Run waiting_user → running，Graph 从原阻塞点继续
 ```
@@ -329,7 +326,7 @@ Node BLOCKED
   → Delivery Staff ask_user
   → Escalation open
   → waiting_user
-  → exact resume
+  → exact /ipd-resume
   → Attempt 2
 ```
 
@@ -347,7 +344,7 @@ Node BLOCKED
 - Final Gate 非 PASS 当前直接令 Run failed，不会重新打开目标 Node；
 - Hard Limit 的用户回答不会修改冻结限制；软预算回答会重新交给 Budget Staff 解释；
 - Tool API 没有在原 Run 上修改 Hard Limit 的 Action；
-- Attempt Staging 不覆盖 Bash 绝对路径、网络请求等工作区外副作用。
+- Attempt Staging 不覆盖 Run Root 外的远程/文件副作用；此类中断进入 unknown_outcome，不盲目重放。
 
 这些行为应按代码理解，不能从 Route 字段推断尚未实现的在线控制能力。
 
@@ -357,4 +354,4 @@ Node BLOCKED
 - `test/dynamic-gate-evaluator.test.ts`：BLOCKED、冲突仲裁和质量治理 Staff；
 - `test/ledger.test.ts`：Escalation、Failure JSON 和状态合法性；
 - `test/agent-session-node-runner.test.ts`：Failure、Timeout、Abort；
-- `test/ipd-extension-e2e.test.ts`：Tool 层 waiting、resume 和 cancel。
+- `test/ipd-extension-e2e.test.ts`：Tool 层 waiting、用户 Command resume 和 cancel。

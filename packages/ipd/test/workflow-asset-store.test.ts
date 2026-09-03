@@ -55,6 +55,9 @@ describe("FileWorkflowAssetStore", () => {
 		const changed = structuredClone(workflow);
 		changed.objective = "Changed objective under the same version";
 
-		await expect(store.save(changed, hashJson(changed))).rejects.toThrow("increment its version");
+		await expect(store.save(changed, hashJson(changed))).rejects.toMatchObject({
+			code: "version_conflict",
+			message: expect.stringContaining("increment its version"),
+		});
 	});
 });

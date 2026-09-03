@@ -1,6 +1,6 @@
 # IPD Tool 与 Pi Extension
 
-IPD 对外暴露一个名为 `ipd` 的 Tool，使用 discriminated union 提供 `start`、`resume`、`status`、`cancel` 四类 Action。
+IPD 对外暴露一个模型可调用的 `ipd` Tool，以及一个只能由用户触发的 `/ipd-resume` Extension Command。Tool 使用 discriminated union 提供 `start`、`resume_run`、`status`、`watch`、`cancel` 五类 Action。
 
 ## 1. Tool 注册
 
@@ -22,9 +22,9 @@ executionMode: "parallel"
 Prompt Guidelines 告诉外层 Agent：
 
 - start 必须传当前 Pi Context 中存在的 skillName；
-- waiting_user 时展示 question，并用相同 runId/escalationId 调用 resume；
+- waiting_user 时展示 question 和 `/ipd-resume <runId> <escalationId>`，不得代替用户回答；
 - 以结构化 details 判断状态，不解析自然语言摘要。
-- action 只有 `start`、`resume`、`status`、`cancel`；`retry`、`approve`、`get` 都不是合法动作；
+- action 只有 `start`、`resume_run`、`status`、`watch`、`cancel`；`resume`、`retry`、`approve`、`get` 都不是合法模型动作；
 - `failure.retryable=false` 时不得自动新建 Run。
 
 对 Provider 暴露的是单一根对象 `IpdToolCommandParametersSchema`，使 Anthropic-compatible Tool API 能看到 action 和全部字段。`prepareArguments` 再使用严格的 discriminated-union `IpdToolCommandSchema` 校验各 action 的必填字段与额外字段，因此平面 Provider Schema 不会放宽内部命令协议。
@@ -56,6 +56,14 @@ Prompt Guidelines 告诉外层 Agent：
 
 因此“日常开箱使用”仍是产品化缺口。
 
+当前仓库项目设置另外固定安装：
+
+```text
+npm:pi-web-access@0.27.0
+```
+
+项目被信任后，Pi 会先加载该 Package Extension，注册 `web_search`、`fetch_content`、`source_check` 和 `get_search_content`；IPD Runtime 首次创建时通过 `pi.getToolDefinitions()` 继承这些定义。IPD 不再内置 Bing RSS 搜索后端，也不会在缺少外部搜索 Extension 时伪造降级结果。
+
 ## 3. Command Schema
 
 ### 3.1 start
@@ -66,26 +74,25 @@ Prompt Guidelines 告诉外层 Agent：
   task: string;
   skillName: string;
   workflowTemplateId?: string;
+  workflowTemplateVersion?: string;
+  workflowTemplateHash?: string;
+  ifBudget?: boolean;            // default false
   tokenBudget?: number;          // minimum 4
-  expectedDurationMs?: number;   // minimum 1
+  timeBudgetMs?: number;         // minimum 1
+  expectedDurationMs?: number;   // estimate only
   hardTokenLimit?: number;       // minimum 1
 }
 ```
 
-额外字段被拒绝。Runtime 还要求 Hard Limit 不低于软预算。
+额外字段被拒绝。Version/Hash 只有与 `workflowTemplateId` 同时提供时才合法；只给 ID 时按 SemVer 选择最新版本。默认 `ifBudget=false`，此时不能传 Token/时间/Hard Limit，Runtime 不设置 IPD 预算上限。`ifBudget=true` 时必须同时提供 `tokenBudget` 和 `timeBudgetMs`，Hard Limit 不能低于软预算。`expectedDurationMs` 只记录预估。
 
-### 3.2 resume
+### 3.2 用户 `/ipd-resume`
 
-```ts
-{
-  action: "resume";
-  runId: string;
-  escalationId: string;
-  answer: string;
-}
+```text
+/ipd-resume <runId> <escalationId>
 ```
 
-三个字符串都必须非空。
+该命令不属于 Tool Schema，LLM 无法调用。Command 先验证 Run 当前确实等待精确 Escalation，再用 Pi UI 采集非空回答并要求二次确认，最后调用 `IpdToolController.resumeAsUser()`。取消输入或确认时 Run 保持 waiting_user。成功回答会写入 `user_answer_receipt` Decision，记录 `source=user_command` 和接收时间。
 
 ### 3.3 status
 
@@ -99,7 +106,31 @@ Prompt Guidelines 告诉外层 Agent：
 
 默认 detail=`summary`。
 
-### 3.4 cancel
+### 3.4 resume_run
+
+```ts
+{
+  action: "resume_run";
+  runId: string;
+}
+```
+
+用于 Pi 进程退出后按 Run ID 接管 `planning/compiling/replanning/ready/running` Run，不回答 Escalation，也不创建新 Run。冻结 Skill name/hash 必须仍存在于当前 Pi Context。
+
+### 3.5 watch
+
+```ts
+{
+  action: "watch";
+  runId: string;
+  afterSequence?: number;
+  detail?: "summary" | "nodes" | "full";
+}
+```
+
+watch 是带 Event cursor 的只读 status；`changedSinceSequence` 表示最新 sequence 是否大于调用方游标。
+
+### 3.6 cancel
 
 ```ts
 {
@@ -129,7 +160,7 @@ baseDir
 
 它不使用 `loadSkills()` 再扫描目录，因此 Tool 看到的是 Pi 本轮实际装配的 Skill 列表。
 
-start/resume 时 Controller：
+start/resume_run 和用户 Command 恢复时 Controller：
 
 1. 读取当前缓存中的 Skill 文件；
 2. 创建不可变 content Hash Snapshot；
@@ -138,7 +169,7 @@ start/resume 时 Controller：
 
 start 的 `skillName` 不存在时，在 AssetProvider 和 Planner 创建 Run 前返回 `unknown_skill`。
 
-resume 不带 skillName。Runtime 根据 Run 冻结的 name+hash 从当前 Snapshot 集合找回 Skill；文件变化或 Skill 不再加载时返回 `skill_unavailable`。
+用户 Command 恢复不带 skillName。Runtime 根据 Run 冻结的 name+hash 从当前 Snapshot 集合找回 Skill；文件变化或 Skill 不再加载时返回 `skill_unavailable`。
 
 status/cancel 不读取 Skill，也不要求当前模型。
 
@@ -203,17 +234,19 @@ Controller Snapshot 当前全部 Skill
   → Runtime 校验预算
   → 每次重新加载 AgentCard/Workflow Assets
   → 固定 Staff Core
-  → Planner 生成和冻结 Workflow
-  → GraphEngine 执行到 succeeded/failed/cancelled/waiting_user
-  → 返回完整 IpdToolResult
+  → 启动后台 Planner/Graph
+  → 立即返回 running + runId
 ```
 
-当前 start Tool 调用等待 Planner 和 GraphEngine 到达稳定结果，不是创建后台任务后立即返回 runId。Tool 标记 parallel，使 Pi 可以并行执行独立 Tool Call，但调用者通常在 start 返回后才知道新 runId。
+后台执行不绑定 start Tool 的 AbortSignal。调用者使用 status 查询当前快照，或使用 `watch {runId, afterSequence}` 判断是否出现新事件。
 
-## 9. resume 行为
+## 9. 用户 Command Resume 行为
 
 ```text
-读取全部当前 Skill Snapshot
+用户输入 /ipd-resume runId escalationId
+  → 校验匹配的 waiting_user question
+  → Pi UI 输入回答并二次确认
+  → 读取全部当前 Skill Snapshot
   → Run 存在
   → 找到冻结 Skill name+hash
   → GraphEngine.resume
@@ -280,6 +313,16 @@ interface IpdToolResult {
   };
   artifacts?: ArtifactManifest[];
   failure?: IpdFailure;
+  progress: {
+    phase: string;
+    workflowRevision?: number;
+    activeNodeIds: string[];
+    readyNodeIds: string[];
+    waitingNodeIds: string[];
+    lastEvent?: { sequence: number; type: string; timestamp: number };
+    changedSinceSequence?: boolean;
+    runRoot?: string;
+  };
   usage: BudgetSnapshot;
   details: IpdToolResultDetails;
 }
@@ -287,7 +330,7 @@ interface IpdToolResult {
 
 ### 12.1 status
 
-内部 planning、compiling、ready、running 映射为公开 `running`。
+内部 planning、compiling、replanning、ready、running 映射为公开 `running`。
 
 ### 12.2 artifacts
 
@@ -336,8 +379,10 @@ Extension 成功时：
   "task": "根据仓库事实生成经过独立验证的技术分析",
   "skillName": "technical-analysis",
   "workflowTemplateId": "reviewed-analysis",
+  "ifBudget": true,
   "tokenBudget": 120000,
-  "expectedDurationMs": 3600000,
+  "timeBudgetMs": 3600000,
+  "expectedDurationMs": 2400000,
   "hardTokenLimit": 180000
 }
 ```
@@ -369,15 +414,10 @@ Extension 成功时：
 
 该示例省略了其他 Usage 数字字段和内部 details。
 
-### resume
+### 用户 Resume
 
-```json
-{
-  "action": "resume",
-  "runId": "run-123",
-  "escalationId": "run-123:escalation:analysis:attempt-1",
-  "answer": "使用 data/approved.csv"
-}
+```text
+/ipd-resume run-123 run-123:escalation:analysis:attempt-1
 ```
 
 ### status
@@ -387,6 +427,15 @@ Extension 成功时：
   "action": "status",
   "runId": "run-123",
   "detail": "nodes"
+}
+```
+
+### resume_run
+
+```json
+{
+  "action": "resume_run",
+  "runId": "run-123"
 }
 ```
 
@@ -402,7 +451,7 @@ Extension 成功时：
 
 ## 15. 对应测试
 
-- `test/ipd-tool-command.test.ts`：四类 Schema 和 Action 字段隔离；
-- `test/ipd-extension-e2e.test.ts`：Skill 缓存、上下文、AbortSignal、重复 start、status、resume、cancel 和结构化结果；
+- `test/ipd-tool-command.test.ts`：五类模型 Tool Schema、Action 字段隔离和模型 resume 拒绝；
+- `test/ipd-extension-e2e.test.ts`：Skill 缓存、上下文、AbortSignal、重复 start、status、用户 Command resume、cancel 和结构化结果；
 - `test/graph-engine.test.ts`：严格 Resume 和取消；
 - `test/default-ipd-runtime.test.ts`：固定 Staff Core 选择。

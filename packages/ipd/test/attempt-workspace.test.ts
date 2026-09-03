@@ -21,7 +21,6 @@ function manifest(path: string): ArtifactManifest {
 		inputs: [],
 		files: [
 			{
-				role: "primary",
 				path,
 				mimeType: "text/plain",
 				sha256: "0".repeat(64),
@@ -43,9 +42,13 @@ describe("AttemptWorkspaceManager", () => {
 		await writeFile(join(root, "outputs", "result.txt"), "original");
 
 		const manager = new AttemptWorkspaceManager();
+		const runWorkspace = await manager.prepareRun(root, "run-1");
 		const first = await manager.prepare({
-			workspace: root,
+			workspace: runWorkspace.workspace,
+			runRoot: runWorkspace.root,
 			runId: "run-1",
+			nodeId: "produce",
+			attemptNumber: 1,
 			attemptId: "attempt-1",
 			writeScopes: ["outputs"],
 		});
@@ -55,25 +58,39 @@ describe("AttemptWorkspaceManager", () => {
 		expect(await readFile(join(root, "outputs", "result.txt"), "utf8")).toBe("original");
 
 		const second = await manager.prepare({
-			workspace: root,
+			workspace: runWorkspace.workspace,
+			runRoot: runWorkspace.root,
 			runId: "run-1",
+			nodeId: "produce",
+			attemptNumber: 2,
 			attemptId: "attempt-2",
-			previousAttemptId: "attempt-1",
+			previousAttemptNumber: 1,
 			writeScopes: ["outputs"],
 		});
 		expect(await readFile(join(second.root, "outputs", "result.txt"), "utf8")).toBe("staged-1");
 		await writeFile(join(second.root, "outputs", "result.txt"), "accepted");
 		await second.promote(manifest("outputs/result.txt"));
-		expect(await readFile(join(root, "outputs", "result.txt"), "utf8")).toBe("accepted");
+		expect(await readFile(join(runWorkspace.workspace, "outputs", "result.txt"), "utf8")).toBe("accepted");
+		expect(
+			await readFile(join(runWorkspace.accepted, "produce", "artifact-1", "outputs", "result.txt"), "utf8"),
+		).toBe("accepted");
+		expect(await readFile(join(root, "outputs", "result.txt"), "utf8")).toBe("original");
+		await manager.publishFinal(runWorkspace, [manifest("outputs/result.txt")]);
+		expect(await readFile(join(runWorkspace.final, "produce", "outputs", "result.txt"), "utf8")).toBe("accepted");
 	});
 
 	it("rejects workspace-wide writes instead of pretending they are isolated", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-attempt-workspace-"));
 		roots.push(root);
+		const manager = new AttemptWorkspaceManager();
+		const runWorkspace = await manager.prepareRun(root, "run-1");
 		await expect(
-			new AttemptWorkspaceManager().prepare({
-				workspace: root,
+			manager.prepare({
+				workspace: runWorkspace.workspace,
+				runRoot: runWorkspace.root,
 				runId: "run-1",
+				nodeId: "produce",
+				attemptNumber: 1,
 				attemptId: "attempt-1",
 				writeScopes: ["."],
 			}),

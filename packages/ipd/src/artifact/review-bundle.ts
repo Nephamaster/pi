@@ -6,7 +6,6 @@ import type { IpdDiagnostic, JsonValue } from "../ir/types.ts";
 import { type ArtifactViewProvider, ArtifactViewRegistry } from "../registry/artifact-view-registry.ts";
 import {
 	type ArtifactContract,
-	type ArtifactFileRole,
 	type ArtifactManifest,
 	type ArtifactManifestFileSchema,
 	validateArtifactManifest,
@@ -21,7 +20,6 @@ export interface ReviewViewOptions {
 
 interface ReviewMaterialBase {
 	providerId: string;
-	role: ArtifactFileRole;
 	path: string;
 	mimeType: string;
 	sha256: string;
@@ -63,7 +61,6 @@ export function createTextViewProvider(): ArtifactViewProvider {
 			return {
 				kind: "text",
 				providerId: "builtin-text",
-				role: file.role,
 				path: file.path,
 				mimeType: file.mimeType,
 				sha256: file.sha256,
@@ -86,7 +83,6 @@ export function createJsonViewProvider(): ArtifactViewProvider {
 			return {
 				kind: "json",
 				providerId: "builtin-json",
-				role: file.role,
 				path: file.path,
 				mimeType: file.mimeType,
 				sha256: file.sha256,
@@ -107,7 +103,6 @@ export function createImageViewProvider(): ArtifactViewProvider {
 			return {
 				kind: "image",
 				providerId: "builtin-image",
-				role: file.role,
 				path: file.path,
 				mimeType: file.mimeType,
 				sha256: file.sha256,
@@ -146,47 +141,23 @@ export async function buildReviewBundle(options: {
 		maxTextBytes: options.viewOptions?.maxTextBytes ?? 1_000_000,
 		maxImageBytes: options.viewOptions?.maxImageBytes ?? 10_000_000,
 	};
-	if (!options.manifest.files.some((file) => file.role === "review")) {
-		diagnostics.push({
-			code: "review_bundle_missing",
-			path: "/files",
-			message: "Artifact has no reviewable file",
-		});
-	}
 	for (const [index, file] of options.manifest.files.entries()) {
 		const provider = options.registry.resolve(file.mimeType);
 		if (!provider) {
-			if (file.role === "review") {
-				diagnostics.push({
-					code: "review_bundle_missing",
-					path: `/files/${index}/mimeType`,
-					message: `No Artifact View Provider supports review MIME ${file.mimeType}`,
-				});
-			} else {
-				materials.push({
-					kind: "reference",
-					providerId: "none",
-					role: file.role,
-					path: file.path,
-					mimeType: file.mimeType,
-					sha256: file.sha256,
-					reason: "No registered provider can render this file; use the review derivatives",
-				});
-			}
+			materials.push({
+				kind: "reference",
+				providerId: "none",
+				path: file.path,
+				mimeType: file.mimeType,
+				sha256: file.sha256,
+				reason: "No registered Artifact View Provider can render this file",
+			});
 			continue;
 		}
 		try {
 			const absolutePath = await realpath(resolve(options.workspace, file.path));
 			const material = await provider.create(file, absolutePath, viewOptions);
-			if (file.role === "review" && material.kind === "reference") {
-				diagnostics.push({
-					code: "review_bundle_missing",
-					path: `/files/${index}`,
-					message: `Review file did not produce semantic content: ${file.path}`,
-				});
-			} else {
-				materials.push(material);
-			}
+			materials.push(material);
 		} catch (error) {
 			diagnostics.push({
 				code: "artifact_view_failed",

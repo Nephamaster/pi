@@ -31,12 +31,14 @@ export interface GateEvaluationInput {
 	task: string;
 	workflowHash: string;
 	cwd: string;
+	sessionDirectory?: string;
 	skill: SkillSnapshot;
 	agentCards: CompiledAgentCard[];
 	staffAgentCards: CompiledAgentCard[];
 	executorAgentCardRefs: AgentCardRef[];
 	runDefaultModel: Model<Api>;
 	runDefaultThinkingLevel: ThinkingLevel;
+	reviewerBudgetMode?: "bounded" | "unbounded";
 	reviewerTokenBudget?: number;
 	reviewerTimeoutMs?: number;
 	previousEvaluations?: JsonValue;

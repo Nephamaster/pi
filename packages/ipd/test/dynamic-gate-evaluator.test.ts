@@ -128,8 +128,8 @@ async function createFixture() {
 			createdAt: 1,
 			inputs: [],
 			files: [
-				{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" },
-				{ role: "review", path: "outputs/review.txt", mimeType: "text/plain" },
+				{ path: "outputs/primary.txt", mimeType: "text/plain" },
+				{ path: "outputs/review.txt", mimeType: "text/plain" },
 			],
 			metadata: {},
 		},
@@ -197,7 +197,7 @@ describe("DynamicGateEvaluator", () => {
 				previousEvaluations: [{ criterionId: "produce-gate-semantic", result: "PASS" }],
 			});
 			const text = reviewerCall.reviewBundle.materials.find(
-				(material) => material.kind === "text" && material.role === "review",
+				(material) => material.kind === "text" && material.path === "outputs/review.txt",
 			);
 			expect(text?.kind === "text" ? text.text : undefined).toContain("actual review content");
 		}

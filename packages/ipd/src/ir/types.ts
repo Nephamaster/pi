@@ -22,7 +22,6 @@ export type IpdDiagnosticCode =
 	| "artifact_producer_invalid"
 	| "artifact_type_mismatch"
 	| "permission_exceeded"
-	| "mechanical_only_node"
 	| "gate_route_invalid"
 	| "rework_route_invalid"
 	| "reviewer_unavailable"
@@ -35,15 +34,15 @@ export type IpdDiagnosticCode =
 	| "budget_invalid"
 	| "final_artifact_invalid"
 	| "final_coverage_incomplete"
+	| "workflow_amendment_invalid"
+	| "workflow_version_conflict"
 	| "ledger_inconsistent"
 	| "artifact_path_invalid"
 	| "artifact_missing"
-	| "artifact_role_missing"
 	| "artifact_type_invalid"
 	| "artifact_content_invalid"
 	| "artifact_size_mismatch"
 	| "artifact_hash_mismatch"
-	| "review_bundle_missing"
 	| "artifact_view_failed";
 
 export interface IpdDiagnostic {
@@ -72,6 +71,7 @@ export interface WorkflowCompileContext {
 	toolNames: ReadonlySet<string>;
 	checks: readonly CheckDefinition[];
 	workflowAssetIds: ReadonlySet<string>;
+	workflowAssetRefs: ReadonlySet<string>;
 }
 
 export interface CompiledWorkflow {

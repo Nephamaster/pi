@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Truncated large invalid Tool argument previews while preserving exact schema diagnostics, preventing validation errors from duplicating entire payloads into model context.
+
 ## [0.84.4] - 2026-08-28
 
 ### Added

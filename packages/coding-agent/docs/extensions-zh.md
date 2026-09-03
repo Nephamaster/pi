@@ -1646,13 +1646,14 @@ const result = await pi.exec("git", ["status"], { signal, timeout: 5000 });
 // result.stdout, result.stderr, result.code, result.killed
 ```
 
-### pi.getActiveTools() / pi.getAllTools() / pi.setActiveTools(names)
+### pi.getActiveTools() / pi.getAllTools() / pi.getToolDefinitions() / pi.setActiveTools(names)
 
 管理活跃工具。对内置工具和动态注册的工具都可用。`pi.getActiveTools()` 返回 `string[]` 形式的活跃工具名；`pi.getAllTools()` 返回所有已配置工具的元数据。
 
 ```typescript
 const active = pi.getActiveTools(); // ["read", "bash", ...]
 const all = pi.getAllTools();
+const executable = pi.getToolDefinitions(); // 当前活跃的可执行 ToolDefinition
 // all = [{
 //   name: "read",
 //   description: "Read file contents...",
@@ -1667,6 +1668,7 @@ pi.setActiveTools(["read", "bash"]); // 切换到只读
 ```
 
 `pi.getAllTools()` 返回 `name`、`description`、`parameters`、`promptGuidelines` 和 `sourceInfo`。
+`pi.getToolDefinitions()` 返回当前活跃工具的可执行定义，供受控子 Session 在不重复加载 Extension 模块的情况下复用已注册工具。
 
 典型的 `sourceInfo.source` 值：
 - 内置工具为 `builtin`

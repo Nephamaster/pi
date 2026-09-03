@@ -24,6 +24,8 @@ export interface IpdExtensionOptions {
 	runtimeFactory?: (context: ExtensionContext) => Promise<IpdRuntime>;
 }
 
+const BUILTIN_TOOL_NAMES = new Set(["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]);
+
 function executionSignal(toolSignal: AbortSignal | undefined, contextSignal: AbortSignal | undefined) {
 	if (toolSignal && contextSignal && toolSignal !== contextSignal) return AbortSignal.any([toolSignal, contextSignal]);
 	return toolSignal ?? contextSignal;
@@ -68,7 +70,13 @@ export function registerIpdExtension(pi: ExtensionAPI, options: IpdExtensionOpti
 	const runtime = (ctx: ExtensionContext): Promise<IpdRuntime> => {
 		runtimePromise ??=
 			options.runtimeFactory?.(ctx) ??
-			createDefaultIpdRuntime({ agentDir: getAgentDir(), modelRegistry: ctx.modelRegistry });
+			createDefaultIpdRuntime({
+				agentDir: getAgentDir(),
+				modelRegistry: ctx.modelRegistry,
+				customTools: pi
+					.getToolDefinitions()
+					.filter((tool) => tool.name !== "ipd" && !BUILTIN_TOOL_NAMES.has(tool.name)),
+			});
 		return runtimePromise;
 	};
 	const controller = (ctx: ExtensionContext): Promise<IpdToolController> => {
@@ -86,17 +94,76 @@ export function registerIpdExtension(pi: ExtensionAPI, options: IpdExtensionOpti
 	pi.on("session_shutdown", async () => {
 		if (runtimePromise) (await runtimePromise).close();
 	});
+	pi.registerCommand("ipd-resume", {
+		description: "由用户回答 IPD Escalation 并恢复 Run",
+		handler: async (args, ctx) => {
+			const [runId, escalationId, ...extra] = args.trim().split(/\s+/);
+			if (!runId || !escalationId || extra.length > 0) {
+				ctx.ui.notify("用法：/ipd-resume <runId> <escalationId>", "warning");
+				return;
+			}
+			if (!ctx.hasUI) {
+				ctx.ui.notify("当前模式不支持可信用户输入界面", "error");
+				return;
+			}
+			let current: IpdToolResult;
+			try {
+				current = (await runtime(ctx)).status(runId, "summary");
+			} catch (error) {
+				ctx.ui.notify(executionError(error).message, "error");
+				return;
+			}
+			if (current.status !== "waiting_user" || current.question?.escalationId !== escalationId) {
+				ctx.ui.notify("Run 当前没有匹配的开放用户 Escalation", "error");
+				return;
+			}
+			const answer = await ctx.ui.input(current.question.prompt, "请输入你的回答");
+			if (!answer?.trim()) {
+				ctx.ui.notify("未提交回答，Run 保持 waiting_user", "info");
+				return;
+			}
+			const confirmed = await ctx.ui.confirm(
+				"确认恢复 IPD Run",
+				`Run: ${runId}\nEscalation: ${escalationId}\n\n${answer.trim()}`,
+			);
+			if (!confirmed) {
+				ctx.ui.notify("已取消，Run 保持 waiting_user", "info");
+				return;
+			}
+			activeSkills = (ctx.getSystemPromptOptions().skills ?? []).map((skill) => ({
+				name: skill.name,
+				filePath: skill.filePath,
+				baseDir: skill.baseDir,
+			}));
+			try {
+				const result = await (
+					await controller(ctx)
+				).resumeAsUser(runId, escalationId, answer.trim(), {
+					cwd: ctx.cwd,
+					projectTrusted: ctx.isProjectTrusted(),
+					model: ctx.model as Model<Api> | undefined,
+					thinkingLevel: ctx.thinkingLevel,
+					skills: activeSkills,
+					signal: ctx.signal,
+				});
+				ctx.ui.notify(resultText(result), result.status === "failed" ? "error" : "info");
+			} catch (error) {
+				ctx.ui.notify(executionError(error).message, "error");
+			}
+		},
+	});
 
 	pi.registerTool(
 		defineTool({
 			name: "ipd",
 			label: "IPD 长程任务",
-			description: "启动、恢复、查询或取消一个由 Skill 驱动并经过逐节点质量门验收的 IPD 长程任务。",
+			description: "启动、接管、查询或取消一个由 Skill 驱动并经过逐节点质量门验收的 IPD 长程任务。",
 			promptSnippet: "使用 IPD 运行需要多角色执行和质量门验收的长程任务",
 			promptGuidelines: [
 				"start 必须提供当前 Pi 上下文中存在的 skillName。",
-				"可用 action 只有 start、resume、status、cancel；查询运行状态使用 status，不要发明 approve、get 或 retry。",
-				"当结果为 waiting_user 时，向用户展示 question，并用相同 runId 和 escalationId 调用 resume。",
+				"默认不设预算：用户未明确要求 Token/时间上限时使用 ifBudget=false，并且不要传 tokenBudget、timeBudgetMs 或 hardTokenLimit。只有用户明确要求预算时才使用 ifBudget=true，并同时提供 tokenBudget 和 timeBudgetMs。",
+				"可用 action 只有 start、resume_run、status、watch、cancel；进程中断后的同 Run 恢复使用 resume_run。",
+				"当结果为 waiting_user 时，只向用户展示 question 和命令 /ipd-resume <runId> <escalationId>。不得代替用户回答，也不得尝试通过 Tool 恢复 Escalation。",
 				"不要从文本推断状态；以结构化 details.status、details.question 和 details.artifacts 为准。",
 				"当 details.failure.retryable 为 false 时，不要自动创建新的 Run。",
 			],

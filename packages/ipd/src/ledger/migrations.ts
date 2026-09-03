@@ -13,6 +13,10 @@ export function loadIpdMigrations(): IpdMigration[] {
 			id: "001_initial.sql",
 			sql: readFileSync(fileURLToPath(new URL("./migrations/001_initial.sql", import.meta.url)), "utf8"),
 		},
+		{
+			id: "002_workflow_revisions.sql",
+			sql: readFileSync(fileURLToPath(new URL("./migrations/002_workflow_revisions.sql", import.meta.url)), "utf8"),
+		},
 	];
 }
 

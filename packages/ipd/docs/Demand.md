@@ -33,7 +33,7 @@ packages/ipd/
 - Node 24、AgentSession、SQLite 等运行前提。
 - 最短启动路径。
 - AgentCard、Skill、Workflow 资产目录。
-- 四类 Tool Action 示例。
+- 五类模型 Tool Action 与用户 `/ipd-resume` Command 示例。
 - 文档导航。
 - 核心代码入口导航。
 - 当前测试和验收状态。
@@ -58,7 +58,7 @@ packages/ipd/
 - GraphEngine 是状态推进者，Agent 无权直接改变状态。
 - AgentCard、Workflow、Run、Artifact 之间的所有权关系。
 - 一次 `ipd.start` 的完整时序图。
-- `resume/status/cancel` 时序图。
+- 用户 `/ipd-resume`、模型 `resume_run/status/cancel` 时序图。
 - 关键代码入口表。
 
 需要明确区分：
@@ -143,7 +143,7 @@ packages/ipd/
 内容包括：
 
 - Artifact Submission 与 Artifact Manifest 的区别。
-- 文件角色：`primary`、`review`、`evidence`。
+- Execution Artifact 支持一个或多个文件；文件业务作用由 Staff 在 Workflow/Gate 中定义，不在 Artifact 层编码固定角色。
 - 路径、大小和 SHA-256 校验。
 - Candidate、Accepted、Rejected 生命周期。
 - Mechanical Check 注册和执行。
@@ -227,7 +227,7 @@ packages/ipd/
 
 内容包括：
 
-- `start/resume/status/cancel` Schema。
+- `start/resume_run/status/watch/cancel` Tool Schema 与用户 `/ipd-resume` Command。
 - 每个参数的含义和默认值。
 - Skill 必填和未知 Skill 行为。
 - Tool-call ID 幂等。

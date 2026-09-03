@@ -56,14 +56,14 @@ V1 的核心约束是：
 | Workflow Asset | 模板加载、ST 生成、不可覆盖保存、相同内容复用、内容变化强制升版本 |
 | Planner | 固定 ST Core、Workflow Authoring Guide、分段 Workflow 提交与本地组装、Compiler Diagnostic 修订循环 |
 | Scheduler | DAG fan-out/fan-in、依赖 Artifact、Workspace Lock、Attempt Staging 和返工 |
-| Artifact | 路径、角色、MIME 内容、大小、SHA-256、Candidate/Accepted/Rejected 生命周期 |
+| Artifact | 多文件路径、MIME 内容、大小、SHA-256、Candidate/Accepted/Rejected 生命周期 |
 | Gate | 机械检查、Review Bundle、历史 Criterion 上下文、独立 Reviewer、Criterion 聚合和 ST 仲裁 |
 | Ledger | SQLite、事务、幂等写入、状态快照、不可变事件序列和一致性检查 |
-| Recovery | Attempt Workspace/Checkpoint、返工续作、稳定状态恢复、阻塞升级和严格 Resume |
+| Recovery | Attempt Workspace/Checkpoint、技术恢复、外部副作用核验、同 Run Workflow Amendment 和严格 Resume |
 | Budget | Usage 归集、80%/100% 软预算事件、ST 决策和 Hard Limit |
 | Failure | 统一 Failure Category、retryable 标记和节点/Gate/Run 追溯字段 |
 | Model Adapter | 基于 Pi `ModelRuntime` 的 AgentSession NodeRunner |
-| Tool | `start`、`resume`、`status`、`cancel` 和进程内 Tool-call 幂等 |
+| Tool | 模型可调用 `start`、`resume_run`、`status`、`watch`、`cancel`；用户通过 `/ipd-resume` 回答 Escalation |
 | Extension | 缓存 Pi 当前 Skill，转发 cwd、模型、thinking level、trust 和 AbortSignal |
 
 ## 4. 当前明确没有实现的能力
@@ -71,14 +71,14 @@ V1 的核心约束是：
 以下能力不应从设计文档或类型名称中推断为已经存在：
 
 - Harness v2 Adapter；当前只有 AgentSession Adapter；
-- 运行中修改已经冻结的 Workflow 拓扑或 Gate Criteria；
+- 任意在线热改当前 Workflow；当前只允许在 `replanning` 状态由 ST 生成、Compiler 校验并追加新的冻结 revision；
 - 分布式 Scheduler 或跨进程 Agent 调用接管；
 - 操作系统级安全沙箱；权限和 Workspace Scope 是 IPD 协议与调度约束，不是 OS 隔离；
 - IPD 自己维护的长期记忆系统；
 - 自动写入用户偏好、执行反思或自演进记忆；
 - 精确 Review Bundle 的独立 Ledger 持久化；当前可以从 hash-bound Artifact Manifest 重建；
 - 跨进程持久化的 Tool-call ID 幂等；当前 Tool Controller 的调用缓存位于进程内；
-- 默认接入任意外层自定义 Tool；内置工具可直接使用，自定义 `ToolDefinition` 必须显式传给 Runtime Factory；
+- 递归调用 `ipd`；其他外层活跃 ToolDefinition 会被继承，再与 AgentCard/Node 权限取交集；
 - 真实模型默认回归测试；仓库测试使用 faux provider，真实 Provider Eval 需要单独授权和预算。
 
 更完整的限制和后续演进条件将记录在 `known-limitations-and-roadmap.md`。
@@ -95,7 +95,17 @@ Node.js >= 24
 
 V1 只支持 Node 24，不维护 Node 22 兼容分支。
 
-### 5.2 Pi AgentDir
+### 5.2 外部搜索 Tool
+
+IPD 不内置搜索服务。当前项目通过 `.pi/settings.json` 固定安装：
+
+```text
+npm:pi-web-access@0.27.0
+```
+
+它作为普通 Pi Extension 注册 `web_search`、`fetch_content` 和 `source_check`；IPD 通过外层 ToolDefinition 继承机制使用，仍受 AgentCard 和 Workflow Node 权限约束。默认零配置搜索使用 Exa MCP，也可在 `~/.pi/web-search.json` 配置 SearXNG、Tavily、Brave 等后端。
+
+### 5.3 Pi AgentDir
 
 默认 Pi AgentDir 是：
 
@@ -105,7 +115,7 @@ V1 只支持 Node 24，不维护 Node 22 兼容分支。
 
 如果设置了 `PI_CODING_AGENT_DIR`，IPD 使用该目录代替默认位置。默认 Runtime 从 AgentDir 读取 `models.json`、`auth.json` 和全局 IPD 资产。
 
-### 5.3 SQLite
+### 5.4 SQLite
 
 默认 Ledger 路径是：
 
@@ -115,7 +125,7 @@ ${agentDir}/ipd/ipd.sqlite
 
 `createDefaultIpdRuntime()` 可以通过 `ledgerPath` 显式覆盖。SQLite 使用 WAL、外键和事务；不应绕过 Repository API 直接修改状态表。
 
-### 5.4 模型
+### 5.5 模型
 
 AgentCard 支持两种模型方式：
 
@@ -165,35 +175,26 @@ Pi 默认发现：
 
 ### 6.3 Workflow
 
-Runtime 递归加载：
+Runtime 递归加载统一的全局 Workflow Asset 目录：
 
 ```text
-~/.pi/agent/ipd/workflows/
-<cwd>/.pi/ipd/workflows/
+~/.pi/ipd/workflow/
 ```
 
-推荐将人工模板放在：
+人工模板和 ST 生成资产使用同一内容寻址结构：
 
 ```text
-~/.pi/agent/ipd/workflows/templates/
-<cwd>/.pi/ipd/workflows/templates/
+~/.pi/ipd/workflow/<workflow-id>/<version>/<hash>.json
 ```
 
-ST 生成并通过编译的 Workflow 保存到：
-
-```text
-~/.pi/agent/ipd/workflows/generated/<workflow-id>/<version>/<hash>.json
-<cwd>/.pi/ipd/workflows/generated/<workflow-id>/<version>/<hash>.json
-```
-
-项目可信时写入项目 `generated` 目录，否则写入 AgentDir。相同 ID、版本和内容复用原文件；相同 ID、版本但内容不同会拒绝保存，ST 必须提升版本。
+目录名使用 ST 命名的稳定 Workflow ID，与 Skill 无关。相同 ID、版本和内容复用原文件；相同 ID、版本但内容不同会拒绝保存，ST 必须提升版本。模板引用冻结 ID、Version 和 Hash；只指定 ID 时按 SemVer 选择最新版本。
 
 ### 6.4 AgentSession Trace
 
-默认 Runtime 将节点 Session 写入：
+默认 Runtime 将本次 Run 的 Planner、Execution、Reviewer 和 Staff Session 写入：
 
 ```text
-${agentDir}/ipd/sessions/
+<cwd>/.pi/ipd/runs/<run-id>/sessions/
 ```
 
 Ledger 保存相关 Session ID 和 Session File，可由 Artifact、Attempt、Gate、Reviewer 和 Criterion 反向定位到具体 JSONL。
@@ -231,29 +232,46 @@ Ledger 保存相关 Session ID 和 Session File，可由 Artifact、Attempt、Ga
 {
   "action": "start",
   "task": "生成一份经过独立质量门验收的技术方案",
+  "skillName": "technical-proposal"
+}
+```
+
+默认 `ifBudget=false`，IPD 只记录 Usage，不设置 Token 或时间预算。只有用户明确要求预算时才传：
+
+```json
+{
+  "action": "start",
+  "task": "生成一份经过独立质量门验收的技术方案",
   "skillName": "technical-proposal",
+  "ifBudget": true,
   "tokenBudget": 120000,
-  "expectedDurationMs": 3600000,
+  "timeBudgetMs": 3600000,
   "hardTokenLimit": 180000
 }
 ```
 
-`tokenBudget` 是软预算。`hardTokenLimit` 只有用户明确提供时才存在，并且不能低于软预算。
+bounded 模式下 `tokenBudget` 是软预算，`hardTokenLimit` 可选且不能低于软预算。
 
 ### 7.4 处理用户问题
 
-当结果为 `waiting_user` 时，外层 Agent 应读取结构化 `details.question`，向用户展示问题，并使用原始 `runId` 和精确 `escalationId` 恢复：
+当结果为 `waiting_user` 时，外层 Agent 只能读取结构化 `details.question` 并向用户展示问题，不能代答。用户通过命令恢复：
+
+```text
+/ipd-resume <run-id> <exact-open-escalation-id>
+```
+
+Pi UI 随后采集回答并要求二次确认，再直接调用内部恢复接口。`resume`、`answer` 和 `escalationId` 不存在于模型 Tool Schema；错误、关闭或属于其他 Run 的 Escalation ID 不会改变状态。
+
+Pi 进程退出后，使用同一 Run ID 接管 planning/compiling/replanning/ready/running 状态：
 
 ```json
 {
-  "action": "resume",
-  "runId": "run-id",
-  "escalationId": "exact-open-escalation-id",
-  "answer": "用户提供的补充信息"
+  "action": "resume_run",
+  "runId": "run-id"
 }
 ```
 
-错误、关闭或属于其他 Run 的 Escalation ID 不会改变状态。
+该动作不需要 Escalation。普通本地中断从 Run Workspace/Checkpoint 重放；外部副作用结果未知时仍先进入 `waiting_user`，由精确 Escalation 核验后继续。
 
 ### 7.5 查询与取消
 
@@ -387,7 +405,7 @@ TypeBox Schema / 状态机 / Ledger Migration
 7. [ledger-and-recovery.md](ledger-and-recovery.md)：SQLite、事务、事件、幂等和恢复；
 8. [agent-session-adapter.md](agent-session-adapter.md)：模型、Skill、Tool、Session 和 Usage；
 9. [budget-blocking-and-failures.md](budget-blocking-and-failures.md)：预算、阻塞、Escalation 和 Failure；
-10. [ipd-tool-extension.md](ipd-tool-extension.md)：四类 Tool Action 和 Extension Adapter；
+10. [ipd-tool-extension.md](ipd-tool-extension.md)：五类模型 Tool Action、用户 Resume Command 和 Extension Adapter；
 11. [testing-and-acceptance.md](testing-and-acceptance.md)：测试分层、faux E2E 和真实 Skill 验收；
 12. [known-limitations-and-roadmap.md](known-limitations-and-roadmap.md)：当前限制和后续进入条件。
 

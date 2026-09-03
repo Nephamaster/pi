@@ -92,15 +92,6 @@ describe("compileWorkflow", () => {
 		expect(result.diagnostics.map((item) => item.code)).toContain("schema_invalid");
 	});
 
-	it("rejects execution nodes without reviewable business artifacts", () => {
-		const workflow = createValidWorkflow();
-		workflow.nodes[0].output.requiredRoles = ["primary", "evidence"];
-		const result = compileWorkflow(workflow, createCompileContext());
-		expect(result.ok).toBe(false);
-		if (result.ok) return;
-		expect(result.diagnostics.map((item) => item.code)).toContain("mechanical_only_node");
-	});
-
 	it("rejects unavailable and self-review-only reviewers", () => {
 		const cards = createTestCards();
 		cards.executor = compileCard({
@@ -125,6 +116,55 @@ describe("compileWorkflow", () => {
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
 		expect(result.diagnostics.map((item) => item.code)).toContain("reviewer_not_independent");
+	});
+
+	it("rejects Gate requirements that compete for the same sole Reviewer", () => {
+		const cards = createTestCards();
+		const workflow = createValidWorkflow(cards);
+		workflow.nodes[0].gate.reviewers = [
+			{ id: "review-a", capabilities: ["review"], minCount: 1 },
+			{ id: "review-b", capabilities: ["review"], minCount: 1 },
+		];
+
+		const result = compileWorkflow(workflow, createCompileContext(cards));
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.diagnostics).toContainEqual(
+				expect.objectContaining({
+					code: "reviewer_not_independent",
+					path: "/nodes/0/gate/reviewers/1",
+				}),
+			);
+		}
+	});
+
+	it("finds a deterministic global Reviewer allocation instead of failing greedily", () => {
+		const cards = createTestCards();
+		cards.reviewer = compileCard({
+			id: "a-risk-reviewer",
+			name: "Risk Reviewer",
+			description: "Reviews content and risk",
+			responsibilities: ["Review evidence and risk"],
+			nonResponsibilities: ["Produce artifacts"],
+			capabilities: ["review", "risk"],
+		});
+		const generalReviewer = compileCard({
+			id: "b-general-reviewer",
+			name: "General Reviewer",
+			description: "Reviews general content",
+			responsibilities: ["Review evidence"],
+			nonResponsibilities: ["Produce artifacts"],
+			capabilities: ["review"],
+		});
+		const workflow = createValidWorkflow(cards);
+		workflow.nodes[0].gate.reviewers = [
+			{ id: "general", capabilities: ["review"], minCount: 1 },
+			{ id: "risk", capabilities: ["review", "risk"], minCount: 1 },
+		];
+		const context = createCompileContext(cards);
+		context.agentCards = [...context.agentCards, generalReviewer];
+
+		expect(compileWorkflow(workflow, context).ok).toBe(true);
 	});
 
 	it("rejects unknown checks and invalid check parameters", () => {
@@ -192,7 +232,7 @@ describe("compileWorkflow", () => {
 	it("rejects incomplete final coverage and invalid budgets", () => {
 		const workflow = createValidWorkflow();
 		workflow.finalGate.objectiveCoverage = [];
-		workflow.globalBudget.tokens = 1;
+		if (workflow.globalBudget.mode === "bounded") workflow.globalBudget.tokens = 1;
 		const result = compileWorkflow(workflow, createCompileContext());
 		expect(result.ok).toBe(false);
 		if (result.ok) return;

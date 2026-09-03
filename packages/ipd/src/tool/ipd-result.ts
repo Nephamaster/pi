@@ -6,6 +6,7 @@ import type { IpdFailure } from "../runtime/failure.ts";
 export type IpdToolStatus = "running" | "waiting_user" | "succeeded" | "failed" | "cancelled";
 
 export interface BudgetSnapshot {
+	budgetMode: "bounded" | "unbounded";
 	inputTokens: number;
 	outputTokens: number;
 	cacheReadTokens: number;
@@ -13,7 +14,7 @@ export interface BudgetSnapshot {
 	totalTokens: number;
 	costUsd: number;
 	durationMs: number;
-	softTokenLimit: number;
+	softTokenLimit?: number;
 	hardTokenLimit?: number;
 	byCategory: Record<"staff" | "execution" | "review" | "rework", number>;
 }
@@ -22,6 +23,17 @@ export interface IpdToolQuestion {
 	escalationId: string;
 	prompt: string;
 	context: string;
+}
+
+export interface IpdProgress {
+	phase: RunRecord["status"];
+	workflowRevision?: number;
+	activeNodeIds: string[];
+	readyNodeIds: string[];
+	waitingNodeIds: string[];
+	lastEvent?: { sequence: number; type: string; timestamp: number };
+	changedSinceSequence?: boolean;
+	runRoot?: string;
 }
 
 export type IpdToolResultDetails =
@@ -42,6 +54,7 @@ export interface IpdToolResult {
 	question?: IpdToolQuestion;
 	artifacts?: ArtifactManifest[];
 	failure?: IpdFailure;
+	progress: IpdProgress;
 	usage: BudgetSnapshot;
 	details: IpdToolResultDetails;
 }

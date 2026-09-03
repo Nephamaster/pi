@@ -112,8 +112,8 @@ describe("AgentSessionNodeRunner", () => {
 					fauxToolCall("submit_artifact", {
 						summary: "Completed artifact",
 						files: [
-							{ role: "primary", path: "outputs/result.bin", mimeType: "application/octet-stream" },
-							{ role: "review", path: "outputs/review.txt", mimeType: "text/plain" },
+							{ path: "outputs/result.bin", mimeType: "application/octet-stream" },
+							{ path: "outputs/review.txt", mimeType: "text/plain" },
 						],
 						metadata: { quality: "self-checked" },
 					}),
@@ -155,13 +155,16 @@ describe("AgentSessionNodeRunner", () => {
 		expect(result.failure.code).toBe("missing_submission");
 	});
 
-	it("rejects a structured Artifact submission that violates the Node contract", async () => {
+	it("rejects a structured Artifact submission with duplicate file paths", async () => {
 		const fixture = await createFixture();
 		fixture.faux.setResponses([
 			fauxAssistantMessage(
 				fauxToolCall("submit_artifact", {
-					summary: "Missing review derivative",
-					files: [{ role: "primary", path: "outputs/result.bin", mimeType: "application/octet-stream" }],
+					summary: "Duplicate paths",
+					files: [
+						{ path: "outputs/result.bin", mimeType: "application/octet-stream" },
+						{ path: "outputs/result.bin", mimeType: "application/octet-stream" },
+					],
 					metadata: {},
 				}),
 				{ stopReason: "toolUse" },
@@ -171,7 +174,7 @@ describe("AgentSessionNodeRunner", () => {
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
 		expect(result.failure.code).toBe("invalid_submission");
-		expect(result.failure.message).toContain("review");
+		expect(result.failure.message).toContain("duplicate file paths");
 	});
 
 	it("blocks raw binary reads while preserving the native text workflow", async () => {
@@ -189,8 +192,8 @@ describe("AgentSessionNodeRunner", () => {
 					fauxToolCall("submit_artifact", {
 						summary: "Submitted without injecting binary bytes into context",
 						files: [
-							{ role: "primary", path: "outputs/result.txt", mimeType: "text/plain" },
-							{ role: "review", path: "outputs/review.txt", mimeType: "text/plain" },
+							{ path: "outputs/result.txt", mimeType: "text/plain" },
+							{ path: "outputs/review.txt", mimeType: "text/plain" },
 						],
 						metadata: {},
 					}),
@@ -242,7 +245,7 @@ describe("AgentSessionNodeRunner", () => {
 			checks: [
 				{
 					id: "artifact-exists",
-					parameters: Type.Object({ role: Type.String() }, { additionalProperties: false }),
+					parameters: Type.Object({ path: Type.String() }, { additionalProperties: false }),
 				},
 			],
 		};
@@ -280,7 +283,6 @@ describe("AgentSessionNodeRunner", () => {
 					{
 						kind: "text",
 						providerId: "builtin-text",
-						role: "review",
 						path: "review.txt",
 						mimeType: "text/plain",
 						sha256: "2".repeat(64),
@@ -359,10 +361,10 @@ describe("AgentSessionNodeRunner", () => {
 		expect(result.failure.code).toBe("invalid_submission");
 	});
 
-	it("aborts a Planner after three invalid structured-submission turns", async () => {
+	it("aborts a Planner after ten invalid structured-submission turns", async () => {
 		const fixture = await createFixture();
 		fixture.faux.setResponses(
-			Array.from({ length: 3 }, () =>
+			Array.from({ length: 10 }, () =>
 				fauxAssistantMessage(fauxToolCall(WORKFLOW_HEADER_TOOL_NAME, {}), { stopReason: "toolUse" }),
 			),
 		);
@@ -379,9 +381,9 @@ describe("AgentSessionNodeRunner", () => {
 		if (result.ok) return;
 		expect(result.failure).toMatchObject({
 			code: "invalid_submission",
-			message: expect.stringContaining("3 consecutive assistant turns"),
+			message: expect.stringContaining("10 consecutive assistant turns"),
 		});
-		expect(fixture.faux.state.callCount).toBe(3);
+		expect(fixture.faux.state.callCount).toBe(10);
 	});
 
 	it("counts multiple invalid submissions in one assistant turn once and exposes every error for correction", async () => {
@@ -414,7 +416,7 @@ describe("AgentSessionNodeRunner", () => {
 			checks: [
 				{
 					id: "artifact-exists",
-					parameters: Type.Object({ role: Type.String() }, { additionalProperties: false }),
+					parameters: Type.Object({ path: Type.String() }, { additionalProperties: false }),
 				},
 			],
 		});
@@ -443,7 +445,7 @@ describe("AgentSessionNodeRunner", () => {
 			checks: [
 				{
 					id: "artifact-exists",
-					parameters: Type.Object({ role: Type.String() }, { additionalProperties: false }),
+					parameters: Type.Object({ path: Type.String() }, { additionalProperties: false }),
 				},
 			],
 		});
@@ -466,6 +468,33 @@ describe("AgentSessionNodeRunner", () => {
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
 		expect(result.failure.code).toBe("budget_exceeded");
+	});
+
+	it("does not apply token or time limits to an explicitly unbounded Node", async () => {
+		const fixture = await createFixture();
+		fixture.faux.setResponses([
+			async () => {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				return fauxAssistantMessage(
+					fauxToolCall("submit_artifact", {
+						summary: "Completed without an IPD budget limit",
+						files: [
+							{ path: "outputs/result.txt", mimeType: "text/plain" },
+							{ path: "outputs/review.txt", mimeType: "text/plain" },
+						],
+						metadata: {},
+					}),
+					{ stopReason: "toolUse" },
+				);
+			},
+		]);
+		const result = await fixture.runner.runExecutionNode({
+			...fixture.execution,
+			budgetMode: "unbounded",
+			tokenBudget: 1,
+			timeoutMs: 1,
+		});
+		expect(result.ok).toBe(true);
 	});
 
 	it("enforces cumulative generation and Tool-call limits for Execution Nodes", async () => {

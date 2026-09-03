@@ -19,7 +19,7 @@ async function createWorkspace(): Promise<string> {
 }
 
 describe("Review Bundle", () => {
-	it("uses review derivatives for an unsupported binary Primary Artifact", async () => {
+	it("creates views for every supported file and references unsupported files", async () => {
 		const workspace = await createWorkspace();
 		await writeFile(join(workspace, "outputs", "primary.bin"), Buffer.from([0, 1, 2]));
 		await writeFile(join(workspace, "outputs", "review.txt"), "reviewable content");
@@ -37,9 +37,9 @@ describe("Review Bundle", () => {
 				createdAt: 1,
 				inputs: [],
 				files: [
-					{ role: "primary", path: "outputs/primary.bin", mimeType: "application/octet-stream" },
-					{ role: "review", path: "outputs/review.txt", mimeType: "text/plain" },
-					{ role: "evidence", path: "outputs/evidence.json", mimeType: "application/json" },
+					{ path: "outputs/primary.bin", mimeType: "application/octet-stream" },
+					{ path: "outputs/review.txt", mimeType: "text/plain" },
+					{ path: "outputs/evidence.json", mimeType: "application/json" },
 				],
 				metadata: {},
 			},
@@ -58,7 +58,7 @@ describe("Review Bundle", () => {
 		expect(result.bundle.materials.map((material) => material.kind)).toEqual(["reference", "text", "json"]);
 	});
 
-	it("rejects review files without a registered semantic view", async () => {
+	it("keeps unsupported files as references for the Reviewer", async () => {
 		const workspace = await createWorkspace();
 		await writeFile(join(workspace, "outputs", "primary.txt"), "primary");
 		await writeFile(join(workspace, "outputs", "review.bin"), "opaque");
@@ -75,8 +75,8 @@ describe("Review Bundle", () => {
 				createdAt: 1,
 				inputs: [],
 				files: [
-					{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" },
-					{ role: "review", path: "outputs/review.bin", mimeType: "application/octet-stream" },
+					{ path: "outputs/primary.txt", mimeType: "text/plain" },
+					{ path: "outputs/review.bin", mimeType: "application/octet-stream" },
 				],
 				metadata: {},
 			},
@@ -88,8 +88,8 @@ describe("Review Bundle", () => {
 			manifest,
 			registry: createDefaultArtifactViewRegistry(),
 		});
-		expect(result.ok).toBe(false);
-		if (result.ok) return;
-		expect(result.diagnostics.map((item) => item.code)).toContain("review_bundle_missing");
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.bundle.materials.map((material) => material.kind)).toEqual(["text", "reference"]);
 	});
 });

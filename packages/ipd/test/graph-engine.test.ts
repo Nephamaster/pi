@@ -137,8 +137,8 @@ class FakeNodeRunner implements NodeRunner {
 					createdAt: 1,
 					inputs: input.inputArtifacts.map((artifact) => artifact.id),
 					files: [
-						{ role: "primary", path: primary, mimeType: "text/plain" },
-						{ role: "review", path: review, mimeType: "text/plain" },
+						{ path: primary, mimeType: "text/plain" },
+						{ path: review, mimeType: "text/plain" },
 					],
 					metadata: {},
 				},
@@ -419,6 +419,21 @@ describe("GraphEngine", () => {
 			expect(result.snapshot.nodes.map((node) => node.status)).toEqual(["succeeded"]);
 			expect(result.snapshot.artifacts.map((artifact) => artifact.status)).toEqual(["accepted"]);
 			expect(result.snapshot.gates.map((gate) => gate.status)).toEqual(["passed", "passed"]);
+			expect(
+				existsSync(
+					join(
+						fixture.root,
+						".pi",
+						"ipd",
+						"runs",
+						"run-1",
+						"final",
+						"produce",
+						"outputs",
+						"produce-run-1:node:produce:attempt:1-primary.txt",
+					),
+				),
+			).toBe(true);
 			expect(fixture.ledger.verifyRunConsistency("run-1")).toEqual({ ok: true, diagnostics: [] });
 		} finally {
 			fixture.ledger.close();
@@ -432,8 +447,8 @@ describe("GraphEngine", () => {
 				const alpha = cloneNode(workflow, "alpha", "alpha", ["outputs/alpha"]);
 				const beta = cloneNode(workflow, "beta", "beta", ["outputs/beta"]);
 				const merge = cloneNode(workflow, "merge", "merged", ["outputs/merge"]);
-				alpha.permissions.readScopes = ["inputs/alpha"];
-				beta.permissions.readScopes = ["inputs/beta"];
+				alpha.permissions.readScopes = ["."];
+				beta.permissions.readScopes = ["."];
 				merge.permissions.readScopes = ["outputs/alpha", "outputs/beta"];
 				merge.dependsOn = ["alpha", "beta"];
 				merge.inputs = [
@@ -516,7 +531,19 @@ describe("GraphEngine", () => {
 			const rejectedAttemptId = "run-1:node:upstream:attempt:1";
 			const acceptedAttemptId = "run-1:node:upstream:attempt:2";
 			expect(
-				existsSync(join(fixture.root, "outputs", "upstream", `upstream-${rejectedAttemptId}-primary.txt`)),
+				existsSync(
+					join(
+						fixture.root,
+						".pi",
+						"ipd",
+						"runs",
+						"run-1",
+						"workspace",
+						"outputs",
+						"upstream",
+						`upstream-${rejectedAttemptId}-primary.txt`,
+					),
+				),
 			).toBe(false);
 			expect(
 				existsSync(
@@ -524,9 +551,11 @@ describe("GraphEngine", () => {
 						fixture.root,
 						".pi",
 						"ipd",
-						"attempts",
+						"runs",
 						"run-1",
-						rejectedAttemptId,
+						"work",
+						"upstream",
+						"attempt-1",
 						"workspace",
 						"outputs",
 						"upstream",
@@ -535,7 +564,19 @@ describe("GraphEngine", () => {
 				),
 			).toBe(true);
 			expect(
-				existsSync(join(fixture.root, "outputs", "upstream", `upstream-${acceptedAttemptId}-primary.txt`)),
+				existsSync(
+					join(
+						fixture.root,
+						".pi",
+						"ipd",
+						"runs",
+						"run-1",
+						"workspace",
+						"outputs",
+						"upstream",
+						`upstream-${acceptedAttemptId}-primary.txt`,
+					),
+				),
 			).toBe(true);
 		} finally {
 			fixture.ledger.close();
@@ -608,11 +649,11 @@ describe("GraphEngine", () => {
 				"Create a revised Workflow instead of exceeding the frozen Attempt limit",
 				fixture.context,
 			);
-			expect(resumed.status).toBe("failed");
-			expect(resumed.snapshot.run.failure).toMatchObject({
-				code: "replan_required",
-				category: "quality_failure",
-			});
+			expect(resumed.status).toBe("replanning");
+			expect(resumed.snapshot.run.failure).toBeUndefined();
+			expect(resumed.snapshot.decisions).toContainEqual(
+				expect.objectContaining({ type: "workflow_amendment_request", action: "request_replan" }),
+			);
 			expect(resumed.snapshot.nodes).toHaveLength(1);
 		} finally {
 			fixture.ledger.close();
@@ -634,16 +675,16 @@ describe("GraphEngine", () => {
 		fixture.gateEvaluator.setDecisions("produce", ["REWORK"]);
 		try {
 			const result = await fixture.engine.run("run-1", fixture.context);
-			expect(result.status).toBe("failed");
-			expect(result.snapshot.run.failure).toMatchObject({
-				code: "replan_required",
-				category: "quality_failure",
-			});
+			expect(result.status).toBe("replanning");
+			expect(result.snapshot.run.failure).toBeUndefined();
 			expect(result.snapshot.decisions).toContainEqual(
 				expect.objectContaining({
 					type: "attempts_exhausted_resolution",
 					action: "request_replan",
 				}),
+			);
+			expect(result.snapshot.decisions).toContainEqual(
+				expect.objectContaining({ type: "workflow_amendment_request", action: "request_replan" }),
 			);
 			expect(result.snapshot.escalations).toEqual([]);
 		} finally {
@@ -733,8 +774,12 @@ describe("GraphEngine", () => {
 		}
 	});
 
-	it("does not replay interrupted side-effecting work without Staff review", async () => {
-		const fixture = await createFixture();
+	it("replays interrupted Run-workspace writes in a new Attempt", async () => {
+		const fixture = await createFixture({
+			workflow(workflow) {
+				workflow.nodes[0].rework.maxAttempts = 1;
+			},
+		});
 		try {
 			fixture.ledger.transitionRun({ runId: "run-1", idempotencyKey: "start-before-crash", status: "running" });
 			fixture.ledger.createNodeAttempt({
@@ -759,13 +804,78 @@ describe("GraphEngine", () => {
 			});
 
 			const result = await fixture.engine.run("run-1", fixture.context);
-			expect(result.status).toBe("waiting_user");
-			expect(result.snapshot.nodes.map((node) => node.status)).toEqual(["interrupted"]);
-			expect(result.snapshot.escalations[0].target).toBe("staff");
+			expect(result.status).toBe("succeeded");
+			expect(result.snapshot.nodes.map((node) => node.status)).toEqual(["interrupted", "succeeded"]);
+			expect(fixture.nodeRunner.calls).toHaveLength(1);
+		} finally {
+			fixture.ledger.close();
+		}
+	});
+
+	it("requires reconciliation before replaying an interrupted external action", async () => {
+		const externalExecutor = compileCard({
+			id: "executor",
+			name: "External Executor",
+			description: "Produces an artifact after an approved external action",
+			responsibilities: ["Perform the approved action and record its result"],
+			nonResponsibilities: ["Approve its own artifact"],
+			capabilities: ["content"],
+			tools: ["read", "write"],
+			permissions: {
+				workspace: "write",
+				readScopes: ["."],
+				writeScopes: ["outputs"],
+				externalActions: true,
+			},
+		});
+		const fixture = await createFixture({
+			executorCard: externalExecutor,
+			workflow(workflow) {
+				workflow.nodes[0].permissions.externalActions = true;
+			},
+		});
+		try {
+			fixture.ledger.transitionRun({ runId: "run-1", idempotencyKey: "start-before-crash", status: "running" });
+			fixture.ledger.createNodeAttempt({
+				runId: "run-1",
+				idempotencyKey: "attempt-1-create",
+				attemptId: "run-1:node:produce:attempt:1",
+				nodeId: "produce",
+				attemptNumber: 1,
+				agentCardRef: cardRef(externalExecutor),
+			});
+			fixture.ledger.transitionNode({
+				runId: "run-1",
+				idempotencyKey: "attempt-1-ready",
+				attemptId: "run-1:node:produce:attempt:1",
+				status: "ready",
+			});
+			fixture.ledger.transitionNode({
+				runId: "run-1",
+				idempotencyKey: "attempt-1-running",
+				attemptId: "run-1:node:produce:attempt:1",
+				status: "running",
+			});
+
+			const waiting = await fixture.engine.run("run-1", fixture.context);
+			expect(waiting.status).toBe("waiting_user");
 			expect(fixture.nodeRunner.calls).toEqual([]);
-			await expect(
-				fixture.engine.resume("run-1", result.snapshot.escalations[0].id, "Retry it", fixture.context),
-			).rejects.toMatchObject({ code: "invalid_resume" });
+			expect(waiting.snapshot.escalations[0]).toMatchObject({
+				target: "user",
+				context: { reason: "unknown_outcome", externalActions: true },
+			});
+
+			const resumed = await fixture.engine.resume(
+				"run-1",
+				waiting.snapshot.escalations[0].id,
+				"The prior action did not complete; reconcile state and retry safely",
+				fixture.context,
+			);
+			expect(resumed.status).toBe("succeeded");
+			expect(resumed.snapshot.nodes.map((node) => node.status)).toEqual(["interrupted", "succeeded"]);
+			expect(fixture.nodeRunner.calls[0].reworkInstructions).toContain(
+				"The prior action did not complete; reconcile state and retry safely",
+			);
 		} finally {
 			fixture.ledger.close();
 		}
@@ -910,7 +1020,7 @@ describe("GraphEngine", () => {
 	it("stops before starting a Node when the user Hard Limit is reached", async () => {
 		const fixture = await createFixture({
 			workflow(workflow) {
-				workflow.globalBudget.hardTokenLimit = 100_000;
+				if (workflow.globalBudget.mode === "bounded") workflow.globalBudget.hardTokenLimit = 100_000;
 			},
 		});
 		const budgetRunner = new FakeStaffDecisionRunner({

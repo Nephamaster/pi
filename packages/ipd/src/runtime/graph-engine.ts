@@ -13,13 +13,15 @@ import type { CompiledAgentCard, JsonValue } from "../ir/types.ts";
 import { validateSchema } from "../ir/validation.ts";
 import type { SqliteIpdLedger } from "../ledger/sqlite-ledger.ts";
 import type { ArtifactRecord, NodeInstanceRecord, RunSnapshot, RunStatus } from "../ledger/types.ts";
-import { type AttemptWorkspace, AttemptWorkspaceManager } from "./attempt-workspace.ts";
+import { type AttemptWorkspace, AttemptWorkspaceManager, type RunWorkspace } from "./attempt-workspace.ts";
 import { type BudgetController, NoopBudgetController } from "./budget-manager.ts";
 import { createIpdFailure, type IpdFailure, type IpdFailureCategory, normalizeNodeRunFailure } from "./failure.ts";
+import { createToolEffectRegistry, externalToolEffects, type ToolEffect } from "./tool-effects.ts";
 import { WorkspaceLockManager } from "./workspace-locks.ts";
 
 export interface GraphRunContext {
 	cwd: string;
+	runWorkspace?: RunWorkspace;
 	skill: SkillSnapshot;
 	availableSkills?: readonly SkillSnapshot[];
 	runDefaultModel: Model<Api>;
@@ -31,6 +33,11 @@ export interface GraphRunResult {
 	runId: string;
 	status: RunStatus;
 	snapshot: RunSnapshot;
+}
+
+export interface UserAnswerProvenance {
+	source: "user_command" | "trusted_host";
+	receivedAt: number;
 }
 
 export class GraphEngineError extends Error {
@@ -50,6 +57,7 @@ export interface GraphEngineOptions {
 	workspaceLocks?: WorkspaceLockManager;
 	attemptWorkspaces?: AttemptWorkspaceManager;
 	budgetController?: BudgetController;
+	toolEffects?: ReadonlyMap<string, ToolEffect>;
 }
 
 interface ActiveRun {
@@ -100,6 +108,7 @@ export class GraphEngine {
 	private readonly workspaceLocks: WorkspaceLockManager;
 	private readonly budgetController: BudgetController;
 	private readonly attemptWorkspaces: AttemptWorkspaceManager;
+	private readonly toolEffects: ReadonlyMap<string, ToolEffect>;
 	private readonly activeRuns = new Map<string, ActiveRun>();
 
 	constructor(options: GraphEngineOptions) {
@@ -109,6 +118,7 @@ export class GraphEngine {
 		this.workspaceLocks = options.workspaceLocks ?? new WorkspaceLockManager();
 		this.budgetController = options.budgetController ?? new NoopBudgetController();
 		this.attemptWorkspaces = options.attemptWorkspaces ?? new AttemptWorkspaceManager();
+		this.toolEffects = options.toolEffects ?? createToolEffectRegistry();
 	}
 
 	run(runId: string, context: GraphRunContext): Promise<GraphRunResult> {
@@ -161,6 +171,7 @@ export class GraphEngine {
 		escalationId: string,
 		answer: string,
 		context: GraphRunContext,
+		provenance: UserAnswerProvenance = { source: "trusted_host", receivedAt: Date.now() },
 	): Promise<GraphRunResult> {
 		if (answer.trim().length === 0) throw new GraphEngineError("Escalation answer must not be empty");
 		const snapshot = this.ledger.getRunSnapshot(runId);
@@ -178,6 +189,16 @@ export class GraphEngine {
 			escalationId,
 			answer,
 		});
+		this.ledger.recordDecision({
+			runId,
+			idempotencyKey: `graph:${runId}:resume:${escalationId}:receipt`,
+			decisionId: `${escalationId}:user-answer-receipt`,
+			type: "user_answer_receipt",
+			action: "answer_escalation",
+			rationale: "Received an answer through a trusted host path",
+			nodeId: escalation.nodeId,
+			evidence: { escalationId, source: provenance.source, receivedAt: provenance.receivedAt },
+		});
 		const escalationReason =
 			typeof escalation.context === "object" &&
 			escalation.context !== null &&
@@ -187,21 +208,21 @@ export class GraphEngine {
 				: undefined;
 		if (escalationReason === "attempts_exhausted") {
 			const attempt = escalation.nodeId ? latestAttempts(snapshot).get(escalation.nodeId) : undefined;
-			const cause = failureFromJson(attempt?.error);
-			this.failRunFromFailure(
+			this.ledger.recordDecision({
 				runId,
-				createIpdFailure({
-					code: "replan_required",
-					category: cause?.category ?? "quality_failure",
-					message: `Attempts are exhausted; the current frozen Workflow cannot retry. User response: ${answer}`,
-					retryable: false,
-					runId,
-					traceId: snapshot.run.traceId,
-					nodeId: escalation.nodeId,
-					attemptId: attempt?.attemptId,
-					cause: cause ? toJson(cause) : undefined,
-				}),
-			);
+				idempotencyKey: `graph:${runId}:resume:${escalationId}:request-replan`,
+				decisionId: `${escalationId}:request-replan`,
+				type: "workflow_amendment_request",
+				action: "request_replan",
+				rationale: answer,
+				nodeId: escalation.nodeId,
+				evidence: { escalationId, attemptId: attempt?.attemptId ?? null, ...provenance },
+			});
+			this.ledger.transitionRun({
+				runId,
+				idempotencyKey: `graph:${runId}:resume:${escalationId}:replanning`,
+				status: "replanning",
+			});
 			return this.stableResult(runId);
 		}
 		if (escalation.nodeId) {
@@ -213,7 +234,7 @@ export class GraphEngine {
 				action: "retry_node",
 				rationale: answer,
 				nodeId: escalation.nodeId,
-				evidence: { escalationId, answer },
+				evidence: { escalationId, answer, ...provenance },
 			});
 		}
 		this.ledger.transitionRun({
@@ -225,6 +246,8 @@ export class GraphEngine {
 	}
 
 	private async runInternal(runId: string, context: GraphRunContext, active: ActiveRun): Promise<GraphRunResult> {
+		const runWorkspace = context.runWorkspace ?? (await this.attemptWorkspaces.prepareRun(context.cwd, runId));
+		context = { ...context, cwd: runWorkspace.workspace, runWorkspace };
 		let snapshot = this.ledger.getRunSnapshot(runId);
 		if (!snapshot.workflow) throw new Error(`Run has no frozen Workflow: ${runId}`);
 		if (snapshot.run.status === "ready") {
@@ -234,7 +257,7 @@ export class GraphEngine {
 			const recovered = await this.recoverInterruptedWork(runId, snapshot, active);
 			if (!recovered) return this.stableResult(runId);
 			snapshot = this.ledger.getRunSnapshot(runId);
-		} else if (["waiting_user", "succeeded", "failed", "cancelled"].includes(snapshot.run.status)) {
+		} else if (["replanning", "waiting_user", "succeeded", "failed", "cancelled"].includes(snapshot.run.status)) {
 			return { runId, status: snapshot.run.status, snapshot };
 		} else {
 			throw new Error(`Run cannot execute from ${snapshot.run.status}`);
@@ -250,7 +273,7 @@ export class GraphEngine {
 				workflow,
 				snapshot,
 				workflow.staff.core.map((ref) => this.findAgentCard(snapshot, ref)),
-				context,
+				{ ...context, sessionDirectory: context.runWorkspace?.sessions },
 			);
 			if (budget.action !== "continue") return this.stableResult(runId);
 			if (this.allNodesSucceeded(workflow, snapshot)) {
@@ -260,7 +283,7 @@ export class GraphEngine {
 
 			const ready = this.createReadyAttempts(runId, workflow, snapshot);
 			const afterScheduling = this.ledger.getRunSnapshot(runId);
-			if (["waiting_user", "failed", "cancelled"].includes(afterScheduling.run.status)) {
+			if (["replanning", "waiting_user", "failed", "cancelled"].includes(afterScheduling.run.status)) {
 				return { runId, status: afterScheduling.run.status, snapshot: afterScheduling };
 			}
 			if (ready.length === 0) {
@@ -268,7 +291,7 @@ export class GraphEngine {
 			}
 			await Promise.all(ready.map((item) => this.executeAttempt(runId, item, context, active)));
 			const current = this.ledger.getRunSnapshot(runId);
-			if (["waiting_user", "failed", "cancelled"].includes(current.run.status)) {
+			if (["replanning", "waiting_user", "failed", "cancelled"].includes(current.run.status)) {
 				return { runId, status: current.run.status, snapshot: current };
 			}
 		}
@@ -283,7 +306,10 @@ export class GraphEngine {
 			if (!node.dependsOn.every((dependency) => latest.get(dependency)?.status === "succeeded")) continue;
 			if (!this.dependenciesHaveAcceptedArtifacts(node, snapshot)) continue;
 			const attemptNumber = (previous?.attemptNumber ?? 0) + 1;
-			if (attemptNumber > node.rework.maxAttempts) {
+			const qualityAttempts = snapshot.nodes.filter(
+				(attempt) => attempt.nodeId === node.id && attempt.status !== "interrupted",
+			).length;
+			if (qualityAttempts >= node.rework.maxAttempts && previous?.status !== "interrupted") {
 				const previousFailure = failureFromJson(previous?.error);
 				this.failRunFromFailure(
 					runId,
@@ -327,17 +353,20 @@ export class GraphEngine {
 		context: GraphRunContext,
 		active: ActiveRun,
 	): Promise<void> {
-		const lock = await this.workspaceLocks
-			.acquire(
-				{
-					ownerId: item.attempt.attemptId,
-					readScopes: item.node.permissions.readScopes,
-					writeScopes: item.node.permissions.writeScopes,
-					usesBash: item.node.tools.includes("bash"),
-				},
-				active.controller.signal,
-			)
-			.catch(() => undefined);
+		const lock =
+			item.node.permissions.writeScopes.length === 0
+				? { release() {} }
+				: await this.workspaceLocks
+						.acquire(
+							{
+								ownerId: item.attempt.attemptId,
+								readScopes: [],
+								writeScopes: item.node.permissions.writeScopes,
+								usesBash: item.node.tools.includes("bash"),
+							},
+							active.controller.signal,
+						)
+						.catch(() => undefined);
 		if (!lock || active.controller.signal.aborted) {
 			this.cancelAttempt(runId, item.attempt);
 			return;
@@ -360,10 +389,13 @@ export class GraphEngine {
 			try {
 				attemptWorkspace = await this.attemptWorkspaces.prepare({
 					workspace: context.cwd,
+					runRoot: context.runWorkspace?.root ?? "",
 					runId,
+					nodeId: item.node.id,
+					attemptNumber: item.attempt.attemptNumber,
 					attemptId: item.attempt.attemptId,
 					writeScopes: item.node.permissions.writeScopes,
-					previousAttemptId: previousAttempt?.attemptId,
+					previousAttemptNumber: previousAttempt?.attemptNumber,
 				});
 				this.ledger.recordDecision({
 					runId,
@@ -405,6 +437,7 @@ export class GraphEngine {
 				task: snapshot.run.task,
 				workflowHash: snapshot.workflow?.hash ?? "",
 				cwd: attemptWorkspace.root,
+				sessionDirectory: context.runWorkspace?.sessions,
 				agentCard: card,
 				skills: item.node.skills.map((name) => {
 					const skill = (context.availableSkills ?? [context.skill]).find((candidate) => candidate.name === name);
@@ -413,17 +446,21 @@ export class GraphEngine {
 				}),
 				runDefaultModel: context.runDefaultModel,
 				runDefaultThinkingLevel: context.runDefaultThinkingLevel,
+				budgetMode: item.node.budget.mode,
 				node: item.node,
 				inputArtifacts: this.inputArtifacts(item.node, snapshot),
 				reworkInstructions: this.reworkInstructions(item.node.id, snapshot),
-				timeoutMs: item.node.budget.timeoutMs,
-				tokenBudget: item.node.budget.tokens,
+				timeoutMs: item.node.budget.mode === "bounded" ? item.node.budget.timeLimitMs : undefined,
+				tokenBudget: item.node.budget.mode === "bounded" ? item.node.budget.tokens : undefined,
 				signal: active.controller.signal,
 			});
+			const qualityAttemptNumber = this.ledger
+				.getRunSnapshot(runId)
+				.nodes.filter((attempt) => attempt.nodeId === item.node.id && attempt.status !== "interrupted").length;
 			this.recordUsage(
 				runId,
 				item.attempt.attemptId,
-				item.attempt.attemptNumber > 1 ? "rework" : "execution",
+				qualityAttemptNumber > 1 ? "rework" : "execution",
 				result.trace,
 				item.node.id,
 			);
@@ -565,14 +602,16 @@ export class GraphEngine {
 				task: snapshot.run.task,
 				workflowHash: workflowRecord.hash,
 				cwd: context.cwd,
+				sessionDirectory: context.runWorkspace?.sessions,
 				skill: context.skill,
 				agentCards: snapshot.agentCards.map((record) => record.card),
 				staffAgentCards: workflow.staff.core.map((ref) => this.findAgentCard(snapshot, ref)),
 				executorAgentCardRefs: [node.agentCardRef],
 				runDefaultModel: context.runDefaultModel,
 				runDefaultThinkingLevel: context.runDefaultThinkingLevel,
+				reviewerBudgetMode: node.budget.mode,
 				reviewerTokenBudget: this.budgetController.reviewerTokenBudget(workflow, snapshot),
-				reviewerTimeoutMs: node.budget.timeoutMs,
+				reviewerTimeoutMs: node.budget.mode === "bounded" ? node.budget.timeLimitMs : undefined,
 				previousEvaluations: toJson(previousEvaluations),
 				signal: active.controller.signal,
 			});
@@ -913,9 +952,10 @@ export class GraphEngine {
 		context: GraphRunContext,
 		active: ActiveRun,
 	): Promise<void> {
-		const existing = snapshot.gates.find(
-			(gate) => gate.nodeId === undefined && gate.gateId === workflow.finalGate.id,
-		);
+		const workflowRevision = snapshot.workflow?.revision ?? 1;
+		const gateRunId =
+			workflowRevision === 1 ? `${runId}:final-gate` : `${runId}:workflow:${workflowRevision}:final-gate`;
+		const existing = snapshot.gates.find((gate) => gate.id === gateRunId);
 		if (existing?.status === "passed") {
 			this.ledger.transitionRun({ runId, idempotencyKey: `graph:${runId}:succeeded`, status: "succeeded" });
 			return;
@@ -924,53 +964,55 @@ export class GraphEngine {
 			this.failRun(runId, "final_gate_failed", `Final Gate is ${existing.status}`);
 			return;
 		}
-		const gateRunId = `${runId}:final-gate`;
 		this.ledger.createGateRun({
 			runId,
-			idempotencyKey: `graph:${runId}:final-gate:create`,
+			idempotencyKey: `graph:${runId}:workflow:${workflowRevision}:final-gate:create`,
 			gateRunId,
 			gateId: workflow.finalGate.id,
 		});
 		this.ledger.transitionGate({
 			runId,
-			idempotencyKey: `graph:${runId}:final-gate:mechanical`,
+			idempotencyKey: `graph:${runId}:workflow:${workflowRevision}:final-gate:mechanical`,
 			gateRunId,
 			status: "mechanical_checking",
 		});
 		active.gateRunIds.add(gateRunId);
+		const finalArtifacts = workflow.finalArtifactNodeIds.flatMap((nodeId) => {
+			const node = workflow.nodes.find((candidate) => candidate.id === nodeId);
+			if (!node) return [];
+			return this.acceptedArtifacts(nodeId, snapshot).map((artifact) => ({
+				manifest: this.decodeManifest(artifact),
+				contract: node.output,
+			}));
+		});
 		let result: GateEvaluationResult;
 		try {
 			result = await this.gateEvaluator.evaluate({
 				runId,
 				gateRunId,
 				gate: workflow.finalGate,
-				artifacts: workflow.finalArtifactNodeIds.flatMap((nodeId) => {
-					const node = workflow.nodes.find((candidate) => candidate.id === nodeId);
-					if (!node) return [];
-					return this.acceptedArtifacts(nodeId, snapshot).map((artifact) => ({
-						manifest: this.decodeManifest(artifact),
-						contract: node.output,
-					}));
-				}),
+				artifacts: finalArtifacts,
 				final: true,
 				task: snapshot.run.task,
 				workflowHash: snapshot.workflow?.hash ?? "",
 				cwd: context.cwd,
+				sessionDirectory: context.runWorkspace?.sessions,
 				skill: context.skill,
 				agentCards: snapshot.agentCards.map((record) => record.card),
 				staffAgentCards: workflow.staff.core.map((ref) => this.findAgentCard(snapshot, ref)),
 				executorAgentCardRefs: workflow.nodes.map((node) => node.agentCardRef),
 				runDefaultModel: context.runDefaultModel,
 				runDefaultThinkingLevel: context.runDefaultThinkingLevel,
+				reviewerBudgetMode: workflow.globalBudget.mode,
 				reviewerTokenBudget: this.budgetController.reviewerTokenBudget(workflow, snapshot),
-				reviewerTimeoutMs: workflow.globalBudget.timeoutMs,
+				reviewerTimeoutMs: workflow.globalBudget.mode === "bounded" ? workflow.globalBudget.timeLimitMs : undefined,
 				signal: context.signal,
 			});
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			this.ledger.transitionGate({
 				runId,
-				idempotencyKey: `graph:${runId}:final-gate:blocked`,
+				idempotencyKey: `graph:${runId}:workflow:${workflowRevision}:final-gate:blocked`,
 				gateRunId,
 				status: active.controller.signal.aborted ? "interrupted" : "blocked",
 				decision: this.failure(runId, "gate_evaluator_failed", "internal_error", message, false, {
@@ -983,12 +1025,29 @@ export class GraphEngine {
 			active.gateRunIds.delete(gateRunId);
 		}
 		try {
-			await this.applyGateResult(runId, gateRunId, workflow.finalGate, result);
+			await this.applyGateResult(
+				runId,
+				gateRunId,
+				workflow.finalGate,
+				result,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				async () => {
+					if (context.runWorkspace) {
+						await this.attemptWorkspaces.publishFinal(
+							context.runWorkspace,
+							finalArtifacts.map((artifact) => artifact.manifest),
+						);
+					}
+				},
+			);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			this.ledger.transitionGate({
 				runId,
-				idempotencyKey: `graph:${runId}:final-gate:invalid-result`,
+				idempotencyKey: `graph:${runId}:workflow:${workflowRevision}:final-gate:invalid-result`,
 				gateRunId,
 				status: "blocked",
 				decision: this.failure(runId, "invalid_gate_result", "validation_error", message, false, {
@@ -1039,18 +1098,20 @@ export class GraphEngine {
 				}),
 			});
 			const node = workflow.nodes.find((candidate) => candidate.id === attempt.nodeId);
-			if (
-				!node ||
-				node.permissions.workspace === "write" ||
-				node.permissions.externalActions ||
-				node.tools.includes("bash")
-			) {
+			const externalEffects = node ? externalToolEffects(node.tools, this.toolEffects) : [];
+			if (!node || node.permissions.externalActions || externalEffects.length > 0) {
 				safe = false;
 				this.routeWaiting(
 					runId,
-					node?.routes.blocked ?? "staff",
+					"user",
 					node?.id,
-					"Interrupted side-effecting Node requires review",
+					"Interrupted external action has unknown outcome and requires reconciliation before retry",
+					attempt.attemptId,
+					{
+						reason: "unknown_outcome",
+						externalActions: node?.permissions.externalActions ?? true,
+						toolEffects: externalEffects,
+					},
 				);
 			}
 		}
@@ -1066,7 +1127,7 @@ export class GraphEngine {
 		trace: { sessionId?: string; sessionFile?: string },
 		context: GraphRunContext,
 	): Promise<void> {
-		if (failure.retryable && attempt.attemptNumber < node.rework.maxAttempts) {
+		if (failure.retryable && this.qualityAttemptNumber(runId, node.id) < node.rework.maxAttempts) {
 			this.ledger.transitionNode({
 				runId,
 				idempotencyKey: `graph:${runId}:attempt:${attempt.attemptId}:rework`,
@@ -1098,7 +1159,7 @@ export class GraphEngine {
 		feedback: string[],
 		context: GraphRunContext,
 	): Promise<void> {
-		if (attempt.attemptNumber < node.rework.maxAttempts) {
+		if (this.qualityAttemptNumber(runId, node.id) < node.rework.maxAttempts) {
 			this.ledger.transitionNode({
 				runId,
 				idempotencyKey: `graph:${runId}:attempt:${attempt.attemptId}:rework`,
@@ -1180,11 +1241,14 @@ export class GraphEngine {
 			task: snapshot.run.task,
 			workflowHash: snapshot.workflow?.hash ?? "",
 			cwd: context.cwd,
+			sessionDirectory: context.runWorkspace?.sessions,
 			agentCard: this.findAgentCard(snapshot, staffRef),
 			skills: [context.skill],
 			runDefaultModel: context.runDefaultModel,
 			runDefaultThinkingLevel: context.runDefaultThinkingLevel,
-			tokenBudget: workflow.globalBudget.staffTokens,
+			budgetMode: workflow.globalBudget.mode,
+			tokenBudget: workflow.globalBudget.mode === "bounded" ? workflow.globalBudget.staffTokens : undefined,
+			timeoutMs: workflow.globalBudget.mode === "bounded" ? workflow.globalBudget.timeLimitMs : undefined,
 			allowedActions: ["retry_node", "ask_user", "fail_run"],
 			context: { nodeId: node.id, attemptId: attempt.attemptId, blockedReason: message },
 			signal: context.signal,
@@ -1270,11 +1334,14 @@ export class GraphEngine {
 			task: snapshot.run.task,
 			workflowHash: snapshot.workflow?.hash ?? "",
 			cwd: context.cwd,
+			sessionDirectory: context.runWorkspace?.sessions,
 			agentCard: this.findAgentCard(snapshot, staffRef),
 			skills: [context.skill],
 			runDefaultModel: context.runDefaultModel,
 			runDefaultThinkingLevel: context.runDefaultThinkingLevel,
-			tokenBudget: workflow.globalBudget.staffTokens,
+			budgetMode: workflow.globalBudget.mode,
+			tokenBudget: workflow.globalBudget.mode === "bounded" ? workflow.globalBudget.staffTokens : undefined,
+			timeoutMs: workflow.globalBudget.mode === "bounded" ? workflow.globalBudget.timeLimitMs : undefined,
 			allowedActions: ["request_replan", "ask_user", "fail_run"],
 			context: {
 				reason: "attempts_exhausted",
@@ -1312,16 +1379,21 @@ export class GraphEngine {
 			return;
 		}
 		if (result.submission.action === "request_replan") {
-			this.failRunFromFailure(
+			this.ledger.recordDecision({
 				runId,
-				createIpdFailure({
-					...failure,
-					code: "replan_required",
-					message: result.submission.rationale,
-					retryable: false,
-					cause: toJson(failure),
-				}),
-			);
+				idempotencyKey: `graph:${runId}:attempt:${attempt.attemptId}:workflow-amendment-request`,
+				decisionId: `${attempt.attemptId}:workflow-amendment-request`,
+				type: "workflow_amendment_request",
+				action: "request_replan",
+				rationale: result.submission.rationale,
+				nodeId: node.id,
+				evidence: { failure: toJson(failure), staffEvidence: result.submission.evidence },
+			});
+			this.ledger.transitionRun({
+				runId,
+				idempotencyKey: `graph:${runId}:attempt:${attempt.attemptId}:replanning`,
+				status: "replanning",
+			});
 			return;
 		}
 		this.failRunFromFailure(runId, {
@@ -1407,6 +1479,12 @@ export class GraphEngine {
 		return snapshot.decisions
 			.filter((decision) => decision.nodeId === nodeId && decision.action === "retry_node")
 			.map((decision) => decision.rationale);
+	}
+
+	private qualityAttemptNumber(runId: string, nodeId: string): number {
+		return this.ledger
+			.getRunSnapshot(runId)
+			.nodes.filter((attempt) => attempt.nodeId === nodeId && attempt.status !== "interrupted").length;
 	}
 
 	private finishStalledRun(runId: string, workflow: WorkflowDefinition, snapshot: RunSnapshot): GraphRunResult {

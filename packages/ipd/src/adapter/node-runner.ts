@@ -62,10 +62,12 @@ interface CommonRunInput {
 	task: string;
 	workflowHash: string;
 	cwd: string;
+	sessionDirectory?: string;
 	agentCard: CompiledAgentCard;
 	skills: SkillSnapshot[];
 	runDefaultModel: Model<Api>;
 	runDefaultThinkingLevel: ThinkingLevel;
+	budgetMode?: "bounded" | "unbounded";
 	tokenBudget?: number;
 	timeoutMs?: number;
 	signal?: AbortSignal;

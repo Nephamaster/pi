@@ -4,9 +4,10 @@ import type { ArtifactStatus, GateStatus, NodeStatus, ReviewerStatus, RunStatus 
 const RUN_TRANSITIONS: Readonly<Record<RunStatus, readonly RunStatus[]>> = {
 	planning: ["compiling", "failed", "cancelled"],
 	compiling: ["ready", "failed", "cancelled"],
+	replanning: ["ready", "failed", "cancelled"],
 	ready: ["running", "failed", "cancelled"],
-	running: ["waiting_user", "succeeded", "failed", "cancelled"],
-	waiting_user: ["running", "failed", "cancelled"],
+	running: ["waiting_user", "replanning", "succeeded", "failed", "cancelled"],
+	waiting_user: ["running", "replanning", "failed", "cancelled"],
 	succeeded: [],
 	failed: [],
 	cancelled: [],

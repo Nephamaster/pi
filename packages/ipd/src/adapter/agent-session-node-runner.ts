@@ -69,7 +69,7 @@ export interface AgentSessionNodeRunnerOptions {
 }
 
 const BUILTIN_TOOL_NAMES = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell"]);
-const MAX_STRUCTURED_SUBMISSION_ERRORS = 3;
+const MAX_STRUCTURED_SUBMISSION_ERRORS = 10;
 const MAX_PLANNER_TOOL_CALLS = 64;
 const DEFAULT_MAX_EXECUTION_TOOL_CALLS = 96;
 const execFile = promisify(execFileCallback);
@@ -196,11 +196,7 @@ function validateExecutionConfiguration(input: ExecutionNodeRunInput): string | 
 	return validateSkillSnapshots(input.skills);
 }
 
-function validateArtifactSubmission(input: ExecutionNodeRunInput, submission: SubmitArtifact): string | undefined {
-	const roles = submission.files.map((file) => file.role);
-	for (const role of input.node.output.requiredRoles) {
-		if (!roles.includes(role)) return `Artifact submission is missing required ${role} content`;
-	}
+function validateArtifactSubmission(submission: SubmitArtifact): string | undefined {
 	const paths = submission.files.map((file) => file.path);
 	if (new Set(paths).size !== paths.length) return "Artifact submission contains duplicate file paths";
 	return undefined;
@@ -283,7 +279,7 @@ export class AgentSessionNodeRunner implements NodeRunner {
 				trace: executed.trace,
 			};
 		}
-		const submissionError = validateArtifactSubmission(input, executed.submission);
+		const submissionError = validateArtifactSubmission(executed.submission);
 		if (submissionError) {
 			return { ok: false, failure: failure("invalid_submission", submissionError), trace: executed.trace };
 		}
@@ -442,7 +438,7 @@ export class AgentSessionNodeRunner implements NodeRunner {
 			};
 		}
 		const selectedModel =
-			input.tokenBudget !== undefined && input.tokenBudget > 0
+			input.budgetMode !== "unbounded" && input.tokenBudget !== undefined && input.tokenBudget > 0
 				? { ...modelSelection.model, maxTokens: Math.min(modelSelection.model.maxTokens, input.tokenBudget) }
 				: modelSelection.model;
 		if (this.active.has(input.instanceId)) {
@@ -480,7 +476,7 @@ export class AgentSessionNodeRunner implements NodeRunner {
 					trace: this.emptyTrace(input, startedAt),
 				};
 			}
-			const sessionManager = SessionManager.create(input.cwd, this.sessionDir);
+			const sessionManager = SessionManager.create(input.cwd, input.sessionDirectory ?? this.sessionDir);
 			const submissionToolNameSet = new Set(submissionToolNames);
 			const effectiveTools = input.agentCard.tools.filter((tool) => !submissionToolNameSet.has(tool));
 			if (input.kind === "execution") {
@@ -518,14 +514,22 @@ export class AgentSessionNodeRunner implements NodeRunner {
 			const unsubscribeSession = session.subscribe((event) => {
 				if (event.type === "message_end" && event.message.role === "assistant") {
 					generatedTokens += event.message.usage.output;
-					if (input.tokenBudget !== undefined && generatedTokens > input.tokenBudget) {
+					if (
+						input.budgetMode !== "unbounded" &&
+						input.tokenBudget !== undefined &&
+						generatedTokens > input.tokenBudget
+					) {
 						stopForGuard(
 							failure(
 								"budget_exceeded",
 								`${input.kind === "workflow_planner" ? "Planner" : "Node"} generated ${generatedTokens} tokens and exceeded its cumulative ${input.tokenBudget} token budget`,
 							),
 						);
-					} else if (input.kind === "execution" && input.tokenBudget !== undefined) {
+					} else if (
+						input.kind === "execution" &&
+						input.budgetMode !== "unbounded" &&
+						input.tokenBudget !== undefined
+					) {
 						const ratio = generatedTokens / input.tokenBudget;
 						if (ratio >= 0.9 && !tokenWarning90Sent) {
 							tokenWarning90Sent = true;
@@ -593,9 +597,10 @@ export class AgentSessionNodeRunner implements NodeRunner {
 				void session?.abort();
 			};
 			input.signal?.addEventListener("abort", onAbort, { once: true });
-			const timeoutMs = input.timeoutMs ?? input.agentCard.defaultBudget.timeoutMs;
+			const timeoutMs =
+				input.budgetMode === "unbounded" ? undefined : (input.timeoutMs ?? input.agentCard.defaultBudget.timeoutMs);
 			const deadlineWarnings =
-				input.kind === "execution"
+				input.kind === "execution" && timeoutMs !== undefined
 					? [
 							setTimeout(
 								() =>
@@ -613,18 +618,21 @@ export class AgentSessionNodeRunner implements NodeRunner {
 							),
 						]
 					: [];
-			const timeout = setTimeout(() => {
-				timedOut = true;
-				active.abortRequested = true;
-				void session?.abort();
-			}, timeoutMs);
+			const timeout =
+				timeoutMs === undefined
+					? undefined
+					: setTimeout(() => {
+							timedOut = true;
+							active.abortRequested = true;
+							void session?.abort();
+						}, timeoutMs);
 			try {
 				if (externallyAborted) await session.abort();
 				else await session.prompt(prompt.userPrompt, { images: prompt.images });
 			} catch (error) {
 				caughtError = error;
 			} finally {
-				clearTimeout(timeout);
+				if (timeout !== undefined) clearTimeout(timeout);
 				for (const warning of deadlineWarnings) clearTimeout(warning);
 				input.signal?.removeEventListener("abort", onAbort);
 				unsubscribeSession();
@@ -632,7 +640,7 @@ export class AgentSessionNodeRunner implements NodeRunner {
 			}
 
 			const trace = this.createTrace(input, session, selectedModel, startedAt);
-			if (timedOut) return { failure: failure("timeout", `Node exceeded ${timeoutMs} ms`), trace };
+			if (timedOut) return { failure: failure("timeout", `Node exceeded ${timeoutMs ?? 0} ms`), trace };
 			if (externallyAborted) return { failure: failure("aborted", "Node was aborted"), trace };
 			if (guardFailure) return { failure: guardFailure, trace };
 			if (active.abortRequested) return { failure: failure("aborted", "Node was aborted"), trace };

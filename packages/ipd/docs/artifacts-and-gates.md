@@ -16,7 +16,6 @@ interface ArtifactSubmission {
   createdAt: number;
   inputs: string[];
   files: Array<{
-    role: "primary" | "review" | "evidence";
     path: string;
     mimeType: string;
   }>;
@@ -28,7 +27,6 @@ Submission 是 Agent 声明，尚不能被信任。GraphEngine 调用 `createArt
 
 ```ts
 interface ArtifactManifestFile {
-  role: "primary" | "review" | "evidence";
   path: string;
   mimeType: string;
   sha256: string;
@@ -49,13 +47,12 @@ Artifact 文件必须：
 - `realpath()` 后仍位于真实 Workspace 内，符号链接不能逃逸；
 - 指向普通文件；
 - 同一 Submission 中路径不能重复；
-- 满足 Artifact Contract 要求的角色。
+- 至少提交一个文件。
 
 `validateArtifactManifest()` 重新检查：
 
 - Schema；
 - Contract ID；
-- required roles；
 - 规范化路径；
 - 文件存在和类型；
 - 当前大小等于记录大小；
@@ -63,28 +60,17 @@ Artifact 文件必须：
 
 文件在 Manifest 创建后被修改，会得到 `artifact_size_mismatch` 或 `artifact_hash_mismatch`。
 
-## 3. 文件角色
+## 3. 文件清单与验收含义
 
-### 3.1 `primary`
+Execution Node 可以提交一个或多个文件。Artifact 层不设置 `primary/review/evidence` 角色，也不根据文件数量推断业务意义。
 
-正式交付文件，例如源码、报告、PPTX、数据包或构建产物。
+Staff 在冻结 Workflow 时负责：
 
-Primary 可以是 Reviewer 无法直接解析的二进制格式，但必须配套可读的 review 派生物。
+- 用 Mechanical Criterion 定义必须存在的文件、数量、格式、Schema 或其他确定性要求；
+- 用 Semantic Criterion 定义 Reviewer 要检查的实际内容；
+- 用 Final Gate 决定最终业务交付包含哪些文件。
 
-### 3.2 `review`
-
-Reviewer 必须实际读取的内容，例如：
-
-- Markdown 或纯文本；
-- JSON 结构；
-- PNG/JPEG 等渲染图片；
-- 从二进制文件提取的文本、缩略图、报告或 contact sheet。
-
-每个 Execution Node 的 Contract 必须要求 review 角色。没有支持的 Review View 时 Gate 不能进入有效语义 PASS。
-
-### 3.3 `evidence`
-
-支持机械或语义判断的额外证据，例如测试报告、QA JSON、来源表、Hash Receipt。它可选，但不能替代 required review 内容。
+Artifact View 只把二进制或结构化文件转换为 Reviewer 可读取的表示，不创建业务角色。文件没有 View Provider 时仍作为 reference 进入 Review Bundle，由 Reviewer 根据冻结 Criterion 判断证据是否充分。
 
 ## 4. Artifact 状态
 
@@ -162,11 +148,7 @@ interface ReviewBundle {
 | `builtin-json` | `application/json` | 解析后的 JsonValue，超限或非法 JSON 阻塞 |
 | `builtin-image` | PNG/JPEG/GIF/WebP | Base64 ImageContent |
 
-不支持的 MIME：
-
-- 非 review 文件生成 `reference`，说明应使用 review 派生物；
-- review 文件没有 Provider 时得到 `review_bundle_missing`；
-- Provider 读取失败得到 `artifact_view_failed`。
+不支持的 MIME 会生成 `reference`；Provider 读取失败得到 `artifact_view_failed`。是否因此不能 PASS 由冻结 Semantic Criterion 和 Reviewer 决定，不由文件角色预判。
 
 Bundle 构造前会再次验证 Manifest，因此 Reviewer 不会读取已经改变但仍沿用旧 Hash 的文件。
 
@@ -185,17 +167,17 @@ ReviewerSelector 输入：
 选择过程：
 
 1. 排除生产者；
-
-返工 Gate 会把同一节点之前的 Criterion 结论与证据交给 Reviewer。上一轮 PASS 不是永久锁定，但改判 FAIL 必须引用新版 Artifact 的具体回归证据；已披露风险不能在冻结 Criterion 未要求时无依据升级为阻断项。
 2. 排除没有任何 read scope 的 Card；
 3. 按 Card ID/version 排序；
-4. 对每个 Reviewer Requirement 查找同时具备全部 capability 的 Card；
-5. 一个 Gate Run 中同一 Card 只分配一次；
-6. 选择前 `minCount` 个匹配 Card；
+4. 把每个 Reviewer Requirement 按 `minCount` 展开为 slot；
+5. 用确定性二分匹配求完整的全局互斥分配，一个 Gate Run 中同一 Card 只分配一次；
+6. 若通用 slot 抢占了后续专用 Reviewer，分配器会回溯并改配，而不是使用贪心首匹配误报失败；
 7. 将 Requirement 能覆盖的 semantic Criterion 分配给这些 Reviewer；
 8. 任一 Criterion 未覆盖或数量不足时整体选择失败。
 
 局部 Gate 排除当前生产者。Final Gate 排除 Workflow 全部 Execution AgentCard，因此最终 Reviewer 必须独立于所有生产节点。
+
+Compiler 调用同一分配器，因此无法在编译期形成完整互斥分配的 Workflow 不会被冻结。返工 Gate 会把同一节点之前的 Criterion 结论与证据交给 Reviewer。上一轮 PASS 不是永久锁定，但改判 FAIL 必须引用新版 Artifact 的具体回归证据；已披露风险不能在冻结 Criterion 未要求时无依据升级为阻断项。
 
 ## 8. Reviewer AgentSession
 
@@ -338,9 +320,9 @@ interface ArtifactViewProvider {
 Provider 应：
 
 - 读取 hash-bound 文件；
-- 设置正确 MIME 和 role；
+- 设置正确 MIME；
 - 对大小和解析失败显式报错；
-- 为 review 文件返回 text/json/image 内容，不返回空 reference；
+- 能解析时返回 text/json/image 内容，不能解析时显式失败；
 - 不修改 Artifact。
 
 注册到 `ArtifactViewRegistry` 后，DynamicGateEvaluator 才能使用。

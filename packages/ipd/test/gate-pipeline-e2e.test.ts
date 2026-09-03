@@ -89,11 +89,19 @@ describe("real Gate Pipeline integration", () => {
 
 			faux.setResponses([
 				fauxAssistantMessage(
+					fauxToolCall("write", { path: "outputs/primary.txt", content: "final primary content" }),
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
+					fauxToolCall("write", { path: "outputs/review.txt", content: "reviewable final content" }),
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(
 					fauxToolCall("submit_artifact", {
 						summary: "Candidate Artifact",
 						files: [
-							{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" },
-							{ role: "review", path: "outputs/review.txt", mimeType: "text/plain" },
+							{ path: "outputs/primary.txt", mimeType: "text/plain" },
+							{ path: "outputs/review.txt", mimeType: "text/plain" },
 						],
 						metadata: {},
 					}),

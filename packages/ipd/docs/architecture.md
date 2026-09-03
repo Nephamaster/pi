@@ -124,7 +124,7 @@ SQLite Ledger 是运行事实源：
 
 - 将结构化 `ArtifactSubmission` 转换为带真实路径、大小和 SHA-256 的 `ArtifactManifest`；
 - 验证 Manifest 与当前文件和 Artifact Contract 一致；
-- 从 review 文件生成模型可读取的 `ReviewBundle`；
+- 从 Artifact 文件及其 View 生成模型可读取的 `ReviewBundle`；
 - 为文本、JSON、图片和不支持的 MIME 生成不同 Review Material。
 
 Artifact 文件仍位于工作区，Ledger 只保存 Manifest 和 Hash。
@@ -147,7 +147,7 @@ Gate 不修改业务文件。
 `IpdRuntime` 是高层门面：
 
 - start 前加载资产；
-- 计算默认预算；
+- 根据 `ifBudget` 构造显式 unbounded 或 bounded 预算；
 - 调用 Planner；
 - Planner 成功后调用 GraphEngine；
 - 将 Ledger Snapshot 转换为 Tool Result。
@@ -164,7 +164,7 @@ Gate 不修改业务文件。
 - 技术重试、质量返工、阻塞升级、恢复和取消；
 - Execution、Reviewer 和 Staff Usage 登记。
 
-Gate 在 Attempt Workspace 中读取 Candidate；只有 PASS 后，Manifest 中声明的文件才原子发布到正式工作区。失败、超时和取消 Attempt 的工作文件保留在 `.pi/ipd/attempts/` 作为检查点，不进入下游。
+Gate 在 Attempt Workspace 中读取 Candidate；只有 PASS 后，Manifest 文件才发布到当前 Run 的共享 `workspace/` 和 `accepted/`。失败、超时和取消 Attempt 保留在 `.pi/ipd/runs/<run-id>/work/`，不进入下游；Final Gate PASS 后最终文件发布到同一 Run 的 `final/`。项目既有 `outputs/` 不复制进新 Run。
 
 ### 3.8 `adapter/`
 
@@ -187,10 +187,10 @@ Harness v2 尚未接入；未来应新增 NodeRunner Adapter，而不是修改 W
 
 `tool/` 提供：
 
-- 四类 Command Schema；
+- 五类模型 Tool Command Schema 与用户专用 Resume Command；
 - Tool-call ID 进程内幂等；
 - Skill 文件读取和 Snapshot；
-- start/resume/status/cancel 分发；
+- 模型 Tool 的 start/resume_run/status/watch/cancel 分发，以及用户专用 `/ipd-resume` Command；
 - `IpdToolResult` 类型。
 
 `examples/ipd-extension.ts` 负责 Pi Extension API 适配。它缓存 `before_agent_start` 提供的 Skill 列表，并把 cwd、当前模型、thinking level、项目可信状态和 AbortSignal 传给 Controller。
@@ -205,7 +205,7 @@ Harness v2 尚未接入；未来应新增 NodeRunner Adapter，而不是修改 W
 | AgentCard | 用户/项目资产 | 跨 Run 复用 | 不可；Run 冻结当前完整 Card Pool Snapshot |
 | Fixed Staff Core | Runtime 从 `staff-core` Card 中确定 | 每次 start 前重新解析，Workflow 内冻结 | ST 不能替换 |
 | Workflow Asset | 人工模板或 ST 生成 | 跨 Run 复用 | 文件不可覆盖；内容变化必须升版本 |
-| Workflow Snapshot | Planner + Compiler | 单 Run | 冻结后不可修改 |
+| Workflow Snapshot | Planner + Compiler | 单 Run、多 revision | 单个 revision 不可修改；受控 Amendment 只追加新 revision |
 | Node Attempt | GraphEngine | 单 Run、单次尝试 | 只能按状态机迁移 |
 | AgentSession | NodeRunner | 单 Attempt 或 Decision | Session 自身不是真相源 |
 | Artifact | Execution Attempt | 单 Run | Manifest 登记后只改变 candidate/accepted/rejected 状态 |
@@ -263,10 +263,12 @@ IpdRuntime.result
 
 Skill 或 AgentCard 解析失败发生在 Planner 创建 Run 之前，不会留下半创建 Run。Planner 开始后发生的失败会进入 Ledger。
 
-## 6. `resume` 时序
+## 6. 用户 `/ipd-resume` 时序
 
 ```text
-resume(runId, escalationId, answer)
+/ipd-resume runId escalationId
+  → Pi UI 采集回答并二次确认
+  → Controller.resumeAsUser(runId, escalationId, answer)
   → Controller 重新读取当前可用 Skill 文件
   → Runtime 查找 Run 冻结的 skill name + hash
   → Skill Snapshot 不存在或 Hash 改变：拒绝恢复

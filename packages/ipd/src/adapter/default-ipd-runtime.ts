@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { type ModelRegistry, ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createDefaultArtifactViewRegistry } from "../artifact/review-bundle.ts";
 import { DynamicGateEvaluator } from "../gate/dynamic-gate-evaluator.ts";
@@ -17,6 +17,7 @@ import {
 	IpdRuntimeError,
 	type PreparedIpdRuntimeAssets,
 } from "../runtime/ipd-runtime.ts";
+import { createToolEffectRegistry } from "../runtime/tool-effects.ts";
 import { WorkflowPlanner } from "../staff/workflow-planner.ts";
 import { AgentSessionNodeRunner } from "./agent-session-node-runner.ts";
 
@@ -26,6 +27,7 @@ export interface CreateDefaultIpdRuntimeOptions {
 	agentDir: string;
 	modelRegistry?: ModelRegistry;
 	ledgerPath?: string;
+	workflowDirectory?: string;
 	customTools?: readonly ToolDefinition[];
 }
 
@@ -62,6 +64,7 @@ class FileIpdRuntimeAssetProvider implements IpdRuntimeAssetProvider {
 	private readonly ledger: SqliteIpdLedger;
 	private readonly checks: CheckExecutorRegistry;
 	private readonly toolNames: ReadonlySet<string>;
+	private readonly workflowDirectory: string;
 
 	constructor(options: {
 		agentDir: string;
@@ -70,6 +73,7 @@ class FileIpdRuntimeAssetProvider implements IpdRuntimeAssetProvider {
 		ledger: SqliteIpdLedger;
 		checks: CheckExecutorRegistry;
 		toolNames: ReadonlySet<string>;
+		workflowDirectory: string;
 	}) {
 		this.agentDir = options.agentDir;
 		this.modelRuntime = options.modelRuntime;
@@ -77,14 +81,13 @@ class FileIpdRuntimeAssetProvider implements IpdRuntimeAssetProvider {
 		this.ledger = options.ledger;
 		this.checks = options.checks;
 		this.toolNames = options.toolNames;
+		this.workflowDirectory = options.workflowDirectory;
 	}
 
 	async prepare(context: IpdRuntimeAssetContext): Promise<PreparedIpdRuntimeAssets> {
 		const cardDirectories = [join(this.agentDir, "ipd", "agent-cards")];
-		const workflowDirectories = [join(this.agentDir, "ipd", "workflows")];
 		if (context.projectTrusted) {
 			cardDirectories.push(join(context.cwd, ".pi", "ipd", "agent-cards"));
-			workflowDirectories.push(join(context.cwd, ".pi", "ipd", "workflows"));
 		}
 		const cards = await loadAgentCardAssets(cardDirectories, {
 			skillNames: new Set(context.availableSkills.map((skill) => skill.name)),
@@ -105,7 +108,7 @@ class FileIpdRuntimeAssetProvider implements IpdRuntimeAssetProvider {
 		}
 		const { plannerCard, staffCoreCards } = selectFixedStaffCore(cards.cards);
 
-		const workflows = await loadWorkflowAssets(workflowDirectories);
+		const workflows = await loadWorkflowAssets([this.workflowDirectory]);
 		if (!workflows.ok) {
 			throw new IpdRuntimeError(
 				"workflow_assets_invalid",
@@ -113,9 +116,6 @@ class FileIpdRuntimeAssetProvider implements IpdRuntimeAssetProvider {
 				workflows.diagnostics,
 			);
 		}
-		const generatedDirectory = context.projectTrusted
-			? join(context.cwd, ".pi", "ipd", "workflows", "generated")
-			: join(this.agentDir, "ipd", "workflows", "generated");
 		return {
 			agentCards: cards.cards,
 			plannerCard,
@@ -124,7 +124,7 @@ class FileIpdRuntimeAssetProvider implements IpdRuntimeAssetProvider {
 			planner: new WorkflowPlanner({
 				ledger: this.ledger,
 				nodeRunner: this.nodeRunner,
-				assetStore: new FileWorkflowAssetStore({ directory: generatedDirectory }),
+				assetStore: new FileWorkflowAssetStore({ directory: this.workflowDirectory }),
 				toolNames: this.toolNames,
 				checks: this.checks.list(),
 			}),
@@ -151,6 +151,7 @@ export async function createDefaultIpdRuntime(options: CreateDefaultIpdRuntimeOp
 	const ledger = new SqliteIpdLedger({
 		databasePath: options.ledgerPath ?? join(options.agentDir, "ipd", "ipd.sqlite"),
 	});
+	const workflowDirectory = options.workflowDirectory ?? join(dirname(options.agentDir), "ipd", "workflow");
 	const nodeRunner = new AgentSessionNodeRunner({
 		modelRuntime,
 		agentDir: options.agentDir,
@@ -170,6 +171,7 @@ export async function createDefaultIpdRuntime(options: CreateDefaultIpdRuntimeOp
 		nodeRunner,
 		gateEvaluator,
 		budgetController: new StaffBudgetController({ ledger, nodeRunner }),
+		toolEffects: createToolEffectRegistry(customTools),
 	});
 	return new IpdRuntime({
 		ledger,
@@ -181,6 +183,7 @@ export async function createDefaultIpdRuntime(options: CreateDefaultIpdRuntimeOp
 			ledger,
 			checks,
 			toolNames,
+			workflowDirectory,
 		}),
 	});
 }

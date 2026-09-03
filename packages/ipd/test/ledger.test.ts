@@ -147,6 +147,42 @@ function recordPassingGate(options: {
 }
 
 describe("SqliteIpdLedger", () => {
+	it("appends same-Run Workflow revisions without rewriting the frozen history", async () => {
+		const databasePath = await createDatabasePath();
+		const workflow = createCompiledWorkflow();
+		const cards = createTestCards();
+		const ledger = new SqliteIpdLedger({ databasePath });
+		try {
+			freezeRun(ledger, workflow);
+			ledger.transitionRun({ runId: "run-1", idempotencyKey: "run-start", status: "running" });
+			ledger.transitionRun({ runId: "run-1", idempotencyKey: "run-replanning", status: "replanning" });
+			const amendedDefinition = structuredClone(workflow.definition);
+			amendedDefinition.version = "1.1.0";
+			amendedDefinition.name = "Amended Test Workflow";
+			const compiledAmendment = compileWorkflow(amendedDefinition, createCompileContext(cards));
+			if (!compiledAmendment.ok) {
+				throw new Error(compiledAmendment.diagnostics.map((item) => item.message).join("\n"));
+			}
+			const amended = ledger.amendWorkflow({
+				runId: "run-1",
+				idempotencyKey: "workflow-amendment-2",
+				workflow: compiledAmendment.value,
+			});
+
+			expect(amended.revision).toBe(2);
+			const snapshot = ledger.getRunSnapshot("run-1");
+			expect(snapshot.run.status).toBe("ready");
+			expect(snapshot.workflow).toMatchObject({ revision: 2, version: "1.1.0" });
+			expect(snapshot.workflowHistory.map((item) => ({ revision: item.revision, hash: item.hash }))).toEqual([
+				{ revision: 1, hash: workflow.hash },
+				{ revision: 2, hash: compiledAmendment.value.hash },
+			]);
+			expect(snapshot.events.map((event) => event.type)).toContain("workflow_amended");
+		} finally {
+			ledger.close();
+		}
+	});
+
 	it("stores a complete Run with atomic snapshots and contiguous events", async () => {
 		const databasePath = await createDatabasePath();
 		const workflow = createCompiledWorkflow();
@@ -184,7 +220,7 @@ describe("SqliteIpdLedger", () => {
 				nodeId: "produce",
 				attemptId: "attempt-1",
 				contractId: "content-output",
-				manifest: { files: [{ role: "primary", path: "outputs/result.txt" }] },
+				manifest: { files: [{ path: "outputs/result.txt" }] },
 			});
 			ledger.transitionNode({
 				runId: "run-1",

@@ -1,22 +1,24 @@
 import { createHash } from "node:crypto";
+import { join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { NodeRunner, NodeRunTrace, SkillSnapshot } from "../adapter/node-runner.ts";
 import { compileWorkflow } from "../ir/compiler.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
-import type { WorkflowDefinition } from "../ir/schemas.ts";
+import { type WorkflowDefinition, WorkflowDefinitionSchema } from "../ir/schemas.ts";
 import type {
 	CheckDefinition,
 	CompiledAgentCard,
 	CompiledWorkflow,
 	IpdDiagnostic,
+	JsonValue,
 	WorkflowAssetRecord,
 } from "../ir/types.ts";
+import { validateSchema } from "../ir/validation.ts";
 import type { SqliteIpdLedger } from "../ledger/sqlite-ledger.ts";
-import type { WorkflowVersionRecord } from "../ledger/types.ts";
-import type { WorkflowAssetStore } from "../registry/workflow-asset-store.ts";
+import type { RunSnapshot, WorkflowVersionRecord } from "../ledger/types.ts";
+import { type WorkflowAssetStore, WorkflowAssetWriteError } from "../registry/workflow-asset-store.ts";
 import { createIpdFailure, type IpdFailureCategory } from "../runtime/failure.ts";
-import { WORKFLOW_AUTHORING_GUIDE_VERSION } from "./workflow-authoring-guide.ts";
 
 export type WorkflowPlanningFailureCode =
 	| "missing_skill"
@@ -56,11 +58,16 @@ export interface PlanAndFreezeWorkflowRequest {
 	staffCoreCards: readonly CompiledAgentCard[];
 	templates: readonly WorkflowAssetRecord[];
 	workflowTemplateId?: string;
+	workflowTemplateVersion?: string;
+	workflowTemplateHash?: string;
 	globalBudget: WorkflowDefinition["globalBudget"];
 	cwd: string;
 	runDefaultModel: Model<Api>;
 	runDefaultThinkingLevel: ThinkingLevel;
 	maxRevisions?: number;
+	resumeExistingRun?: boolean;
+	amendExistingWorkflow?: boolean;
+	amendmentContext?: JsonValue;
 	signal?: AbortSignal;
 }
 
@@ -133,6 +140,17 @@ export class WorkflowPlanner {
 
 	async planAndFreeze(request: PlanAndFreezeWorkflowRequest): Promise<PlanAndFreezeWorkflowResult> {
 		const traces: NodeRunTrace[] = [];
+		if (request.resumeExistingRun && request.amendExistingWorkflow) {
+			return {
+				ok: false,
+				failure: planningFailure(
+					"ledger_failed",
+					"Initial planning recovery and Workflow amendment are mutually exclusive",
+				),
+				traces,
+				revisions: 0,
+			};
+		}
 		if (!request.skill) {
 			return {
 				ok: false,
@@ -204,20 +222,36 @@ export class WorkflowPlanner {
 			};
 		}
 
+		let currentWorkflow: WorkflowVersionRecord | undefined;
 		try {
-			this.ledger.createRun({
-				runId: request.runId,
-				traceId: request.traceId,
-				idempotencyKey: `workflow-planner:${request.runId}:create`,
-				task: request.task,
-				skill: { name: request.skill.name, hash: request.skill.hash },
-				globalBudget: toJsonValue(request.globalBudget),
-			});
-			this.ledger.transitionRun({
-				runId: request.runId,
-				idempotencyKey: `workflow-planner:${request.runId}:compiling`,
-				status: "compiling",
-			});
+			currentWorkflow = request.amendExistingWorkflow
+				? this.ledger.getRunSnapshot(request.runId).workflow
+				: undefined;
+			if (request.amendExistingWorkflow && !currentWorkflow) {
+				throw new Error(`Cannot amend Run without a frozen Workflow: ${request.runId}`);
+			}
+			if (!request.resumeExistingRun && !request.amendExistingWorkflow)
+				this.ledger.createRun({
+					runId: request.runId,
+					traceId: request.traceId,
+					idempotencyKey: `workflow-planner:${request.runId}:create`,
+					task: request.task,
+					skill: { name: request.skill.name, hash: request.skill.hash },
+					globalBudget: toJsonValue(request.globalBudget),
+				});
+			if (!request.resumeExistingRun && !request.amendExistingWorkflow)
+				this.ledger.transitionRun({
+					runId: request.runId,
+					idempotencyKey: `workflow-planner:${request.runId}:compiling`,
+					status: "compiling",
+				});
+			if (request.resumeExistingRun && this.ledger.getRun(request.runId)?.status === "planning") {
+				this.ledger.transitionRun({
+					runId: request.runId,
+					idempotencyKey: `workflow-planner:${request.runId}:resume-compiling`,
+					status: "compiling",
+				});
+			}
 		} catch (error) {
 			return {
 				ok: false,
@@ -227,21 +261,61 @@ export class WorkflowPlanner {
 			};
 		}
 
-		let previousCandidate: WorkflowDefinition | undefined;
+		let planningSnapshot: RunSnapshot;
+		try {
+			planningSnapshot = this.ledger.getRunSnapshot(request.runId);
+		} catch (error) {
+			return {
+				ok: false,
+				failure: planningFailure("ledger_failed", error instanceof Error ? error.message : String(error)),
+				traces,
+				revisions: 0,
+			};
+		}
+		const planningCycle =
+			planningSnapshot.events.filter((event) => event.type === "workflow_planning_started").length + 1;
+		this.ledger.recordRunEvent({
+			runId: request.runId,
+			idempotencyKey: `workflow-planner:${request.runId}:cycle:${planningCycle}:started`,
+			type: "workflow_planning_started",
+			payload: {
+				planningCycle,
+				mode: request.amendExistingWorkflow ? "amend" : request.resumeExistingRun ? "resume_initial" : "initial",
+				baseWorkflowRevision: currentWorkflow?.revision ?? null,
+			},
+		});
+		let previousCandidate: WorkflowDefinition | undefined = currentWorkflow?.definition;
+		if (request.resumeExistingRun && !previousCandidate) {
+			const rejected = [...planningSnapshot.decisions]
+				.reverse()
+				.find((decision) => decision.type === "workflow_candidate" && decision.action === "reject");
+			if (
+				rejected &&
+				typeof rejected.evidence === "object" &&
+				rejected.evidence !== null &&
+				!Array.isArray(rejected.evidence)
+			) {
+				const parsed = validateSchema<WorkflowDefinition>(WorkflowDefinitionSchema, rejected.evidence.candidate);
+				if (parsed.ok) previousCandidate = parsed.value;
+			}
+		}
 		let previousDiagnostics: IpdDiagnostic[] = [];
 		for (let revision = 1; revision <= maxRevisions; revision++) {
 			const result = await this.nodeRunner.runDecisionNode({
 				kind: "workflow_planner",
 				runId: request.runId,
-				instanceId: `workflow-planner:${request.runId}:${revision}`,
+				instanceId: `workflow-planner:${request.runId}:cycle:${planningCycle}:candidate:${revision}`,
 				task: request.task,
 				workflowHash: request.skill.hash,
 				cwd: request.cwd,
+				sessionDirectory: join(request.cwd, ".pi", "ipd", "runs", request.runId, "sessions"),
 				agentCard: request.plannerCard,
 				skills: [request.skill],
 				runDefaultModel: request.runDefaultModel,
 				runDefaultThinkingLevel: request.runDefaultThinkingLevel,
-				tokenBudget: request.globalBudget.staffTokens,
+				budgetMode: request.globalBudget.mode,
+				tokenBudget: request.globalBudget.mode === "bounded" ? request.globalBudget.staffTokens : undefined,
+				timeoutMs: request.globalBudget.mode === "bounded" ? request.globalBudget.timeLimitMs : undefined,
 				context: this.createPlannerContext(request, revision, previousCandidate, previousDiagnostics),
 				checks: this.checks,
 				workflowConstraints: {
@@ -256,10 +330,7 @@ export class WorkflowPlanner {
 					},
 				},
 				initialWorkflow:
-					previousCandidate ??
-					(request.workflowTemplateId
-						? request.templates.find((template) => template.workflow.id === request.workflowTemplateId)?.workflow
-						: undefined),
+					previousCandidate ?? (request.workflowTemplateId ? request.templates[0]?.workflow : undefined),
 				signal: request.signal,
 			});
 			traces.push(result.trace);
@@ -273,7 +344,7 @@ export class WorkflowPlanner {
 							? "planner_invalid_submission"
 							: "planner_failed";
 				const retryable = !result.ok && result.failure.code === "provider_error";
-				await this.failRun(request.runId, revision, code, message, [], traces, retryable);
+				await this.failRun(request.runId, planningCycle, revision, code, message, [], traces, retryable);
 				return {
 					ok: false,
 					failure: planningFailure(code, message),
@@ -304,20 +375,28 @@ export class WorkflowPlanner {
 				toolNames: this.toolNames,
 				checks: this.checks,
 				workflowAssetIds: new Set(request.templates.map((template) => template.workflow.id)),
+				workflowAssetRefs: new Set(
+					request.templates.map(
+						(template) => `${template.workflow.id}@${template.workflow.version}#${template.hash}`,
+					),
+				),
 			});
 			if (!compiled.ok) planningDiagnostics.push(...compiled.diagnostics);
+			if (compiled.ok && request.amendExistingWorkflow) {
+				planningDiagnostics.push(...this.ledger.validateWorkflowAmendment(request.runId, compiled.value));
+			}
 			if (!compiled.ok || planningDiagnostics.length > 0) {
 				previousCandidate = candidate;
 				previousDiagnostics = planningDiagnostics;
-				this.ledger.recordDecision({
-					runId: request.runId,
-					idempotencyKey: `workflow-planner:${request.runId}:rejected:${revision}`,
-					decisionId: `workflow-candidate-rejected:${request.runId}:${revision}`,
-					type: "workflow_candidate",
-					action: "reject",
-					rationale: "Workflow Compiler rejected the candidate",
-					evidence: toJsonValue({ candidate, diagnostics: planningDiagnostics, trace: result.trace }),
-				});
+				this.recordCandidateRejection(
+					request.runId,
+					planningCycle,
+					revision,
+					candidate,
+					planningDiagnostics,
+					result.trace,
+					"Workflow Compiler rejected the candidate",
+				);
 				continue;
 			}
 
@@ -325,8 +404,27 @@ export class WorkflowPlanner {
 			try {
 				asset = (await this.assetStore.save(compiled.value.definition, compiled.value.hash)).record;
 			} catch (error) {
+				if (error instanceof WorkflowAssetWriteError && error.code === "version_conflict") {
+					const diagnostic: IpdDiagnostic = {
+						code: "workflow_version_conflict",
+						path: "/version",
+						message: `${error.message}. Call submit_workflow_header with the same Workflow ID and a new, higher SemVer that is not already used; keep all unrelated preloaded sections unchanged, then finalize again.`,
+					};
+					previousCandidate = candidate;
+					previousDiagnostics = [diagnostic];
+					this.recordCandidateRejection(
+						request.runId,
+						planningCycle,
+						revision,
+						candidate,
+						[diagnostic],
+						result.trace,
+						"Workflow Asset version conflicts with different existing content",
+					);
+					continue;
+				}
 				const message = error instanceof Error ? error.message : String(error);
-				await this.failRun(request.runId, revision, "asset_write_failed", message, [], traces);
+				await this.failRun(request.runId, planningCycle, revision, "asset_write_failed", message, [], traces);
 				return {
 					ok: false,
 					failure: planningFailure("asset_write_failed", message),
@@ -336,15 +434,18 @@ export class WorkflowPlanner {
 			}
 
 			try {
-				const workflowVersion = this.ledger.freezeWorkflow({
+				const freezeInput = {
 					runId: request.runId,
-					idempotencyKey: `workflow-planner:${request.runId}:freeze`,
+					idempotencyKey: `workflow-planner:${request.runId}:cycle:${planningCycle}:freeze`,
 					workflow: compiled.value,
-				});
+				};
+				const workflowVersion = request.amendExistingWorkflow
+					? this.ledger.amendWorkflow(freezeInput)
+					: this.ledger.freezeWorkflow(freezeInput);
 				this.ledger.recordDecision({
 					runId: request.runId,
-					idempotencyKey: `workflow-planner:${request.runId}:accepted`,
-					decisionId: `workflow-candidate-accepted:${request.runId}`,
+					idempotencyKey: `workflow-planner:${request.runId}:cycle:${planningCycle}:accepted`,
+					decisionId: `workflow-candidate-accepted:${request.runId}:${planningCycle}`,
 					type: "workflow_candidate",
 					action: "accept",
 					rationale: "Workflow passed deterministic compilation and was frozen",
@@ -368,7 +469,7 @@ export class WorkflowPlanner {
 				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				await this.failRun(request.runId, revision, "ledger_failed", message, [], traces);
+				await this.failRun(request.runId, planningCycle, revision, "ledger_failed", message, [], traces);
 				return {
 					ok: false,
 					failure: planningFailure("ledger_failed", message),
@@ -378,8 +479,16 @@ export class WorkflowPlanner {
 			}
 		}
 
-		const message = `Workflow Compiler rejected all ${maxRevisions} candidate revisions`;
-		await this.failRun(request.runId, maxRevisions, "compiler_exhausted", message, previousDiagnostics, traces);
+		const message = `Workflow planning exhausted all ${maxRevisions} candidate revisions`;
+		await this.failRun(
+			request.runId,
+			planningCycle,
+			maxRevisions,
+			"compiler_exhausted",
+			message,
+			previousDiagnostics,
+			traces,
+		);
 		return {
 			ok: false,
 			failure: planningFailure("compiler_exhausted", message, previousDiagnostics),
@@ -388,15 +497,74 @@ export class WorkflowPlanner {
 		};
 	}
 
+	private recordCandidateRejection(
+		runId: string,
+		planningCycle: number,
+		revision: number,
+		candidate: WorkflowDefinition,
+		diagnostics: readonly IpdDiagnostic[],
+		trace: NodeRunTrace,
+		rationale: string,
+	): void {
+		this.ledger.recordDecision({
+			runId,
+			idempotencyKey: `workflow-planner:${runId}:cycle:${planningCycle}:rejected:${revision}`,
+			decisionId: `workflow-candidate-rejected:${runId}:${planningCycle}:${revision}`,
+			type: "workflow_candidate",
+			action: "reject",
+			rationale,
+			evidence: toJsonValue({ candidate, diagnostics, trace }),
+		});
+	}
+
 	private createPlannerContext(
 		request: PlanAndFreezeWorkflowRequest,
 		revision: number,
 		previousCandidate: WorkflowDefinition | undefined,
 		previousDiagnostics: readonly IpdDiagnostic[],
 	) {
+		const preloaded = previousCandidate ?? request.templates[0]?.workflow;
+		const loadedSections = preloaded
+			? {
+					header: preloaded.id,
+					acceptanceCriteria: preloaded.acceptanceCriteria.map((criterion) => criterion.id),
+					nodes: preloaded.nodes.map((node) => node.id),
+					nodeGates: preloaded.nodes.map((node) => node.gate.id),
+					finalGate: preloaded.finalGate.id,
+				}
+			: null;
+		const editableSections = Array.from(
+			new Set(
+				previousDiagnostics.map((diagnostic) => {
+					const nodeMatch = diagnostic.path.match(/^\/nodes\/(\d+)/);
+					if (nodeMatch && previousCandidate) {
+						const node = previousCandidate.nodes[Number(nodeMatch[1])];
+						return node ? `node:${node.id}` : "nodes";
+					}
+					if (diagnostic.path.startsWith("/final")) return "final";
+					if (diagnostic.path.startsWith("/acceptanceCriteria")) return "acceptance";
+					return "header";
+				}),
+			),
+		);
 		return toJsonValue({
 			revision,
-			workflowAuthoringGuideVersion: WORKFLOW_AUTHORING_GUIDE_VERSION,
+			workflowRevision: request.amendExistingWorkflow
+				? (this.ledger.getRunSnapshot(request.runId).workflow?.revision ?? 0) + 1
+				: 1,
+			amendment: request.amendExistingWorkflow
+				? {
+						mode: "same_run",
+						context: request.amendmentContext ?? null,
+						constraints: [
+							"Keep already accepted Nodes byte-for-byte unchanged when reusing their Artifacts",
+							"Replace every attempted non-succeeded Node with a new Node ID",
+							"Do not mutate or delete prior Attempts, Gates, Decisions, or Artifacts",
+						],
+					}
+				: null,
+			loadedSections,
+			editableSections: editableSections.length > 0 ? editableSections : ["all"],
 			globalBudget: request.globalBudget,
 			fixedStaffCore: request.staffCoreCards.map((card) => cardSummary(card, true)),
 			agentCards: request.agentCards.map((card) =>
@@ -415,7 +583,12 @@ export class WorkflowPlanner {
 				previousCandidate !== undefined
 					? { source: "previous_candidate", id: previousCandidate.id, version: previousCandidate.version }
 					: request.workflowTemplateId
-						? { source: "template", id: request.workflowTemplateId }
+						? {
+								source: "template",
+								id: request.workflowTemplateId,
+								version: request.workflowTemplateVersion,
+								hash: request.workflowTemplateHash,
+							}
 						: null,
 			mechanicalChecks: this.checks.map((check) => ({
 				id: check.id,
@@ -435,6 +608,7 @@ export class WorkflowPlanner {
 
 	private async failRun(
 		runId: string,
+		planningCycle: number,
 		revision: number,
 		code: WorkflowPlanningFailureCode,
 		message: string,
@@ -445,8 +619,8 @@ export class WorkflowPlanner {
 		try {
 			this.ledger.recordDecision({
 				runId,
-				idempotencyKey: `workflow-planner:${runId}:failed-decision:${revision}`,
-				decisionId: `workflow-planning-failed:${runId}:${revision}`,
+				idempotencyKey: `workflow-planner:${runId}:cycle:${planningCycle}:failed-decision:${revision}`,
+				decisionId: `workflow-planning-failed:${runId}:${planningCycle}:${revision}`,
 				type: "workflow_planning",
 				action: "fail",
 				rationale: message,
@@ -454,7 +628,7 @@ export class WorkflowPlanner {
 			});
 			this.ledger.transitionRun({
 				runId,
-				idempotencyKey: `workflow-planner:${runId}:failed:${revision}`,
+				idempotencyKey: `workflow-planner:${runId}:cycle:${planningCycle}:failed:${revision}`,
 				status: "failed",
 				failure: toJsonValue(
 					createIpdFailure({

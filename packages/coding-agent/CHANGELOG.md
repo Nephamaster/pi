@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `pi.getToolDefinitions()` so extensions can reuse the executable definitions of currently active tools in controlled child sessions.
+
 ### Fixed
 
 - Fixed proxied plain-HTTP provider requests hanging after a tool call by tunneling them with CONNECT ([#8134](https://github.com/earendil-works/pi/issues/8134)).

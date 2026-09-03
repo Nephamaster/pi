@@ -207,4 +207,16 @@ describe("validateToolArguments", () => {
 			expect(() => validateToolArguments(tool, toolCall)).toThrow("Validation failed");
 		}
 	});
+
+	it("truncates large invalid Tool arguments while preserving diagnostics", () => {
+		const { tool, toolCall } = createToolCallWithPlainSchema(
+			{ type: "object", required: ["path"], properties: { path: { type: "string" } } } as Tool["parameters"],
+			{ content: "x".repeat(20_000) },
+		);
+		expect(() => validateToolArguments(tool, toolCall)).toThrowError(
+			expect.objectContaining({
+				message: expect.stringMatching(/^Validation failed[\s\S]*Argument preview:[\s\S]*characters omitted/),
+			}),
+		);
+	});
 });

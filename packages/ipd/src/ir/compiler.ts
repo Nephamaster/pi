@@ -1,6 +1,7 @@
 import { InMemoryCheckRegistry } from "../registry/check-registry.ts";
 import { topologicalSort } from "./graph.ts";
 import { freezeDeep, hashJson } from "./hash.ts";
+import { allocateReviewers } from "./reviewer-allocation.ts";
 import {
 	type AgentCardRef,
 	type CompiledAgentCard,
@@ -15,6 +16,10 @@ import { validateSchema } from "./validation.ts";
 
 function cardKey(ref: AgentCardRef): string {
 	return `${ref.id}@${ref.version}#${ref.hash}`;
+}
+
+function workflowAssetKey(id: string, version: string, hash: string): string {
+	return `${id}@${version}#${hash}`;
 }
 
 function diagnostic(code: IpdDiagnostic["code"], path: string, message: string): IpdDiagnostic {
@@ -118,10 +123,6 @@ function validateNodePermissions(
 	return scopes;
 }
 
-function hasCapabilities(card: CompiledAgentCard, capabilities: readonly string[]): boolean {
-	return capabilities.every((capability) => card.capabilities.includes(capability));
-}
-
 function validateGate(
 	gate: GateDefinition,
 	path: string,
@@ -166,36 +167,7 @@ function validateGate(
 		);
 	}
 
-	for (const [index, criterion] of gate.semanticCriteria.entries()) {
-		const covered = gate.reviewers.some((requirement) =>
-			criterion.reviewerCapabilities.every((capability) => requirement.capabilities.includes(capability)),
-		);
-		if (!covered) {
-			diagnostics.push(
-				diagnostic(
-					"reviewer_unavailable",
-					`${path}/semanticCriteria/${index}/reviewerCapabilities`,
-					`No reviewer requirement covers semantic criterion ${criterion.id}`,
-				),
-			);
-		}
-	}
-
-	for (const [index, requirement] of gate.reviewers.entries()) {
-		const capable = cards.filter(
-			(card) => !excludedCardKeys.has(cardKey(card)) && hasCapabilities(card, requirement.capabilities),
-		);
-		if (capable.length < requirement.minCount) {
-			const allCapable = cards.filter((card) => hasCapabilities(card, requirement.capabilities));
-			diagnostics.push(
-				diagnostic(
-					allCapable.length >= requirement.minCount ? "reviewer_not_independent" : "reviewer_unavailable",
-					`${path}/reviewers/${index}`,
-					`Reviewer requirement ${requirement.id} needs ${requirement.minCount} independent matching AgentCard(s), found ${capable.length}`,
-				),
-			);
-		}
-	}
+	diagnostics.push(...allocateReviewers(gate, cards, excludedCardKeys, path).diagnostics);
 
 	for (const [index, criterionId] of gate.objectiveCoverage.entries()) {
 		if (!acceptanceIds.has(criterionId)) {
@@ -242,7 +214,34 @@ function validateGate(
 }
 
 function validateBudget(workflow: WorkflowDefinition, diagnostics: IpdDiagnostic[]): void {
-	const nodeTokens = workflow.nodes.reduce((total, node) => total + node.budget.tokens, 0);
+	if (workflow.globalBudget.mode === "unbounded") {
+		for (const [index, node] of workflow.nodes.entries()) {
+			if (node.budget.mode !== "unbounded") {
+				diagnostics.push(
+					diagnostic(
+						"budget_invalid",
+						`/nodes/${index}/budget`,
+						"Unbounded Workflows require unbounded Node budgets",
+					),
+				);
+			}
+		}
+		return;
+	}
+	if (workflow.nodes.some((node) => node.budget.mode !== "bounded")) {
+		for (const [index, node] of workflow.nodes.entries()) {
+			if (node.budget.mode === "unbounded") {
+				diagnostics.push(
+					diagnostic("budget_invalid", `/nodes/${index}/budget`, "Bounded Workflows require bounded Node budgets"),
+				);
+			}
+		}
+		return;
+	}
+	let nodeTokens = 0;
+	for (const node of workflow.nodes) {
+		if (node.budget.mode === "bounded") nodeTokens += node.budget.tokens;
+	}
 	const reserved =
 		workflow.globalBudget.staffTokens + workflow.globalBudget.reviewerTokens + workflow.globalBudget.reworkTokens;
 	if (nodeTokens + reserved > workflow.globalBudget.tokens) {
@@ -302,14 +301,25 @@ export function compileWorkflow(value: unknown, context: WorkflowCompileContext)
 			),
 		);
 	}
-	if (workflow.source === "template" && !workflow.sourceTemplateId) {
+	if (
+		workflow.source === "template" &&
+		(!workflow.sourceTemplateId || !workflow.sourceTemplateVersion || !workflow.sourceTemplateHash)
+	) {
 		diagnostics.push(
-			diagnostic("schema_invalid", "/sourceTemplateId", "Template workflows require sourceTemplateId"),
+			diagnostic(
+				"schema_invalid",
+				"/sourceTemplateId",
+				"Template workflows require sourceTemplateId, sourceTemplateVersion, and sourceTemplateHash",
+			),
 		);
 	} else if (
 		workflow.source === "template" &&
 		workflow.sourceTemplateId !== undefined &&
-		!context.workflowAssetIds.has(workflow.sourceTemplateId)
+		workflow.sourceTemplateVersion !== undefined &&
+		workflow.sourceTemplateHash !== undefined &&
+		!context.workflowAssetRefs.has(
+			workflowAssetKey(workflow.sourceTemplateId, workflow.sourceTemplateVersion, workflow.sourceTemplateHash),
+		)
 	) {
 		diagnostics.push(
 			diagnostic(
@@ -318,7 +328,12 @@ export function compileWorkflow(value: unknown, context: WorkflowCompileContext)
 				`Unknown source Workflow Asset: ${workflow.sourceTemplateId}`,
 			),
 		);
-	} else if (workflow.source === "generated" && workflow.sourceTemplateId !== undefined) {
+	} else if (
+		workflow.source === "generated" &&
+		(workflow.sourceTemplateId !== undefined ||
+			workflow.sourceTemplateVersion !== undefined ||
+			workflow.sourceTemplateHash !== undefined)
+	) {
 		diagnostics.push(
 			diagnostic("schema_invalid", "/sourceTemplateId", "Generated workflows cannot declare sourceTemplateId"),
 		);
@@ -455,16 +470,6 @@ export function compileWorkflow(value: unknown, context: WorkflowCompileContext)
 					);
 				}
 			}
-		}
-
-		if (!node.output.requiredRoles.includes("primary") || !node.output.requiredRoles.includes("review")) {
-			diagnostics.push(
-				diagnostic(
-					"mechanical_only_node",
-					`${path}/output/requiredRoles`,
-					"Every Execution Node must produce both primary and reviewable Artifact content",
-				),
-			);
 		}
 
 		for (const [dependencyIndex, dependency] of node.dependsOn.entries()) {

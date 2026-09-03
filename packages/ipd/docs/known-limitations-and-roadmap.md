@@ -44,18 +44,18 @@ Tool start、Run 表、Workflow Schema 和 Planner 都要求 Skill name/hash。
 - Resume 的 Snapshot 校验替代方案；
 - 兼容或版本升级策略。
 
-## 4. Workflow 冻结后不能修改
+## 4. Workflow Amendment 仅支持受控替换
 
-Compiler 成功后拓扑、AgentCardRef、Gate Criteria、Budget 和路由全部冻结。
+每个 Workflow revision 在 Compiler 成功后都不可修改。Attempt 耗尽的 Staff/用户决策可以令同一 Run 进入 replanning，由 ST 生成新候选、Compiler 校验并通过 Ledger 追加新 revision。
 
-没有：
+当前不是任意热编辑：
 
-- 在线增删 Node；
-- 运行中更换生产员工；
-- 动态修改 Gate；
-- Workflow Amendment 审批和版本链。
+- 外部调用方不能直接提交或修改 Workflow；
+- 已执行但未成功的 Node ID 必须替换，不能把旧状态套入新定义；
+- 已 accepted 的 Node 只有定义完全不变时才能复用；
+- 还没有独立于 Staff/用户 Decision 的 Amendment 审批资产。
 
-进入条件：先定义 Amendment IR、谁能提出、谁能批准、对已运行 Attempt/Artifact 的影响、Hash/版本和恢复语义。
+继续演进前应先出现需要部分重算、Artifact supersede 或多级审批的真实案例，再扩展现有兼容性协议。
 
 ## 5. Final Gate 不支持局部返工
 
@@ -65,11 +65,11 @@ Schema 有 `finalGate.routes.rework`，Compiler 也校验目标 Node，但当前
 
 进入条件：定义 supersede lineage、旧 accepted Artifact 可见性、下游重新执行范围、Attempt 创建规则和 Final Gate 返工上限，再实现对应状态机和测试。
 
-## 6. Attempt Staging 不覆盖工作区外副作用
+## 6. 外部副作用只能核验后恢复
 
-有界工作区写入已通过 Attempt Workspace 隔离并在 Gate PASS 后发布，但 Bash 绝对路径、网络请求和其他 external action 仍可能产生工作区外副作用。`writeScopes:["."]` 会被拒绝，不会伪装成已隔离。
+有界工作区写入已通过 Attempt Workspace 隔离并在 Gate PASS 后发布。Tool effect 分为 read-only、run-workspace-write、external-idempotent、external-non-idempotent；未声明的扩展 Tool 保守视为 external-non-idempotent。外部动作中断会进入 `unknown_outcome`，不会自动重放。
 
-进入条件：Harness v2 或 OS Sandbox 提供可声明、可提交、可回滚的外部副作用协议，并定义 unknown-outcome 恢复语义。
+当前缺少对远程系统进行幂等键查询、确认“上次已生效”并生成本地 Artifact 的统一 Reconciler。进入条件：具体外部 Tool 提供可查询的幂等协议，再把人工核验替换为自动核验。
 
 ## 7. Review Bundle 未独立持久化
 
@@ -119,13 +119,15 @@ Compiler、NodeRunner Prompt 和 WorkspaceLock 使用 read/write scope，但内�
 
 进入条件：Tool 层提供可验证 Scope enforcement、容器/沙箱或远端执行后端，并保持 Artifact 路径和 Session Trace 一致。
 
-## 11. 自定义 Tool 不能从外层自动继承
+## 11. 外层 Tool 可继承，但 Effect 与权限仍需声明
 
-默认 Runtime 只认识内置 Tool 名称。自定义 Tool 必须通过 `CreateDefaultIpdRuntimeOptions.customTools` 显式注入。
+默认 Extension 将外层 Pi 当前活跃的可执行 ToolDefinition 传给 IPD，排除 `ipd` 和内置工具；内置工具按节点 cwd 重新创建。自定义 Runtime 仍可通过 `CreateDefaultIpdRuntimeOptions.customTools` 显式注入工具。节点实际可用集合仍受 AgentCard 与 Workflow Node 双重约束。
 
-ExtensionContext 的 ToolInfo 不包含可直接传给独立 AgentSession 的执行函数，因此不能仅凭外层已注册名字安全继承。
+扩展 Tool 若未声明 `ipdEffect`，恢复层会保守视为 external-non-idempotent；继承执行能力不等于允许中断后盲目重放。
 
-进入条件：Pi 提供受治理的 ToolDefinition 导出/授权机制，或 IPD 插件定义自己的 Tool Registry。
+当前项目使用固定版本 `pi-web-access@0.27.0` 提供搜索与内容读取。它是项目部署依赖，不是 `@earendil-works/pi-ipd` npm 依赖；在其他项目或用户环境未安装该 Extension 时，引用 `web_search` 的 AgentCard 会按 unknown_tool 拒绝加载。
+
+进入条件：Pi 的公共 ToolDefinition 正式纳入 effect 元数据，避免 IPD 依赖结构化扩展字段。
 
 ## 12. Tool-call 幂等只在进程内
 
@@ -133,13 +135,9 @@ ExtensionContext 的 ToolInfo 不包含可直接传给独立 AgentSession 的执
 
 进入条件：定义 Tool Invocation 表或外部 idempotency key，明确跨 Session、跨进程和过期清理语义。
 
-## 13. start 是长调用
+## 13. 后台 Run 当前仍依赖进程存活
 
-start 等待 Planner 和 Graph 到达 succeeded/failed/cancelled/waiting_user 才返回。调用者在返回前通常拿不到 runId。
-
-这限制了长时间后台运行和独立 status polling。
-
-进入条件：增加 durable start receipt、后台 Run ownership、进程恢复和主动通知机制，同时保持 Tool 调用幂等。
+start 已立即返回 Run ID，并可通过 status/watch 轮询进度；进程退出后可用 `resume_run` 按原 Run ID 显式接管，Ledger、Workflow revision、Attempt 和 Artifact 历史不会丢失。但后台 Promise 仍由当前 Pi 进程持有，没有 Worker Lease、自动抢占或主动通知。
 
 ## 14. Tool Result 返回全部 Accepted Artifact
 
@@ -151,9 +149,7 @@ start 等待 Planner 和 Graph 到达 succeeded/failed/cancelled/waiting_user �
 
 ## 15. AgentCard default token 尚未自动执行
 
-`defaultBudget.timeoutMs` 被 Decision Node Timeout 使用；`defaultBudget.tokens` 当前主要作为 ST 规划信息。
-
-Execution 使用 Workflow Node Budget，Planner/Staff 使用 Workflow staffTokens，Reviewer 只有在预算收缩时收到显式 Token Budget，否则使用模型 maxTokens。
+`defaultBudget` 只用于没有声明预算模式的独立 NodeRunner 调用。bounded IPD Run 使用 Workflow/Node 预算；unbounded IPD Run 不回退 Card 默认 Token/Timeout。Reviewer 只有在 bounded 预算收缩时收到显式 Token Budget，否则使用模型 maxTokens。
 
 进入条件：定义 Card default、Workflow allocation 和模型 maxTokens 的明确优先级，并避免双重计算。
 
@@ -179,9 +175,9 @@ Execution Tool Call 超限使用 `tool_limit_exceeded/tool_error`；Attempt 耗�
 
 进入条件：先基于真实缺陷统计定义稳定映射，再扩展 NodeRunner/Tool Failure，避免仅增加名义枚举。
 
-## 19. Reviewer 选择是确定性首匹配
+## 19. Reviewer 选择是确定性全局匹配
 
-ReviewerSelector 按 ID/version 排序并选择前 `minCount` 个未使用匹配 Card。它不使用：
+ReviewerSelector 按 ID/version 排序，并通过二分匹配完成全 Gate 的互斥 slot 分配；Compiler 使用同一实现，避免“编译通过、运行时无可用 Reviewer”。它仍不使用：
 
 - 历史成功率；
 - 成本；
@@ -227,7 +223,7 @@ P1  Attempt Workspace 垃圾回收与外部副作用协议
 P1  持久 Tool invocation / 后台 start
 P1  Tool Scope enforcement
 P2  StaffTeam Profile、知识 Provider、指标驱动 Reviewer
-P3  Harness v2、在线 Amendment、分布式 Scheduler
+P3  Harness v2、自动副作用 Reconciler、分布式 Scheduler
 ```
 
 优先级是技术建议，不是已经承诺的发布计划。

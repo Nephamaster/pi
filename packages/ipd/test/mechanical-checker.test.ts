@@ -38,8 +38,8 @@ async function createFixture() {
 			createdAt: 1,
 			inputs: [],
 			files: [
-				{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" },
-				{ role: "review", path: "outputs/review.txt", mimeType: "text/plain" },
+				{ path: "outputs/primary.txt", mimeType: "text/plain" },
+				{ path: "outputs/review.txt", mimeType: "text/plain" },
 			],
 			metadata: {},
 		},

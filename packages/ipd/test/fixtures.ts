@@ -101,7 +101,7 @@ function createGate(id: string, rework: string, pass: string, objectiveCoverage:
 				id: `${id}-mechanical`,
 				description: "Required Artifact files exist",
 				checkId: "artifact-exists",
-				parameters: { role: "primary" },
+				parameters: { path: "outputs/primary.txt" },
 				requiredEvidence: ["Artifact manifest"],
 			},
 		],
@@ -141,8 +141,9 @@ export function createValidWorkflow(cards = createTestCards()): WorkflowDefiniti
 		acceptanceCriteria: [{ id: "goal", description: "The final artifact meets the user goal" }],
 		source: "generated",
 		globalBudget: {
+			mode: "bounded",
 			tokens: 100_000,
-			timeoutMs: 3_600_000,
+			timeLimitMs: 3_600_000,
 			staffTokens: 10_000,
 			reviewerTokens: 10_000,
 			reworkTokens: 10_000,
@@ -163,7 +164,6 @@ export function createValidWorkflow(cards = createTestCards()): WorkflowDefiniti
 					artifactType: "content",
 					description: "Produced content and its review representation",
 					businessPurpose: "Satisfy the requested business outcome",
-					requiredRoles: ["primary", "review"],
 				},
 				skills: [TEST_SKILL],
 				tools: ["read", "write"],
@@ -173,9 +173,9 @@ export function createValidWorkflow(cards = createTestCards()): WorkflowDefiniti
 					writeScopes: ["outputs"],
 					externalActions: false,
 				},
-				budget: { tokens: 20_000, timeoutMs: 900_000 },
+				budget: { mode: "bounded", tokens: 20_000, timeLimitMs: 900_000 },
 				gate: createGate("produce-gate", "produce", "continue", []),
-				rework: { maxAttempts: 2, targetNodeId: "produce" },
+				rework: { maxAttempts: 10, targetNodeId: "produce" },
 				routes: { blocked: "staff", exhausted: "fail" },
 			},
 		],
@@ -207,7 +207,7 @@ function authoringNode(node: WorkflowDefinition["nodes"][number]) {
 		tools: node.tools,
 		permissions: node.permissions,
 		budget: node.budget,
-		rework: node.rework,
+		rework: { targetNodeId: node.rework.targetNodeId },
 		routes: node.routes,
 	};
 }
@@ -221,6 +221,8 @@ export function createWorkflowSubmissionMessages(workflow: WorkflowDefinition): 
 		objective: workflow.objective,
 		source: workflow.source,
 		...(workflow.sourceTemplateId ? { sourceTemplateId: workflow.sourceTemplateId } : {}),
+		...(workflow.sourceTemplateVersion ? { sourceTemplateVersion: workflow.sourceTemplateVersion } : {}),
+		...(workflow.sourceTemplateHash ? { sourceTemplateHash: workflow.sourceTemplateHash } : {}),
 	};
 	return [
 		fauxAssistantMessage(fauxToolCall(WORKFLOW_HEADER_TOOL_NAME, header), { stopReason: "toolUse" }),
@@ -255,10 +257,11 @@ export function createCompileContext(cards = createTestCards()): WorkflowCompile
 		skillNames: new Set([TEST_SKILL]),
 		toolNames: TEST_TOOLS,
 		workflowAssetIds: new Set(),
+		workflowAssetRefs: new Set(),
 		checks: [
 			{
 				id: "artifact-exists",
-				parameters: Type.Object({ role: Type.String() }, { additionalProperties: false }),
+				parameters: Type.Object({ path: Type.String() }, { additionalProperties: false }),
 			},
 		],
 	};

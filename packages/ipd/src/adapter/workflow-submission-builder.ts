@@ -5,6 +5,7 @@ import {
 	AgentCardRefSchema,
 	ArtifactBindingSchema,
 	ArtifactContractSchema,
+	DEFAULT_NODE_MAX_ATTEMPTS,
 	type ExecutionNodeDefinition,
 	ExecutionNodeDefinitionSchema,
 	type GateDefinition,
@@ -31,6 +32,50 @@ export const WORKFLOW_FINAL_TOOL_NAME = "submit_workflow_final";
 export const WORKFLOW_FINALIZE_TOOL_NAME = "finalize_workflow";
 
 const PREFER_STRICT_SAMPLING = { type: "json_schema", strict: "prefer" } as const;
+const STRUCTURED_JSON_FIELDS = new Set([
+	"agentCardRef",
+	"requiredCapabilities",
+	"knowledgeBaseRefs",
+	"dependsOn",
+	"inputs",
+	"output",
+	"tools",
+	"permissions",
+	"budget",
+	"rework",
+	"routes",
+	"gate",
+	"finalArtifactNodeIds",
+	"finalGate",
+]);
+
+function normalizeValue(value: unknown, field?: string): unknown {
+	if (typeof value === "string" && field && STRUCTURED_JSON_FIELDS.has(field)) {
+		try {
+			return normalizeValue(JSON.parse(value));
+		} catch {
+			return value;
+		}
+	}
+	if (Array.isArray(value)) return value.map((item) => normalizeValue(item));
+	if (typeof value !== "object" || value === null) return value;
+	const normalized: Record<string, unknown> = {};
+	for (const [rawKey, child] of Object.entries(value)) {
+		const key = rawKey.trim();
+		if (key in normalized) return value;
+		normalized[key] = normalizeValue(child, key);
+	}
+	return normalized;
+}
+
+function normalizeArguments<T>(value: unknown, omittedRootKeys: readonly string[] = []): T {
+	const normalized = normalizeValue(value);
+	if (typeof normalized === "object" && normalized !== null && !Array.isArray(normalized)) {
+		const record = normalized as Record<string, unknown>;
+		for (const key of omittedRootKeys) delete record[key];
+	}
+	return normalized as T;
+}
 
 const MechanicalCriterionAuthoringSchema = Type.Object(
 	{
@@ -83,6 +128,8 @@ export const WorkflowHeaderSubmissionSchema = Type.Object(
 		objective: NonEmptyStringSchema,
 		source: Type.Union([Type.Literal("generated"), Type.Literal("template")]),
 		sourceTemplateId: Type.Optional(IdentifierSchema),
+		sourceTemplateVersion: Type.Optional(VersionSchema),
+		sourceTemplateHash: Type.Optional(Type.String({ minLength: 64, maxLength: 64, pattern: "^[a-f0-9]{64}$" })),
 	},
 	{ additionalProperties: false },
 );
@@ -109,11 +156,8 @@ export const WorkflowNodeSubmissionSchema = Type.Object(
 			},
 			{ additionalProperties: false },
 		),
-		budget: NodeBudgetDefinitionSchema,
-		rework: Type.Object(
-			{ maxAttempts: Type.Integer({ minimum: 1 }), targetNodeId: IdentifierSchema },
-			{ additionalProperties: false },
-		),
+		budget: Type.Optional(NodeBudgetDefinitionSchema),
+		rework: Type.Object({ targetNodeId: IdentifierSchema }, { additionalProperties: false }),
 		routes: Type.Object(
 			{
 				blocked: Type.Union([Type.Literal("staff"), Type.Literal("user"), Type.Literal("fail")]),
@@ -199,6 +243,9 @@ export class WorkflowSubmissionBuilder {
 	}
 
 	submitNode(submission: WorkflowNodeSubmission): void {
+		if (this.constraints.globalBudget.mode === "bounded" && submission.budget?.mode !== "bounded") {
+			throw new Error("Bounded Workflow Nodes require a bounded budget");
+		}
 		this.nodes.set(submission.id, structuredClone(submission));
 		this.finalized = undefined;
 	}
@@ -240,6 +287,8 @@ export class WorkflowSubmissionBuilder {
 				...node,
 				kind: "execution" as const,
 				skills: [this.constraints.skill.name],
+				budget: this.constraints.globalBudget.mode === "unbounded" ? { mode: "unbounded" as const } : node.budget,
+				rework: { ...node.rework, maxAttempts: DEFAULT_NODE_MAX_ATTEMPTS },
 				gate: this.nodeGates.get(node.id),
 			};
 			const validated = validateSchema<ExecutionNodeDefinition>(ExecutionNodeDefinitionSchema, candidate);
@@ -304,6 +353,8 @@ export class WorkflowSubmissionBuilder {
 			objective: workflow.objective,
 			source: workflow.source,
 			...(workflow.sourceTemplateId ? { sourceTemplateId: workflow.sourceTemplateId } : {}),
+			...(workflow.sourceTemplateVersion ? { sourceTemplateVersion: workflow.sourceTemplateVersion } : {}),
+			...(workflow.sourceTemplateHash ? { sourceTemplateHash: workflow.sourceTemplateHash } : {}),
 		};
 		for (const criterion of workflow.acceptanceCriteria) {
 			this.acceptanceCriteria.set(criterion.id, structuredClone(criterion));
@@ -320,8 +371,8 @@ export class WorkflowSubmissionBuilder {
 				output: structuredClone(node.output),
 				tools: [...node.tools],
 				permissions: structuredClone(node.permissions),
-				budget: structuredClone(node.budget),
-				rework: structuredClone(node.rework),
+				budget: this.constraints.globalBudget.mode === "unbounded" ? undefined : structuredClone(node.budget),
+				rework: { targetNodeId: node.rework.targetNodeId },
 				routes: structuredClone(node.routes),
 			});
 			this.nodeGates.set(node.id, structuredClone(node.gate));
@@ -338,8 +389,10 @@ export function createWorkflowSubmissionTools(builder: WorkflowSubmissionBuilder
 		defineTool({
 			name: WORKFLOW_HEADER_TOOL_NAME,
 			label: "Submit Workflow Header",
-			description: "Create or replace the Workflow identity, objective, version, and asset source metadata.",
+			description:
+				"Create or replace the Workflow identity, objective, version, and asset source metadata. A changed Workflow must use a new SemVer when the same ID/version already exists.",
 			parameters: WorkflowHeaderSubmissionSchema,
+			prepareArguments: (value) => normalizeArguments<WorkflowHeaderSubmission>(value),
 			constrainedSampling: PREFER_STRICT_SAMPLING,
 			executionMode: "sequential",
 			async execute(_toolCallId, parameters) {
@@ -352,6 +405,7 @@ export function createWorkflowSubmissionTools(builder: WorkflowSubmissionBuilder
 			label: "Submit Workflow Node Gate",
 			description: "Create or replace the complete Gate for one previously identified Execution Node.",
 			parameters: WorkflowNodeGateSubmissionSchema,
+			prepareArguments: (value) => normalizeArguments<WorkflowNodeGateSubmission>(value),
 			constrainedSampling: PREFER_STRICT_SAMPLING,
 			executionMode: "sequential",
 			async execute(_toolCallId, parameters) {
@@ -367,6 +421,7 @@ export function createWorkflowSubmissionTools(builder: WorkflowSubmissionBuilder
 			label: "Submit Workflow Acceptance Criterion",
 			description: "Create or replace one final acceptance Criterion. Submit one Criterion per call.",
 			parameters: WorkflowAcceptanceSubmissionSchema,
+			prepareArguments: (value) => normalizeArguments<WorkflowAcceptanceSubmission>(value),
 			constrainedSampling: PREFER_STRICT_SAMPLING,
 			executionMode: "sequential",
 			async execute(_toolCallId, parameters) {
@@ -382,6 +437,7 @@ export function createWorkflowSubmissionTools(builder: WorkflowSubmissionBuilder
 			label: "Submit Workflow Node",
 			description: "Create or replace one complete Execution Node. Submit one business Artifact Node per call.",
 			parameters: WorkflowNodeSubmissionSchema,
+			prepareArguments: (value) => normalizeArguments<WorkflowNodeSubmission>(value, ["skills"]),
 			constrainedSampling: PREFER_STRICT_SAMPLING,
 			executionMode: "sequential",
 			async execute(_toolCallId, parameters) {
@@ -395,6 +451,7 @@ export function createWorkflowSubmissionTools(builder: WorkflowSubmissionBuilder
 			description:
 				"Remove one obsolete Execution Node and its Gate from a preloaded template or Compiler revision candidate.",
 			parameters: WorkflowNodeRemovalSchema,
+			prepareArguments: (value) => normalizeArguments<Static<typeof WorkflowNodeRemovalSchema>>(value),
 			constrainedSampling: PREFER_STRICT_SAMPLING,
 			executionMode: "sequential",
 			async execute(_toolCallId, parameters) {
@@ -407,6 +464,7 @@ export function createWorkflowSubmissionTools(builder: WorkflowSubmissionBuilder
 			label: "Submit Workflow Final Gate",
 			description: "Create or replace the final Artifact selection and complete Final Gate.",
 			parameters: WorkflowFinalSubmissionSchema,
+			prepareArguments: (value) => normalizeArguments<WorkflowFinalSubmission>(value),
 			constrainedSampling: PREFER_STRICT_SAMPLING,
 			executionMode: "sequential",
 			async execute(_toolCallId, parameters) {

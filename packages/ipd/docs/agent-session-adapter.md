@@ -59,11 +59,13 @@ V1 不维护持续 Staff 群聊。
 11. 提取 Session Stats；
 12. dispose Session。
 
-默认 Session 文件目录：
+默认 Runtime 显式为每次调用传入 Run 级 Session 目录：
 
 ```text
-${agentDir}/ipd/sessions/
+<cwd>/.pi/ipd/runs/<run-id>/sessions/
 ```
+
+`AgentSessionNodeRunnerOptions.sessionDir` 仅作为未传 `sessionDirectory` 的独立调用后备。
 
 ## 4. 资源隔离
 
@@ -77,16 +79,16 @@ noThemes: true
 noContextFiles: true
 ```
 
-所以节点不会自动继承：
+所以节点不会重新加载：
 
-- 外层 Extension；
+- 外层 Extension 模块；
 - Pi 自动发现 Skill；
 - Prompt Template；
 - Theme；
 - AGENTS.md/项目 Context；
 - 外层完整对话。
 
-IPD 显式注入冻结 Skill 内容和节点所需事实。
+IPD 显式注入冻结 Skill 内容和节点所需事实。默认 Extension 会把外层当前活跃的可执行 ToolDefinition 传给 IPD Runtime，但排除 `ipd` 和内置工具：`ipd` 不能递归，内置工具必须按节点 cwd 重新创建。最终暴露仍受 AgentCard 与 Workflow Node Tool 列表限制。
 
 ## 5. Prompt 组成
 
@@ -111,7 +113,7 @@ Execution user prompt 增加：
 - accepted Input Manifest；
 - rework instructions。
 
-Reviewer prompt 增加实际 Review Material；Staff prompt 增加 allowedActions 和 Control Context；Planner 额外注入版本化 Workflow Authoring Guide。
+Reviewer prompt 增加实际 Review Material；Staff prompt 增加 allowedActions 和 Control Context；Planner 额外注入 Workflow Authoring Guide。固定 Prompt 位于 `packages/ipd/prompts/`，不设置独立版本号，由 Git 管理演进。
 
 ## 6. Skill Snapshot
 
@@ -193,7 +195,9 @@ AgentCard.tools
 read bash edit write grep find ls powershell
 ```
 
-其他名称必须通过 `AgentSessionNodeRunnerOptions.customTools` 提供实际 ToolDefinition。只在 Card 写名字但没有定义会返回 configuration_error。
+其他名称来自外层 Pi 当前活跃 ToolDefinition 或 `AgentSessionNodeRunnerOptions.customTools`。只在 Card 写名字但没有定义会返回 configuration_error。IPD Core 不再实现搜索后端；当前项目固定安装 `pi-web-access@0.27.0`，由它向外层 Pi 注册 `web_search`、`fetch_content`、`source_check` 等工具，IPD 再继承可执行 ToolDefinition。Research Card 和 Workflow Node 仍需显式允许实际使用的名称。
+
+恢复层还为 Tool 保存 effect 分类：`read_only`、`run_workspace_write`、`external_idempotent`、`external_non_idempotent`。内置文件读取以及当前搜索扩展的 web_search/fetch_content/source_check/get_search_content 属于只读，write/edit/bash/powershell 属于 Run Workspace 写；扩展 Tool 可声明 `ipdEffect`，未声明时保守视为 external_non_idempotent。Effect 只决定中断后的重放治理，不替代 AgentCard/Workflow 权限。
 
 Submission Tool 不由 AgentCard 预先声明；NodeRunner 按运行类型强制加入。
 
@@ -222,7 +226,7 @@ Execution、Reviewer 和 Staff 使用 `SingleSubmission`，要求恰好一次合
 - 所有分段组装后再用正式 `WorkflowDefinitionSchema` 验证；
 - `finalize_workflow` 成功后才把候选交给 Compiler；
 - Tool Schema 校验错误会作为 Tool Result 返回给模型，模型可以按缺失、多余或非法字段修正对应分段；
-- 结构化提交按 Assistant Turn 计数：同一轮批量调用即使有多个错误也只算一次失败；连续 3 个提交轮次失败才中止 Session，任一全成功提交轮次会清零计数；
+- 结构化提交按 Assistant Turn 计数：同一轮批量调用即使有多个错误也只算一次失败；连续 10 个提交轮次失败才中止 Session，任一全成功提交轮次会清零计数；
 - Planner 整个 Session 最多允许 64 次 Tool Call。
 
 通用失败规则：
@@ -267,13 +271,17 @@ Token Budget 同时限制单次模型输出和整个 Planner/Execution Session �
 
 `agentCard.defaultBudget.tokens` 当前作为员工资产信息交给 ST 参考，但 NodeRunner 不会自动使用它覆盖 Execution/Decision Token 上限；实际调用以 Workflow/Controller 显式传入预算为准。
 
+当 `budgetMode=unbounded` 时，NodeRunner 忽略 `tokenBudget/timeoutMs`，即使调用者误传数值也不会形成 IPD 限制；Usage 仍完整记录。
+
 ## 12. Timeout
 
 优先级：
 
 ```text
-input.timeoutMs
-  ?? agentCard.defaultBudget.timeoutMs
+budgetMode == unbounded
+  → 无 IPD Timeout
+否则
+  → input.timeoutMs ?? agentCard.defaultBudget.timeoutMs
 ```
 
 Timeout 到达时：
@@ -284,9 +292,9 @@ Timeout 到达时：
 4. 返回 `failure.code = timeout`；
 5. 保留已产生 Session Trace 和 Usage。
 
-Execution Graph 传入 Node `budget.timeoutMs`。Decision 通常使用 Card 默认 Timeout。
+Execution Graph 在 bounded 模式传入 Node `budget.timeLimitMs`。未声明预算模式的独立 Decision 调用使用 Card 默认 Timeout。
 
-Gate Reviewer 和 Gate Staff Arbitration 由 GraphEngine 显式传入 Gate 所属预算周期：Node Gate 使用对应 Node 的 `budget.timeoutMs`，Final Gate 使用 Workflow 的 `globalBudget.timeoutMs`。只有直接调用 GateEvaluator 且未提供该值时，才回退到 Reviewer/Staff AgentCard 的默认 Timeout。
+Gate Reviewer 和 Gate Staff Arbitration 使用对应的预算模式：bounded Node Gate 使用 Node `budget.timeLimitMs`，bounded Final Gate 使用 Workflow `globalBudget.timeLimitMs`；unbounded 时不设置 Timeout，也不回退 AgentCard 默认值。只有没有声明预算模式的独立调用才使用 Card 默认 Timeout。
 
 Execution 在 80% 和 90% Deadline 通过 Session steering 提醒停止扩展、保留当前工作并调用 `submit_artifact`；100% 才执行硬 abort。
 

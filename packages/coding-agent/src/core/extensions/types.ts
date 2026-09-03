@@ -1402,6 +1402,9 @@ export interface ExtensionAPI {
 	/** Get all configured tools with parameter schema, prompt guidelines, and source metadata. */
 	getAllTools(): ToolInfo[];
 
+	/** Get the executable definitions for tools currently active in this session. */
+	getToolDefinitions(): ToolDefinition[];
+
 	/** Set the active tools by name. */
 	setActiveTools(toolNames: string[]): void;
 
@@ -1642,6 +1645,8 @@ export type ToolInfo = Pick<ToolDefinition, "name" | "description" | "parameters
 
 export type GetAllToolsHandler = () => ToolInfo[];
 
+export type GetToolDefinitionsHandler = () => ToolDefinition[];
+
 export type GetCommandsHandler = () => SlashCommandInfo[];
 
 export type SetActiveToolsHandler = (toolNames: string[]) => void;
@@ -1696,6 +1701,7 @@ export interface ExtensionActions {
 	setLabel: SetLabelHandler;
 	getActiveTools: GetActiveToolsHandler;
 	getAllTools: GetAllToolsHandler;
+	getToolDefinitions: GetToolDefinitionsHandler;
 	setActiveTools: SetActiveToolsHandler;
 	refreshTools: RefreshToolsHandler;
 	getCommands: GetCommandsHandler;

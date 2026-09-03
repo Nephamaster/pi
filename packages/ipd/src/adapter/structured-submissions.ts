@@ -1,6 +1,5 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import Type, { type Static, type TSchema } from "typebox";
-import { ArtifactFileRoleSchema } from "../artifact/manifest.ts";
 import { JsonValueSchema, NonEmptyStringSchema, WorkflowDefinitionSchema } from "../ir/schemas.ts";
 
 export const SubmitArtifactSchema = Type.Object(
@@ -9,7 +8,6 @@ export const SubmitArtifactSchema = Type.Object(
 		files: Type.Array(
 			Type.Object(
 				{
-					role: ArtifactFileRoleSchema,
 					path: NonEmptyStringSchema,
 					mimeType: NonEmptyStringSchema,
 				},

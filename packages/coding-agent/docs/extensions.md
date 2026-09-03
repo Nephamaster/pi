@@ -1674,13 +1674,14 @@ const result = await pi.exec("git", ["status"], { signal, timeout: 5000 });
 // result.stdout, result.stderr, result.code, result.killed
 ```
 
-### pi.getActiveTools() / pi.getAllTools() / pi.setActiveTools(names)
+### pi.getActiveTools() / pi.getAllTools() / pi.getToolDefinitions() / pi.setActiveTools(names)
 
 Manage active tools. This works for both built-in tools and dynamically registered tools. `pi.getActiveTools()` returns the active tool names as `string[]`; `pi.getAllTools()` returns metadata for all configured tools.
 
 ```typescript
 const active = pi.getActiveTools(); // ["read", "bash", ...]
 const all = pi.getAllTools();
+const executable = pi.getToolDefinitions(); // Active ToolDefinition objects
 // all = [{
 //   name: "read",
 //   description: "Read file contents...",
@@ -1695,6 +1696,7 @@ pi.setActiveTools(["read", "bash"]); // Switch to read-only
 ```
 
 `pi.getAllTools()` returns `name`, `description`, `parameters`, `promptGuidelines`, and `sourceInfo`.
+`pi.getToolDefinitions()` returns executable definitions for the currently active tools. Use it when a controlled child session needs to reuse already-registered tools without loading extension modules again.
 
 Typical `sourceInfo.source` values:
 - `builtin` for built-in tools

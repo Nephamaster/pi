@@ -190,25 +190,48 @@ export const AcceptanceCriterionSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-export const BudgetDefinitionSchema = Type.Object(
-	{
-		tokens: Type.Integer({ minimum: 1 }),
-		timeoutMs: Type.Integer({ minimum: 1 }),
-		staffTokens: Type.Integer({ minimum: 1 }),
-		reviewerTokens: Type.Integer({ minimum: 1 }),
-		reworkTokens: Type.Integer({ minimum: 1 }),
-		hardTokenLimit: Type.Optional(Type.Integer({ minimum: 1 })),
-	},
-	{ additionalProperties: false },
+export const BudgetDefinitionSchema = Type.Union(
+	[
+		Type.Object(
+			{
+				mode: Type.Literal("unbounded"),
+				expectedDurationMs: Type.Optional(Type.Integer({ minimum: 1 })),
+			},
+			{ additionalProperties: false },
+		),
+		Type.Object(
+			{
+				mode: Type.Literal("bounded"),
+				tokens: Type.Integer({ minimum: 1 }),
+				timeLimitMs: Type.Integer({ minimum: 1 }),
+				expectedDurationMs: Type.Optional(Type.Integer({ minimum: 1 })),
+				staffTokens: Type.Integer({ minimum: 1 }),
+				reviewerTokens: Type.Integer({ minimum: 1 }),
+				reworkTokens: Type.Integer({ minimum: 1 }),
+				hardTokenLimit: Type.Optional(Type.Integer({ minimum: 1 })),
+			},
+			{ additionalProperties: false },
+		),
+	],
+	{ discriminator: "mode" },
 );
 
-export const NodeBudgetDefinitionSchema = Type.Object(
-	{
-		tokens: Type.Integer({ minimum: 1 }),
-		timeoutMs: Type.Integer({ minimum: 1 }),
-	},
-	{ additionalProperties: false },
+export const NodeBudgetDefinitionSchema = Type.Union(
+	[
+		Type.Object({ mode: Type.Literal("unbounded") }, { additionalProperties: false }),
+		Type.Object(
+			{
+				mode: Type.Literal("bounded"),
+				tokens: Type.Integer({ minimum: 1 }),
+				timeLimitMs: Type.Integer({ minimum: 1 }),
+			},
+			{ additionalProperties: false },
+		),
+	],
+	{ discriminator: "mode" },
 );
+
+export const DEFAULT_NODE_MAX_ATTEMPTS = 10;
 
 export const ArtifactBindingSchema = Type.Object(
 	{
@@ -226,13 +249,6 @@ export const ArtifactContractSchema = Type.Object(
 		artifactType: IdentifierSchema,
 		description: NonEmptyStringSchema,
 		businessPurpose: NonEmptyStringSchema,
-		requiredRoles: Type.Array(
-			Type.Union([Type.Literal("primary"), Type.Literal("evidence"), Type.Literal("review")]),
-			{
-				minItems: 2,
-				uniqueItems: true,
-			},
-		),
 	},
 	{ additionalProperties: false },
 );
@@ -360,6 +376,8 @@ export const WorkflowDefinitionSchema = Type.Object(
 		acceptanceCriteria: Type.Array(AcceptanceCriterionSchema, { minItems: 1 }),
 		source: Type.Union([Type.Literal("generated"), Type.Literal("template")]),
 		sourceTemplateId: Type.Optional(IdentifierSchema),
+		sourceTemplateVersion: Type.Optional(VersionSchema),
+		sourceTemplateHash: Type.Optional(Type.String({ minLength: 64, maxLength: 64, pattern: "^[a-f0-9]{64}$" })),
 		globalBudget: BudgetDefinitionSchema,
 		staff: StaffDefinitionSchema,
 		nodes: Type.Array(ExecutionNodeDefinitionSchema, { minItems: 1 }),

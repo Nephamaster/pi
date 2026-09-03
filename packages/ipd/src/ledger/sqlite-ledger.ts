@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { canonicalJson, hashJson } from "../ir/hash.ts";
-import type { CompiledAgentCard, JsonValue, WorkflowDefinition } from "../ir/types.ts";
+import type { CompiledAgentCard, CompiledWorkflow, IpdDiagnostic, JsonValue, WorkflowDefinition } from "../ir/types.ts";
 import { IpdLedgerError } from "./errors.ts";
 import { applyIpdMigrations } from "./migrations.ts";
 import {
@@ -15,6 +15,7 @@ import {
 } from "./state-machine.ts";
 import type {
 	AgentCardSnapshotRecord,
+	AmendWorkflowInput,
 	AnswerEscalationInput,
 	ArtifactRecord,
 	ArtifactStatus,
@@ -39,6 +40,7 @@ import type {
 	RecordBudgetUsageInput,
 	RecordCriterionInput,
 	RecordDecisionInput,
+	RecordRunEventInput,
 	ReviewerInstanceRecord,
 	ReviewerStatus,
 	RunRecord,
@@ -73,6 +75,7 @@ interface RunRow {
 
 interface WorkflowRow {
 	run_id: string;
+	revision: number;
 	workflow_id: string;
 	version: string;
 	hash: string;
@@ -286,6 +289,7 @@ function decodeRun(row: RunRow): RunRecord {
 function decodeWorkflow(row: WorkflowRow): WorkflowVersionRecord {
 	return {
 		runId: row.run_id,
+		revision: row.revision,
 		id: row.workflow_id,
 		version: row.version,
 		hash: row.hash,
@@ -822,8 +826,23 @@ created_at, updated_at, version, create_idempotency_key, create_request_hash
 					this.db
 						.prepare(
 							`INSERT INTO workflow_versions (
-run_id, workflow_id, version, hash, source, definition_json, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+run_id, revision, workflow_id, version, hash, source, definition_json, created_at
+) VALUES (?, 1, ?, ?, ?, ?, ?, ?)`,
+						)
+						.run(
+							input.runId,
+							definition.id,
+							definition.version,
+							input.workflow.hash,
+							definition.source,
+							canonicalJson(definition),
+							timestamp,
+						);
+					this.db
+						.prepare(
+							`INSERT INTO workflow_revision_history (
+run_id, revision, workflow_id, version, hash, source, definition_json, created_at
+) VALUES (?, 1, ?, ?, ?, ?, ?, ?)`,
 						)
 						.run(
 							input.runId,
@@ -851,11 +870,139 @@ WHERE id = ?`,
 						)
 						.run(definition.id, definition.version, input.workflow.hash, timestamp, input.runId);
 					this.appendEvent(input.runId, "workflow_frozen", {
+						revision: 1,
 						workflow: { id: definition.id, version: definition.version, hash: input.workflow.hash },
 						agentCardCount: input.workflow.agentCards.size,
 					});
 					const row = this.get<WorkflowRow>("SELECT * FROM workflow_versions WHERE run_id = ?", input.runId);
 					if (!row) throw new IpdLedgerError("corrupt", `Frozen Workflow missing for Run ${input.runId}`);
+					return decodeWorkflow(row);
+				},
+			),
+		);
+	}
+
+	validateWorkflowAmendment(runId: string, workflow: CompiledWorkflow): IpdDiagnostic[] {
+		this.assertOpen();
+		const current = this.get<WorkflowRow>("SELECT * FROM workflow_versions WHERE run_id = ?", runId);
+		if (!current) {
+			return [
+				{ code: "workflow_amendment_invalid", path: "/", message: `Frozen Workflow missing for Run ${runId}` },
+			];
+		}
+		const diagnostics: IpdDiagnostic[] = [];
+		if (current.hash === workflow.hash) {
+			diagnostics.push({
+				code: "workflow_amendment_invalid",
+				path: "/",
+				message: "Workflow amendment must change the frozen definition",
+			});
+		}
+		const currentDefinition = parseJson<WorkflowDefinition>(current.definition_json);
+		const currentNodes = new Map(currentDefinition.nodes.map((node) => [node.id, node]));
+		for (const [index, nextNode] of workflow.definition.nodes.entries()) {
+			const latest = this.get<NodeRow>(
+				`SELECT * FROM node_instances
+WHERE run_id = ? AND node_id = ? ORDER BY attempt_number DESC LIMIT 1`,
+				runId,
+				nextNode.id,
+			);
+			if (!latest) continue;
+			const previousNode = currentNodes.get(nextNode.id);
+			if (latest.status !== "succeeded" || !previousNode || hashJson(previousNode) !== hashJson(nextNode)) {
+				diagnostics.push({
+					code: "workflow_amendment_invalid",
+					path: `/nodes/${index}/id`,
+					message: `Amended Workflow must replace attempted Node ${nextNode.id} with a new Node ID unless its accepted definition is unchanged`,
+				});
+			}
+		}
+		return diagnostics;
+	}
+
+	amendWorkflow(input: AmendWorkflowInput): WorkflowVersionRecord {
+		return this.transaction(() =>
+			this.idempotent(
+				input.runId,
+				input.idempotencyKey,
+				"amend_workflow",
+				{ runId: input.runId, workflowHash: input.workflow.hash },
+				() => {
+					const run = this.requireRunRow(input.runId);
+					if (run.status !== "replanning") {
+						throw new IpdLedgerError("invalid_transition", "Workflow can only be amended from replanning state");
+					}
+					assertRunTransition(run.status, "ready");
+					const current = this.get<WorkflowRow>("SELECT * FROM workflow_versions WHERE run_id = ?", input.runId);
+					if (!current) throw new IpdLedgerError("not_found", `Frozen Workflow missing for Run ${input.runId}`);
+					const nextDefinition = input.workflow.definition;
+					const diagnostics = this.validateWorkflowAmendment(input.runId, input.workflow);
+					if (diagnostics.length > 0) {
+						throw new IpdLedgerError(
+							"invalid_transition",
+							diagnostics.map((diagnostic) => `${diagnostic.path}: ${diagnostic.message}`).join("\n"),
+						);
+					}
+
+					const revision = current.revision + 1;
+					const timestamp = this.now();
+					this.db
+						.prepare(
+							`INSERT INTO workflow_revision_history (
+run_id, revision, workflow_id, version, hash, source, definition_json, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+						)
+						.run(
+							input.runId,
+							revision,
+							nextDefinition.id,
+							nextDefinition.version,
+							input.workflow.hash,
+							nextDefinition.source,
+							canonicalJson(nextDefinition),
+							timestamp,
+						);
+					this.db
+						.prepare(
+							`UPDATE workflow_versions SET
+revision = ?, workflow_id = ?, version = ?, hash = ?, source = ?, definition_json = ?, created_at = ?
+WHERE run_id = ?`,
+						)
+						.run(
+							revision,
+							nextDefinition.id,
+							nextDefinition.version,
+							input.workflow.hash,
+							nextDefinition.source,
+							canonicalJson(nextDefinition),
+							timestamp,
+							input.runId,
+						);
+					for (const card of input.workflow.agentCards.values()) {
+						this.db
+							.prepare(
+								`INSERT OR IGNORE INTO agent_card_snapshots (
+run_id, card_id, version, hash, card_json, created_at
+) VALUES (?, ?, ?, ?, ?, ?)`,
+							)
+							.run(input.runId, card.id, card.version, card.hash, canonicalJson(card), timestamp);
+					}
+					this.db
+						.prepare(
+							`UPDATE ipd_runs SET
+workflow_id = ?, workflow_version = ?, workflow_hash = ?, status = 'ready', failure_json = NULL,
+updated_at = ?, version = version + 1
+WHERE id = ?`,
+						)
+						.run(nextDefinition.id, nextDefinition.version, input.workflow.hash, timestamp, input.runId);
+					this.appendEvent(input.runId, "workflow_amended", {
+						fromRevision: current.revision,
+						revision,
+						workflow: { id: nextDefinition.id, version: nextDefinition.version, hash: input.workflow.hash },
+						agentCardCount: input.workflow.agentCards.size,
+					});
+					const row = this.get<WorkflowRow>("SELECT * FROM workflow_versions WHERE run_id = ?", input.runId);
+					if (!row) throw new IpdLedgerError("corrupt", `Amended Workflow missing for Run ${input.runId}`);
 					return decodeWorkflow(row);
 				},
 			),
@@ -1510,6 +1657,15 @@ total_tokens, cost_usd, duration_ms, details_json, created_at
 		);
 	}
 
+	recordRunEvent(input: RecordRunEventInput): IpdEventRecord {
+		return this.transaction(() =>
+			this.idempotent(input.runId, input.idempotencyKey, "record_run_event", input, () => {
+				this.requireActiveRunRow(input.runId);
+				return this.appendEvent(input.runId, input.type, input.payload);
+			}),
+		);
+	}
+
 	getRunSnapshot(runId: string): RunSnapshot {
 		this.assertOpen();
 		const run = this.requireRunRow(runId);
@@ -1517,6 +1673,10 @@ total_tokens, cost_usd, duration_ms, details_json, created_at
 		return {
 			run: decodeRun(run),
 			workflow: workflow ? decodeWorkflow(workflow) : undefined,
+			workflowHistory: this.all<WorkflowRow>(
+				"SELECT * FROM workflow_revision_history WHERE run_id = ? ORDER BY revision",
+				runId,
+			).map(decodeWorkflow),
 			agentCards: this.all<AgentCardRow>(
 				"SELECT * FROM agent_card_snapshots WHERE run_id = ? ORDER BY card_id, version, hash",
 				runId,

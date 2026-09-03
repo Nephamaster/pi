@@ -62,13 +62,24 @@ export class IpdToolController {
 		return result;
 	}
 
+	async resumeAsUser(
+		runId: string,
+		escalationId: string,
+		answer: string,
+		context: IpdToolControllerContext,
+	): Promise<IpdToolResult> {
+		return this.runtime.resume(runId, escalationId, answer, await this.executionContext(context), {
+			source: "user_command",
+			receivedAt: Date.now(),
+		});
+	}
+
 	private async executeUncached(command: IpdToolCommand, context: IpdToolControllerContext): Promise<IpdToolResult> {
 		if (command.action === "status") return this.runtime.status(command.runId, command.detail);
+		if (command.action === "watch") return this.runtime.status(command.runId, command.detail, command.afterSequence);
 		if (command.action === "cancel") return this.runtime.cancel(command.runId, command.reason);
 		const executionContext = await this.executionContext(context);
-		if (command.action === "resume") {
-			return this.runtime.resume(command.runId, command.escalationId, command.answer, executionContext);
-		}
+		if (command.action === "resume_run") return this.runtime.resumeRun(command.runId, executionContext);
 		const skill = executionContext.availableSkills.find((candidate) => candidate.name === command.skillName);
 		if (!skill) {
 			throw new IpdToolControllerError("unknown_skill", `当前 Pi 上下文中不存在 Skill：${command.skillName}`);
@@ -77,8 +88,12 @@ export class IpdToolController {
 			task: command.task,
 			skill,
 			workflowTemplateId: command.workflowTemplateId,
+			workflowTemplateVersion: command.workflowTemplateVersion,
+			workflowTemplateHash: command.workflowTemplateHash,
+			ifBudget: command.ifBudget,
 			tokenBudget: command.tokenBudget,
 			expectedDurationMs: command.expectedDurationMs,
+			timeBudgetMs: command.timeBudgetMs,
 			hardTokenLimit: command.hardTokenLimit,
 			context: executionContext,
 		});

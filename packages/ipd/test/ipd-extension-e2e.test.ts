@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall, InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import {
 	type BeforeAgentStartEvent,
 	type ExtensionAPI,
+	type ExtensionCommandContext,
 	type ExtensionContext,
 	ModelRegistry,
 	ModelRuntime,
@@ -50,6 +51,7 @@ interface RegisteredExtension {
 	beforeAgentStart?: (event: BeforeAgentStartEvent, context: ExtensionContext) => unknown;
 	sessionShutdown?: (event: SessionShutdownEvent, context: ExtensionContext) => unknown;
 	tool?: ToolDefinition<typeof IpdToolCommandParametersSchema, IpdExtensionDetails>;
+	ipdResumeCommand?: { handler: (args: string, context: ExtensionCommandContext) => Promise<void> };
 }
 
 function extensionApi(registered: RegisteredExtension): ExtensionAPI {
@@ -64,6 +66,9 @@ function extensionApi(registered: RegisteredExtension): ExtensionAPI {
 		},
 		registerTool(tool: ToolDefinition<typeof IpdToolCommandParametersSchema, IpdExtensionDetails>) {
 			registered.tool = tool;
+		},
+		registerCommand(name: string, options: RegisteredExtension["ipdResumeCommand"]) {
+			if (name === "ipd-resume") registered.ipdResumeCommand = options;
 		},
 	} as unknown as ExtensionAPI;
 }
@@ -93,8 +98,9 @@ describe("IPD Extension", () => {
 		const candidate = createValidWorkflow(cards);
 		candidate.skill = { name: skill.name, hash: skill.hash };
 		candidate.globalBudget = {
+			mode: "bounded",
 			tokens: 100_000,
-			timeoutMs: 3_600_000,
+			timeLimitMs: 3_600_000,
 			staffTokens: 15_000,
 			reviewerTokens: 20_000,
 			reworkTokens: 15_000,
@@ -140,8 +146,9 @@ describe("IPD Extension", () => {
 					workflowAssets: [],
 					planner: {
 						planAndFreeze(request) {
-							expect(request.signal).toBe(toolAbort.signal);
+							expect(request.signal).toBeUndefined();
 							expect(request.runDefaultModel.id).toBe(faux.getModel().id);
+							expect(request.globalBudget.mode).toBe("unbounded");
 							return planner.planAndFreeze(request);
 						},
 					},
@@ -159,11 +166,19 @@ describe("IPD Extension", () => {
 		faux.setResponses([
 			...createWorkflowSubmissionMessages(candidate),
 			fauxAssistantMessage(
+				fauxToolCall("write", { path: "outputs/primary.txt", content: "final primary content" }),
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(
+				fauxToolCall("write", { path: "outputs/review.txt", content: "reviewable final content" }),
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(
 				fauxToolCall("submit_artifact", {
 					summary: "Completed Artifact",
 					files: [
-						{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" },
-						{ role: "review", path: "outputs/review.txt", mimeType: "text/plain" },
+						{ path: "outputs/primary.txt", mimeType: "text/plain" },
+						{ path: "outputs/review.txt", mimeType: "text/plain" },
 					],
 					metadata: {},
 				}),
@@ -205,7 +220,9 @@ describe("IPD Extension", () => {
 
 		const registered: RegisteredExtension = {};
 		registerIpdExtension(extensionApi(registered), { runtimeFactory: async () => runtime });
-		if (!registered.beforeAgentStart || !registered.tool) throw new Error("IPD Extension did not register");
+		if (!registered.beforeAgentStart || !registered.tool || !registered.ipdResumeCommand) {
+			throw new Error("IPD Extension did not register");
+		}
 		expect(JSON.stringify(registered.tool.parameters)).toContain('"status"');
 		expect(registered.tool.parameters.properties).toHaveProperty("runId");
 		const context = {
@@ -231,17 +248,27 @@ describe("IPD Extension", () => {
 
 		const startCommand = { action: "start", task: "Produce the final content", skillName: TEST_SKILL } as const;
 		const started = await registered.tool.execute("tool-start", startCommand, toolAbort.signal, undefined, context);
-		expect(started.details).toMatchObject({ runId: "run-tool", status: "succeeded" });
+		expect(started.details).toMatchObject({ runId: "run-tool", status: "running" });
 		if ("error" in started.details) throw new Error(started.details.error.message);
-		expect(started.details.artifacts).toHaveLength(1);
 		expect(started.content[0]).toMatchObject({ type: "text" });
 		expect(prepareCount).toBe(1);
-		expect(faux.state.callCount).toBe(9);
+		for (let attempt = 0; attempt < 500 && runtime.status("run-tool").status === "running"; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 2));
+		}
+		const completed = runtime.status("run-tool", "full");
+		expect(completed.status).toBe("succeeded");
+		expect(completed.artifacts).toHaveLength(1);
+		expect(completed.progress.runRoot).toBe(join(root, ".pi", "ipd", "runs", "run-tool"));
+		expect(await readdir(join(root, ".pi", "ipd", "runs", "run-tool", "sessions"))).not.toHaveLength(0);
+		const lastSequence = completed.progress.lastEvent?.sequence ?? 0;
+		expect(runtime.status("run-tool", "summary", 0).progress.changedSinceSequence).toBe(true);
+		expect(runtime.status("run-tool", "summary", lastSequence).progress.changedSinceSequence).toBe(false);
+		expect(faux.state.callCount).toBe(11);
 
 		const duplicate = await registered.tool.execute("tool-start", startCommand, toolAbort.signal, undefined, context);
 		expect(duplicate.details).toEqual(started.details);
 		expect(prepareCount).toBe(1);
-		expect(faux.state.callCount).toBe(9);
+		expect(faux.state.callCount).toBe(11);
 
 		const unknown = await registered.tool.execute(
 			"tool-unknown-skill",
@@ -303,22 +330,25 @@ describe("IPD Extension", () => {
 		expect("error" in waiting.details ? undefined : waiting.details.question).toMatchObject({
 			escalationId: "expected-escalation",
 		});
-		const wrongResume = await registered.tool.execute(
-			"tool-wrong-resume",
-			{ action: "resume", runId: "waiting-run", escalationId: "wrong-escalation", answer: "A" },
-			undefined,
-			undefined,
-			context,
+		expect(registered.tool.parameters.properties.action.anyOf).not.toContainEqual(
+			expect.objectContaining({ const: "resume" }),
 		);
-		expect("error" in wrongResume.details ? wrongResume.details.error.code : undefined).toBe("invalid_resume");
 		expect(ledger.getRunSnapshot("waiting-run").run.status).toBe("waiting_user");
 		faux.setResponses([
+			fauxAssistantMessage(
+				fauxToolCall("write", { path: "outputs/primary.txt", content: "resumed primary content" }),
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(
+				fauxToolCall("write", { path: "outputs/review.txt", content: "resumed review content" }),
+				{ stopReason: "toolUse" },
+			),
 			fauxAssistantMessage(
 				fauxToolCall("submit_artifact", {
 					summary: "Resumed Artifact",
 					files: [
-						{ role: "primary", path: "outputs/primary.txt", mimeType: "text/plain" },
-						{ role: "review", path: "outputs/review.txt", mimeType: "text/plain" },
+						{ path: "outputs/primary.txt", mimeType: "text/plain" },
+						{ path: "outputs/review.txt", mimeType: "text/plain" },
 					],
 					metadata: {},
 				}),
@@ -357,18 +387,37 @@ describe("IPD Extension", () => {
 				{ stopReason: "toolUse" },
 			),
 		]);
-		const correctResume = await registered.tool.execute(
-			"tool-correct-resume",
-			{ action: "resume", runId: "waiting-run", escalationId: "expected-escalation", answer: "Use A" },
-			undefined,
-			undefined,
-			context,
-		);
-		expect("error" in correctResume.details ? undefined : correctResume.details.status).toBe("succeeded");
+		const notifications: Array<{ message: string; type?: "info" | "warning" | "error" }> = [];
+		const commandContext = {
+			...context,
+			hasUI: true,
+			ui: {
+				input: async () => "Use A",
+				confirm: async () => true,
+				notify(message: string, type?: "info" | "warning" | "error") {
+					notifications.push({ message, type });
+				},
+			},
+			getSystemPromptOptions: () => ({
+				skills: [{ name: TEST_SKILL, filePath: skillPath, baseDir: root }],
+			}),
+		} as unknown as ExtensionCommandContext;
+		await registered.ipdResumeCommand.handler("waiting-run wrong-escalation", commandContext);
+		expect(ledger.getRunSnapshot("waiting-run").run.status).toBe("waiting_user");
+		expect(notifications.at(-1)).toMatchObject({ type: "error" });
+		await registered.ipdResumeCommand.handler("waiting-run expected-escalation", commandContext);
+		expect(notifications.at(-1)?.message).toContain("已完成");
 		expect(ledger.getRunSnapshot("waiting-run").escalations[0]).toMatchObject({
 			status: "answered",
 			answer: "Use A",
 		});
+		expect(ledger.getRunSnapshot("waiting-run").decisions).toContainEqual(
+			expect.objectContaining({
+				type: "user_answer_receipt",
+				action: "answer_escalation",
+				evidence: expect.objectContaining({ source: "user_command" }),
+			}),
+		);
 
 		ledger.createRun({
 			runId: "cancel-run",

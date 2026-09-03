@@ -2601,6 +2601,11 @@ export class AgentSession {
 				},
 				getActiveTools: () => this.getActiveToolNames(),
 				getAllTools: () => this.getAllTools(),
+				getToolDefinitions: () =>
+					this.getActiveToolNames().flatMap((name) => {
+						const definition = this.getToolDefinition(name);
+						return definition ? [definition] : [];
+					}),
 				setActiveTools: (toolNames) => this.setActiveToolsByName(toolNames),
 				refreshTools: () => this._refreshToolRegistry(),
 				getCommands,

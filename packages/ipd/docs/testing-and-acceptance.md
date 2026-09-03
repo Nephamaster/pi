@@ -50,7 +50,7 @@ IPD 测试按“确定性协议 → Runtime 集成 → faux AgentSession → 真
 - Workspace Lock；
 - Candidate 可见性；
 - 技术重试和质量返工；
-- blocked、resume、cancel；
+- blocked、用户 Command resume、cancel；
 - 预算和 Hard Limit；
 - 中断恢复。
 
@@ -156,7 +156,7 @@ npm run check
 - requiredCapabilities；
 - knowledgeBaseRefs；
 - 固定 Staff Core；
-- primary/review Contract；
+- 一个或多个文件的 Artifact Contract；
 - 机械和语义 Gate；
 - 独立 Reviewer；
 - Final Gate 覆盖；

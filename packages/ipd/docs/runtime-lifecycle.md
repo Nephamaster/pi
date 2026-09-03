@@ -7,7 +7,7 @@
 ```text
 IpdRuntime
   ├─ start：资产准备 → Planner → GraphEngine
-  ├─ resume：校验 Skill Snapshot → GraphEngine.resume
+  ├─ 内部 resume：由用户专用 `/ipd-resume` Command 调用 → GraphEngine.resume
   ├─ status：只读 Snapshot
   └─ cancel：GraphEngine.cancel
 
@@ -42,12 +42,19 @@ ready
 
 running
   ├─→ waiting_user
+  ├─→ replanning
   ├─→ succeeded
   ├─→ failed
   └─→ cancelled
 
 waiting_user
   ├─→ running
+  ├─→ replanning
+  ├─→ failed
+  └─→ cancelled
+
+replanning
+  ├─→ ready
   ├─→ failed
   └─→ cancelled
 ```
@@ -61,11 +68,13 @@ waiting_user
 | compiling → ready | `freezeWorkflow()` | `workflow_frozen` |
 | ready → running | GraphEngine | `run_status_changed` |
 | running → waiting_user | GraphEngine / BudgetController | `run_status_changed`、`escalation_created` |
-| waiting_user → running | GraphEngine.resume | `escalation_answered`、`run_status_changed` |
+| waiting_user → running | 用户 `/ipd-resume` → GraphEngine.resume | `escalation_answered`、`run_status_changed` |
+| running/waiting_user → replanning | Staff 或用户请求计划修订 | `decision_recorded`、`run_status_changed` |
+| replanning → ready | `amendWorkflow()` | `workflow_amended` |
 | running → succeeded | Final Gate PASS | `run_status_changed` |
 | 非终态 → failed/cancelled | Runtime 控制路径 | `run_status_changed` |
 
-Tool 对外将 planning、compiling、ready、running 统一显示为 `running`，但 Ledger 保留内部状态。
+Tool 对外将 planning、compiling、replanning、ready、running 统一显示为 `running`，但 Ledger 保留内部状态。
 
 ## 3. Node Attempt 状态
 
@@ -99,10 +108,10 @@ gate_checking / gate_reviewing
 
 1. 所有 `dependsOn` Node 的最新 Attempt 是 `succeeded`；
 2. 每项 Input 都能找到对应生产 Node 的 `accepted` Artifact；
-3. 下一个 Attempt Number 不超过 `rework.maxAttempts`；
+3. 非 interrupted 的质量 Attempt 数没有达到 `rework.maxAttempts`；
 4. 当前 Run 仍是 ready/running。
 
-Ledger 强制 Attempt Number 连续递增，不能跳号或覆盖旧记录。
+Ledger 强制执行 Attempt Number 连续递增，不能跳号或覆盖旧记录。技术中断会保留旧执行记录并创建新编号，但 interrupted 记录不计入质量返工额度。
 
 ### 3.2 执行阶段
 
@@ -299,32 +308,36 @@ Staff 调用失败时，Runtime 降级为用户 Escalation，并保存失败原�
 
 ## 13. Attempt 耗尽
 
-当下一个 Attempt Number 超过 `maxAttempts`：
+当非 interrupted 的质量 Attempt 数达到 `maxAttempts`：
 
 - `routes.exhausted: fail` → 使用最后 Attempt 的真实 Failure 终止 Run；
-- `routes.exhausted: staff` → 调用 Delivery Staff，只允许 `request_replan`、`ask_user`、`fail_run`，不能突破冻结上限重试；
-- `routes.exhausted: user` → 创建带 `reason=attempts_exhausted` 的用户 Escalation；用户回答后当前 Run 以 `replan_required` 收口，由外层显式启动新 Workflow/Run。
+- `routes.exhausted: staff` → 调用 Delivery Staff，只允许 `request_replan`、`ask_user`、`fail_run`；`request_replan` 令同一 Run 进入 replanning；
+- `routes.exhausted: user` → 创建带 `reason=attempts_exhausted` 的用户 Escalation；用户回答后同一 Run 进入 replanning。
 
-`target=staff` Escalation 不能由用户 resume，也不会作为公开 question 返回。
+Runtime 在 replanning 中重新调用 ST Planner。新候选必须通过 Compiler 和 `amendWorkflow()` 兼容性检查，随后作为新的 revision 回到 ready。旧 revision 与执行历史保留；只有用户目标发生实质变化才创建新 Run。
+
+`target=staff` Escalation 不能由用户 `/ipd-resume`，也不会作为公开 question 返回。
 
 ### 13.1 Attempt Workspace
 
 有写范围的 Attempt 在以下目录运行：
 
 ```text
-<cwd>/.pi/ipd/attempts/<run-id>/<attempt-id>/workspace/
+<cwd>/.pi/ipd/runs/<run-id>/work/<node-id>/attempt-<n>/workspace/
 ```
 
 - 非写入顶层路径通过只读链接访问原工作区；
 - 写范围所在顶层目录复制到 Attempt 空间；
 - 返工 Attempt 从上一 Attempt 的工作副本继续；
 - Gate 在 Attempt 空间检查 Candidate；
-- PASS 后仅发布 Manifest 文件；失败文件不覆盖正式工作区；
+- PASS 后仅把 Manifest 文件发布到当前 Run 的 `workspace/` 和 `accepted/<node-id>/<artifact-id>/`；失败文件不覆盖已验收工作区；
+- Final Gate PASS 后把最终 Artifact 文件发布到当前 Run 的 `final/<node-id>/`；
+- 新 Run 不复制项目旧 `outputs/`，避免其他 Run 的未验收结果进入当前上下文；
 - `writeScopes: ["."]` 无法证明隔离，Runtime 直接拒绝，ST 必须收窄写范围。
 
 ## 14. Cancel 与 AbortSignal
 
-活动 Run 有独立 AbortController。外部 Tool Signal 会转发到该 Controller。
+活动 Run 有独立 AbortController。`start` 返回 Run receipt 后，后台 Planner/Graph 与该次 Tool Signal 解耦；显式 `cancel` 才终止后台 Run。用户 Command 触发的同步恢复路径仍使用调用上下文 Signal。
 
 取消时：
 
@@ -338,15 +351,16 @@ Staff 调用失败时，Runtime 降级为用户 Escalation，并保存失败原�
 
 ## 15. 进程中断恢复
 
-当 `run()` 读取到状态为 running 的旧 Run 时，会执行 `recoverInterruptedWork()`：
+进程退出后，外层使用 `resume_run {runId}` 接管非终态 Run。`run()` 读取到状态为 running 的旧 Run 时执行 `recoverInterruptedWork()`：
 
 - mechanical_checking / semantic_reviewing Gate → interrupted；
 - running / gate_checking / gate_reviewing Attempt → interrupted；
-- 只读、无 Bash、无 external action 的节点可以创建下一 Attempt；
-- write、Bash 或 external action 节点不能自动确认副作用是否已发生，会创建 Staff/User 等待路径；
+- read-only 与 run-workspace-write 节点可以创建下一执行 Attempt；
+- 受控 Run Root 内的 write/edit/Bash/PowerShell 可恢复，不按工具名称直接判为危险；
+- Tool effect 为 external-idempotent/external-non-idempotent，或 Node 声明 externalActions 时，创建 `unknown_outcome` 用户 Escalation；
 - 不从 AgentSession 流中间位置续传；恢复单位是完整 Attempt，但返工可继承上一 Attempt Workspace 和 `checkpoint.json`。
 
-恢复动作追加新 Event，不改写中断前记录。
+用户回答会成为该 Node 的 `retry_node` Decision 并进入下一 Session 上下文。恢复动作追加新 Event，不改写中断前记录，也不把 interrupted 执行计入质量返工额度。
 
 ## 16. 对应测试
 

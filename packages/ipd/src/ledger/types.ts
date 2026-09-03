@@ -11,6 +11,7 @@ import type {
 export type RunStatus =
 	| "planning"
 	| "compiling"
+	| "replanning"
 	| "ready"
 	| "running"
 	| "waiting_user"
@@ -66,6 +67,7 @@ export interface RunRecord {
 
 export interface WorkflowVersionRecord {
 	runId: string;
+	revision: number;
 	id: string;
 	version: string;
 	hash: string;
@@ -208,6 +210,7 @@ export interface IpdEventRecord {
 export interface RunSnapshot {
 	run: RunRecord;
 	workflow?: WorkflowVersionRecord;
+	workflowHistory: WorkflowVersionRecord[];
 	agentCards: AgentCardSnapshotRecord[];
 	nodes: NodeInstanceRecord[];
 	artifacts: ArtifactRecord[];
@@ -239,6 +242,8 @@ export interface FreezeWorkflowInput {
 	idempotencyKey: string;
 	workflow: CompiledWorkflow;
 }
+
+export interface AmendWorkflowInput extends FreezeWorkflowInput {}
 
 export interface TransitionRunInput {
 	runId: string;
@@ -390,5 +395,12 @@ export interface RecordBudgetSignalInput {
 	runId: string;
 	idempotencyKey: string;
 	type: BudgetSignalType;
+	payload: JsonValue;
+}
+
+export interface RecordRunEventInput {
+	runId: string;
+	idempotencyKey: string;
+	type: string;
 	payload: JsonValue;
 }

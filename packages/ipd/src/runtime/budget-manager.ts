@@ -10,6 +10,7 @@ import { createIpdFailure } from "./failure.ts";
 
 export interface BudgetRunContext {
 	cwd: string;
+	sessionDirectory?: string;
 	skill: SkillSnapshot;
 	runDefaultModel: Model<Api>;
 	runDefaultThinkingLevel: ThinkingLevel;
@@ -19,7 +20,7 @@ export interface BudgetRunContext {
 export interface BudgetAssessment {
 	action: "continue" | "waiting_user" | "failed";
 	totalTokens: number;
-	softLimit: number;
+	softLimit?: number;
 	hardLimit?: number;
 	reviewerTokenBudget?: number;
 }
@@ -46,7 +47,7 @@ export class NoopBudgetController implements BudgetController {
 		return {
 			action: "continue",
 			totalTokens: snapshot.budgetUsage.reduce((total, usage) => total + usage.totalTokens, 0),
-			softLimit: workflow.globalBudget.tokens,
+			softLimit: workflow.globalBudget.mode === "bounded" ? workflow.globalBudget.tokens : undefined,
 		};
 	}
 
@@ -83,6 +84,7 @@ export class StaffBudgetController implements BudgetController {
 		context: BudgetRunContext,
 	): Promise<BudgetAssessment> {
 		const totalTokens = snapshot.budgetUsage.reduce((total, usage) => total + usage.totalTokens, 0);
+		if (workflow.globalBudget.mode === "unbounded") return { action: "continue", totalTokens };
 		const softLimit = workflow.globalBudget.tokens;
 		const hardLimit = workflow.globalBudget.hardTokenLimit;
 		if (hardLimit !== undefined && totalTokens >= hardLimit) {
@@ -174,11 +176,14 @@ export class StaffBudgetController implements BudgetController {
 			task: snapshot.run.task,
 			workflowHash: snapshot.workflow?.hash ?? "",
 			cwd: context.cwd,
+			sessionDirectory: context.sessionDirectory,
 			agentCard: staff,
 			skills: [context.skill],
 			runDefaultModel: context.runDefaultModel,
 			runDefaultThinkingLevel: context.runDefaultThinkingLevel,
+			budgetMode: "bounded",
 			tokenBudget: workflow.globalBudget.staffTokens,
+			timeoutMs: workflow.globalBudget.timeLimitMs,
 			allowedActions: ["continue_over_budget", "reduce_future_budget", "ask_user", "fail_run"],
 			context: {
 				threshold,
@@ -254,6 +259,7 @@ export class StaffBudgetController implements BudgetController {
 	}
 
 	reviewerTokenBudget(workflow: WorkflowDefinition, snapshot: RunSnapshot): number | undefined {
+		if (workflow.globalBudget.mode === "unbounded") return undefined;
 		for (const decision of [...snapshot.decisions].reverse()) {
 			if (decision.action !== "reduce_future_budget") continue;
 			const configured = numericProperty(decision.evidence, "reviewerTokenBudget");

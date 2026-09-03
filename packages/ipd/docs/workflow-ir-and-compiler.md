@@ -2,7 +2,7 @@
 
 Workflow IR 是 ST Planner 和 GraphEngine 之间的冻结协议。当前唯一根类型是 `WorkflowDefinitionSchema`；模型输出、人工模板和 Ledger Snapshot 最终都必须符合这份 TypeBox Schema。
 
-Planner 不再通过一次巨型 Tool Call 直接提交完整根对象。它依次提交 Workflow Header、逐条 Acceptance、Execution Node Core、对应 Node Gate 和 Final Gate，`WorkflowSubmissionBuilder` 注入冻结 Skill、预算与 Staff Core，在本地组装并使用正式根 Schema 验证，之后候选才进入 Compiler。分段协议只是模型适配层，不改变冻结 IR。显式模板或上一版 Compiler 候选会预载到 Builder，后续修订可以只替换诊断片段。
+Planner 不通过一次巨型 Tool Call 直接提交完整根对象。它依次提交 Workflow Header、逐条 Acceptance、Execution Node Core、对应 Node Gate 和 Final Gate，`WorkflowSubmissionBuilder` 注入冻结 Skill、预算与 Staff Core，在本地组装并使用正式根 Schema 验证，之后候选才进入 Compiler。分段协议只是模型适配层，不改变冻结 IR。显式模板或上一版 Compiler 候选会预载到 Builder，后续修订可以只替换诊断片段。
 
 ## 1. WorkflowDefinition
 
@@ -17,6 +17,8 @@ interface WorkflowDefinition {
   acceptanceCriteria: Array<{ id: string; description: string }>;
   source: "generated" | "template";
   sourceTemplateId?: string;
+  sourceTemplateVersion?: string;
+  sourceTemplateHash?: string;
   globalBudget: BudgetDefinition;
   staff: { core: AgentCardRef[] };
   nodes: ExecutionNodeDefinition[];
@@ -53,7 +55,7 @@ Compiler 要求 Workflow 中的引用在数量、顺序、ID、版本和 Hash �
 ### 1.4 来源
 
 - `source: generated` 不能带 `sourceTemplateId`；
-- `source: template` 必须带已加载的 `sourceTemplateId`；
+- `source: template` 必须带已加载的 Template ID、Version 和 Hash 精确引用；
 - 使用模板仍会产生本次完整候选、重新编译并保存新资产；
 - GraphEngine 不区分模板派生和从零生成的 Workflow。
 
@@ -73,7 +75,9 @@ interface ExecutionNodeDefinition {
   skills: string[];
   tools: string[];
   permissions: NodePermissions;
-  budget: { tokens: number; timeoutMs: number };
+  budget:
+    | { mode: "unbounded" }
+    | { mode: "bounded"; tokens: number; timeLimitMs: number };
   gate: GateDefinition;
   rework: { maxAttempts: number; targetNodeId: string };
   routes: {
@@ -143,18 +147,10 @@ interface ArtifactContract {
   artifactType: string;
   description: string;
   businessPurpose: string;
-  requiredRoles: Array<"primary" | "review" | "evidence">;
 }
 ```
 
-每个 Execution Node 必须同时要求：
-
-```text
-primary
-review
-```
-
-这样业务输出既有正式交付文件，也有 Reviewer 能读取的具体内容。`evidence` 可选。
+Artifact Contract 描述节点输出的业务类型和目的，不编码物理文件角色。Execution Submission 支持一个或多个 `{path, mimeType}` 文件；Staff 通过 Gate Criteria 规定机械与语义验收方式。
 
 ## 4. GateDefinition
 
@@ -204,7 +200,7 @@ Planner 分段提交时使用 `parametersJson` 字符串，Runtime 会将其解�
 
 ### 4.3 Reviewer 独立性
 
-局部 Gate 排除当前节点生产者；Final Gate 排除 Workflow 中所有生产者。Compiler 检查剩余 AgentCard 中满足 capability 的数量是否达到 `minCount`。
+局部 Gate 排除当前节点生产者；Final Gate 排除 Workflow 中所有生产者。同一 Gate Run 内一张 AgentCard 只能占一个 Reviewer slot。Compiler 和 Runtime 共用同一个确定性二分匹配分配器，对全部 Requirement 做全局互斥分配，而不是逐项独立计数；分配器可以把先前的通用 Reviewer 改配给其他 slot，从而找到存在的完整匹配。
 
 如果能力足够但只有生产者本人匹配，Diagnostic 是 `reviewer_not_independent`；如果整个池都没有足够匹配 Card，则是 `reviewer_unavailable`。
 
@@ -214,22 +210,11 @@ Planner 分段提交时使用 `parametersJson` 字符串，Runtime 会将其解�
 - Final Gate `pass` 必须是 `final`；
 - `rework` 必须指向存在的 Node；
 - Node `rework.targetNodeId` 必须与 Gate rework 路由相同；
-- `maxAttempts` 最少为 1，不存在无限重试。
+- `maxAttempts` 最少为 1，不存在无限重试；当前 Builder 统一注入默认值 10。
 
 ## 5. Budget
 
-```ts
-interface BudgetDefinition {
-  tokens: number;
-  timeoutMs: number;
-  staffTokens: number;
-  reviewerTokens: number;
-  reworkTokens: number;
-  hardTokenLimit?: number;
-}
-```
-
-Compiler 要求：
+Budget 有 unbounded 和 bounded 两种显式模式。unbounded Workflow 的全部 Node 必须同为 unbounded，Compiler 不执行 Token 求和或时间限制。bounded Workflow 的全部 Node 必须同为 bounded，并要求：
 
 ```text
 所有 Node budget.tokens 之和
@@ -293,8 +278,9 @@ acceptanceCriteria:
     description: 关键结论有来源且与任务一致
 source: generated
 globalBudget:
+  mode: bounded
   tokens: 80000
-  timeoutMs: 3600000
+  timeLimitMs: 3600000
   staffTokens: 10000
   reviewerTokens: 12000
   reworkTokens: 10000
@@ -320,7 +306,6 @@ nodes:
       artifactType: analysis
       description: 分析正文和审查材料
       businessPurpose: 支持用户决策
-      requiredRoles: [primary, review]
     skills: [analysis-skill]
     tools: [read, write]
     permissions:
@@ -328,7 +313,7 @@ nodes:
       readScopes: [inputs, sources]
       writeScopes: [outputs/research]
       externalActions: false
-    budget: { tokens: 20000, timeoutMs: 900000 }
+    budget: { mode: bounded, tokens: 20000, timeLimitMs: 900000 }
     gate:
       id: analysis-gate
       mechanicalCriteria:
@@ -357,7 +342,7 @@ nodes:
         rework: analysis
         blocked: staff
         escalate: staff
-    rework: { maxAttempts: 2, targetNodeId: analysis }
+    rework: { maxAttempts: 10, targetNodeId: analysis }
     routes: { blocked: staff, exhausted: fail }
 finalArtifactNodeIds: [analysis]
 finalGate:
@@ -468,7 +453,8 @@ Compiler 返回全部可发现 Diagnostic，并按 `path + code` 排序。Planne
 | `knowledge_base_permission_exceeded` | Node 读范围不覆盖知识库路径 |
 | `employee_role_conflict` | 固定 Core 被用于业务生产 |
 | `permission_exceeded` | Tool、Skill 或权限超过 Card |
-| `reviewer_unavailable` | 独立 Reviewer 数量或能力不足 |
+| `reviewer_unavailable` | 整个员工池的 Reviewer 数量或能力不足 |
+| `reviewer_not_independent` | 单项看似有候选，但排除生产者或全局互斥分配后无法同时满足全部 Requirement |
 | `success_graph_cycle` | 成功依赖成环 |
 | `unreachable_node` | Node 不贡献最终 Artifact |
 | `budget_invalid` | 节点与预留预算超过全局预算 |
@@ -480,9 +466,9 @@ Compiler 返回全部可发现 Diagnostic，并按 `path + code` 排序。Planne
 
 1. 对结构化 Workflow 进行规范 JSON Hash；
 2. `freezeDeep()` 冻结定义；
-3. 保存到 `<generated>/<workflow.id>/<version>/<hash>.json`；
+3. 保存到 `~/.pi/ipd/workflow/<workflow.id>/<version>/<hash>.json`；
 4. Ledger 保存 Workflow JSON、Hash 和来源；
 5. Ledger 同时快照当前编译 AgentCard Pool，供动态 Reviewer 和恢复使用；
 6. Run 状态从 compiling 进入 ready。
 
-相同 Hash 复用已有文件；同一 ID/version 出现不同 Hash 时 AssetStore 拒绝并要求升版本。运行结束不会删除 Workflow Asset。
+相同 Hash 复用已有文件；同一 ID/version 出现不同 Hash 时 AssetStore 返回类型化 `version_conflict`。Planner 将其转换为 `/version` 上的 `workflow_version_conflict` Diagnostic，保留上一候选并进入下一 revision；模型只需通过 `submit_workflow_header` 提交尚未使用的更高 SemVer，再次 finalize。只有真实 Hash、读写或持久化错误才以 `asset_write_failed` 终止 Run。运行结束不会删除 Workflow Asset。

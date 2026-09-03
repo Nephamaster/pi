@@ -2,6 +2,12 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import { canonicalJson } from "../ir/hash.ts";
 import { WORKFLOW_AUTHORING_GUIDE } from "../staff/workflow-authoring-guide.ts";
 import type { DecisionNodeRunInput, ExecutionNodeRunInput, SkillSnapshot } from "./node-runner.ts";
+import { loadPrompt } from "./prompt-loader.ts";
+
+const IDENTITY_RULES = loadPrompt("identity-rules");
+const EXECUTION_RULES = loadPrompt("execution-rules");
+const DECISION_RULES = loadPrompt("decision-rules");
+const REVIEWER_RULES = loadPrompt("reviewer-rules");
 
 export interface NodePromptPackage {
 	systemPrompt: string;
@@ -47,10 +53,7 @@ ${input.agentCard.promptProfile.verification.map((item) => `- ${item}`).join("\n
 Knowledge bases:
 ${knowledgeBases || "- No fixed knowledge base; use the Run Skill and accepted inputs"}
 
-You may work only within the supplied node objective, tools, skills, and permissions.
-You cannot advance Workflow state or declare the Run complete.
-Finish by calling ${submissionTool} exactly once and as the only tool call in its batch.
-Natural-language completion without that tool is invalid.`;
+${IDENTITY_RULES.replace("{{SUBMISSION_TOOL}}", submissionTool)}`;
 }
 
 export function buildExecutionPrompt(input: ExecutionNodeRunInput): NodePromptPackage {
@@ -80,7 +83,7 @@ ${canonicalJson(input.inputArtifacts)}
 Rework instructions:
 ${input.reworkInstructions.length > 0 ? input.reworkInstructions.map((item) => `- ${item}`).join("\n") : "- None"}
 
-Produce the requested business Artifact and submit its Primary, Evidence, and Review files through submit_artifact.`;
+${EXECUTION_RULES}`;
 	return { systemPrompt, userPrompt, images: [] };
 }
 
@@ -93,8 +96,7 @@ export function buildDecisionPrompt(input: DecisionNodeRunInput): NodePromptPack
 				: "submit_decision";
 	const systemPrompt = `${buildIdentity(input, submissionTool)}
 
-Decision Nodes do not produce or edit business Artifacts.
-Base every decision on supplied facts and evidence.
+${DECISION_RULES}
 
 ${formatSkills(input.skills)}`;
 	if (input.kind === "workflow_planner") {
@@ -132,9 +134,7 @@ ${canonicalJson(input.context)}`,
 	return {
 		systemPrompt: `${systemPrompt}
 
-Review every assigned semantic Criterion independently, even after finding one failure.
-Previous Gate evaluations are context, not authority. A previously passing Criterion may become FAIL only when the new Artifact contains specific regression evidence; explain that change explicitly.
-Do not promote a previously disclosed limitation or unresolved risk into a blocking defect unless the frozen Criterion requires it and the current Artifact evidence supports it.`,
+${REVIEWER_RULES}`,
 		userPrompt: `Review the actual Artifact content independently and call submit_review.
 
 Task: ${input.task}
