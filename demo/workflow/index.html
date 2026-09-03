@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IPD Workflow · Agent Harness 战略汇报</title>
+  <style>
+    :root {
+      --ink: #17243a;
+      --muted: #64748b;
+      --line: #cbd5e1;
+      --paper: #f4f7fb;
+      --panel: #ffffff;
+      --navy: #071426;
+      --navy-2: #0d213b;
+      --blue: #2864dc;
+      --cyan: #08a6b8;
+      --green: #15966f;
+      --amber: #d88618;
+      --red: #cf4b42;
+      --purple: #7357c7;
+      --shadow: 0 16px 42px rgba(10, 30, 58, .12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 1120px;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+    }
+
+    button { font: inherit; }
+
+    .app-header {
+      height: 120px;
+      padding: 24px 30px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #fff;
+      background:
+        radial-gradient(circle at 78% -30%, rgba(36, 129, 255, .35), transparent 42%),
+        linear-gradient(115deg, var(--navy), var(--navy-2));
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+
+    .eyebrow {
+      margin-bottom: 7px;
+      color: #7dd3fc;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 27px;
+      line-height: 1.25;
+      letter-spacing: -.02em;
+    }
+
+    .subtitle {
+      margin-top: 7px;
+      color: #b7c7dc;
+      font-size: 13px;
+    }
+
+    .header-metrics {
+      display: flex;
+      gap: 10px;
+    }
+
+    .metric {
+      min-width: 88px;
+      padding: 12px 14px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 12px;
+      background: rgba(255,255,255,.055);
+    }
+
+    .metric strong { display: block; font-size: 20px; }
+    .metric span { color: #a8bdd7; font-size: 11px; }
+
+    .story-strip {
+      height: 58px;
+      padding: 0 30px;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      background: #fff;
+      border-bottom: 1px solid #dbe3ed;
+    }
+
+    .story-label {
+      margin-right: 4px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+
+    .story-step {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .story-step b {
+      width: 23px;
+      height: 23px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      border-radius: 50%;
+      background: var(--blue);
+      font-size: 11px;
+    }
+
+    .story-arrow { color: #a3afbf; }
+
+    .toolbar {
+      height: 54px;
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #eef3f9;
+      border-bottom: 1px solid #d7e0eb;
+    }
+
+    .legend, .tools { display: flex; align-items: center; gap: 10px; }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #526176;
+      font-size: 11px;
+    }
+
+    .legend-line { width: 25px; border-top: 2px solid var(--green); }
+    .legend-line.rework { border-color: var(--amber); border-top-style: dashed; }
+    .legend-line.blocked { border-color: var(--red); border-top-style: dotted; }
+
+    .tool-button {
+      height: 31px;
+      padding: 0 11px;
+      color: #334155;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .tool-button:hover { border-color: #7da2e7; color: var(--blue); }
+
+    .workspace {
+      height: calc(100vh - 232px);
+      display: grid;
+      grid-template-columns: minmax(700px, 1fr) 420px;
+    }
+
+    .canvas-viewport {
+      position: relative;
+      overflow: auto;
+      background-color: #f4f7fb;
+      background-image: radial-gradient(#cbd5e1 0.8px, transparent 0.8px);
+      background-size: 20px 20px;
+    }
+
+    .canvas {
+      position: relative;
+      width: 2020px;
+      height: 1120px;
+      transform-origin: top left;
+      transition: transform .16s ease;
+    }
+
+    .stage-label {
+      position: absolute;
+      top: 24px;
+      width: 260px;
+      color: #728197;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .stage-label::after {
+      content: "";
+      display: block;
+      height: 1px;
+      margin-top: 8px;
+      background: linear-gradient(90deg, transparent, #cbd5e1, transparent);
+    }
+
+    #edges {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .unit { position: absolute; width: 270px; z-index: 3; }
+
+    .node-card, .gate-card, .final-gate-card {
+      width: 100%;
+      border: 1px solid #d6dfeb;
+      background: var(--panel);
+      box-shadow: 0 8px 24px rgba(19, 43, 76, .08);
+      cursor: pointer;
+      text-align: left;
+      transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+    }
+
+    .node-card:hover, .gate-card:hover, .final-gate-card:hover,
+    .node-card:focus-visible, .gate-card:focus-visible, .final-gate-card:focus-visible {
+      transform: translateY(-3px);
+      border-color: #7da2e7;
+      box-shadow: var(--shadow);
+      outline: none;
+    }
+
+    .node-card {
+      min-height: 193px;
+      padding: 17px;
+      border-radius: 15px;
+      border-top: 4px solid var(--blue);
+    }
+
+    .node-card.parallel { border-top-color: var(--purple); }
+    .node-card.build { border-top-color: var(--cyan); }
+    .node-card.qa { border-top-color: var(--amber); }
+
+    .node-topline, .gate-topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .node-index {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      border-radius: 9px;
+      background: var(--blue);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .parallel .node-index { background: var(--purple); }
+    .build .node-index { background: var(--cyan); }
+    .qa .node-index { background: var(--amber); }
+
+    .kind-pill {
+      padding: 4px 7px;
+      color: #57677c;
+      border-radius: 999px;
+      background: #eef3f8;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+
+    .node-title { margin: 13px 0 5px; font-size: 17px; line-height: 1.3; }
+    .node-id { color: #8290a3; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 9px; }
+    .agent-row { margin-top: 12px; color: #3a4a5f; font-size: 11px; }
+    .agent-row strong { color: var(--blue); }
+
+    .artifact-preview {
+      margin-top: 12px;
+      padding: 9px 10px;
+      border-radius: 9px;
+      background: #f1f6fc;
+    }
+
+    .artifact-preview span {
+      display: block;
+      margin-bottom: 3px;
+      color: #77869a;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+
+    .artifact-preview strong {
+      display: block;
+      overflow: hidden;
+      color: #2c4c75;
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .artifact-flow {
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--green);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .artifact-flow::before, .artifact-flow::after { content: ""; display: block; }
+    .artifact-flow::before { height: 100%; border-left: 2px solid var(--green); }
+    .artifact-flow::after {
+      position: absolute;
+      margin-top: 34px;
+      border: 5px solid transparent;
+      border-top-color: var(--green);
+    }
+
+    .artifact-flow span {
+      position: absolute;
+      margin-left: 86px;
+      padding: 2px 5px;
+      background: var(--paper);
+    }
+
+    .gate-card {
+      min-height: 144px;
+      padding: 14px 15px;
+      border-radius: 13px;
+      border-left: 4px solid var(--green);
+    }
+
+    .gate-title { margin: 8px 0 4px; font-size: 14px; }
+    .gate-id { color: #8290a3; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 8px; }
+
+    .gate-counts { margin-top: 10px; display: flex; gap: 6px; }
+    .count-chip { padding: 4px 7px; border-radius: 7px; background: #edf5f1; color: #23795e; font-size: 9px; font-weight: 800; }
+    .count-chip.semantic { background: #eef1fb; color: #5864a9; }
+
+    .route-row { display: flex; gap: 5px; margin-top: 11px; }
+    .route { padding: 4px 6px; border-radius: 6px; font-size: 8px; font-weight: 900; }
+    .route.pass { color: #0d7956; background: #e5f7ef; }
+    .route.rework { color: #a5630c; background: #fff2dd; }
+    .route.blocked { color: #b23e38; background: #fdebea; }
+
+    .final-unit { position: absolute; width: 286px; z-index: 3; }
+
+    .final-gate-card {
+      min-height: 225px;
+      padding: 20px;
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 18px;
+      background: linear-gradient(145deg, #0d2948, #0a1930);
+      box-shadow: 0 18px 38px rgba(4, 20, 39, .22);
+    }
+
+    .final-gate-card .kind-pill { color: #b8d1ee; background: rgba(255,255,255,.08); }
+    .final-gate-card h3 { margin: 16px 0 6px; font-size: 21px; }
+    .final-gate-card p { color: #a9bfd8; font-size: 11px; line-height: 1.55; }
+    .final-gate-card .count-chip { color: #91e7c7; background: rgba(29, 181, 132, .13); }
+    .final-gate-card .count-chip.semantic { color: #b9c6ff; background: rgba(115, 87, 199, .18); }
+
+    .delivery-badge {
+      margin-top: 20px;
+      padding: 11px;
+      text-align: center;
+      color: #c9ffe9;
+      border: 1px solid rgba(92, 226, 173, .32);
+      border-radius: 10px;
+      background: rgba(21, 150, 111, .13);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .staff-rail {
+      position: absolute;
+      left: 70px;
+      bottom: 40px;
+      width: 1800px;
+      height: 105px;
+      padding: 18px 22px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      border: 1px solid #d5dfeb;
+      border-radius: 16px;
+      background: rgba(255,255,255,.88);
+      box-shadow: 0 9px 28px rgba(19, 43, 76, .08);
+      backdrop-filter: blur(10px);
+      z-index: 2;
+    }
+
+    .staff-heading { width: 190px; }
+    .staff-heading strong { display: block; font-size: 14px; }
+    .staff-heading span { color: var(--muted); font-size: 10px; }
+
+    .staff-chip {
+      flex: 1;
+      min-width: 250px;
+      height: 66px;
+      padding: 12px 14px;
+      text-align: left;
+      border: 1px solid #dde5ef;
+      border-radius: 12px;
+      background: #f8fafc;
+      cursor: pointer;
+    }
+
+    .staff-chip:hover { border-color: #8ba9dd; background: #f1f6ff; }
+    .staff-chip strong { display: block; margin-bottom: 3px; font-size: 12px; }
+    .staff-chip span { color: #718096; font-size: 9px; }
+
+    .detail-panel {
+      position: relative;
+      overflow: hidden;
+      background: #fff;
+      border-left: 1px solid #d5deea;
+      box-shadow: -12px 0 30px rgba(22, 43, 70, .06);
+    }
+
+    .detail-scroll { height: 100%; overflow-y: auto; padding: 25px 25px 60px; }
+    .detail-kicker { color: var(--blue); font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+    .detail-title { margin: 8px 0 4px; font-size: 23px; line-height: 1.3; }
+    .detail-id { color: #8290a3; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; word-break: break-all; }
+    .detail-lead { margin: 17px 0 20px; color: #46566c; font-size: 12px; line-height: 1.7; }
+
+    .detail-section { margin-top: 21px; }
+    .detail-section h4 { margin: 0 0 9px; color: #273a54; font-size: 11px; letter-spacing: .06em; }
+    .detail-box { padding: 12px; border: 1px solid #e1e7ef; border-radius: 11px; background: #f8fafc; }
+    .detail-box + .detail-box { margin-top: 8px; }
+    .detail-box strong { display: block; margin-bottom: 5px; color: #263b57; font-size: 11px; }
+    .detail-box p { margin: 0; color: #5d6b7f; font-size: 11px; line-height: 1.65; }
+    .detail-box code { color: #27548a; font-size: 10px; word-break: break-all; }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .chip { padding: 4px 7px; color: #40536c; border-radius: 7px; background: #eaf0f6; font-size: 9px; }
+    .chip.blue { color: #2456a8; background: #e8f0ff; }
+    .chip.green { color: #177355; background: #e7f7f0; }
+    .chip.amber { color: #9a5f10; background: #fff2dd; }
+
+    .kv { display: grid; grid-template-columns: 112px 1fr; gap: 7px 10px; font-size: 10px; }
+    .kv dt { color: #7a899d; }
+    .kv dd { margin: 0; color: #33465f; word-break: break-word; }
+
+    .empty-state { padding: 40px 5px; color: #5f6f84; }
+    .empty-state h3 { color: #253a56; font-size: 20px; }
+    .empty-state p { font-size: 12px; line-height: 1.7; }
+
+    .flow-callout {
+      margin-top: 20px;
+      padding: 14px;
+      border-left: 4px solid var(--green);
+      border-radius: 0 10px 10px 0;
+      background: #edf8f4;
+      color: #315c4e;
+      font-size: 11px;
+      line-height: 1.65;
+    }
+
+    @media (max-width: 1400px) {
+      .workspace { grid-template-columns: minmax(680px, 1fr) 360px; }
+      .header-metrics .metric:nth-child(3) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <div class="eyebrow">IPD · Workflow Asset Visualization</div>
+      <h1 id="workflow-name">加载 Workflow…</h1>
+      <div class="subtitle" id="workflow-meta"></div>
+    </div>
+    <div class="header-metrics" id="metrics"></div>
+  </header>
+
+  <section class="story-strip" aria-label="节点交付与评审流程">
+    <span class="story-label">每个节点的准出闭环</span>
+    <span class="story-step"><b>1</b>执行任务</span><span class="story-arrow">→</span>
+    <span class="story-step"><b>2</b>提交候选 Artifact</span><span class="story-arrow">→</span>
+    <span class="story-step"><b>3</b>机械检查</span><span class="story-arrow">→</span>
+    <span class="story-step"><b>4</b>独立语义评审</span><span class="story-arrow">→</span>
+    <span class="story-step"><b>5</b>PASS 发布 / REWORK 返工 / BLOCKED 升级</span>
+  </section>
+
+  <section class="toolbar">
+    <div class="legend">
+      <span class="legend-item"><i class="legend-line"></i>PASS / accepted Artifact</span>
+      <span class="legend-item"><i class="legend-line rework"></i>REWORK / 当前节点新 Attempt</span>
+      <span class="legend-item"><i class="legend-line blocked"></i>BLOCKED / Staff 或用户</span>
+    </div>
+    <div class="tools">
+      <button class="tool-button" id="overview-button">Workflow 总览</button>
+      <button class="tool-button" id="zoom-out" aria-label="缩小">−</button>
+      <button class="tool-button" id="zoom-reset">适应画布</button>
+      <button class="tool-button" id="zoom-in" aria-label="放大">＋</button>
+    </div>
+  </section>
+
+  <main class="workspace">
+    <section class="canvas-viewport" id="viewport" aria-label="Workflow DAG 画布">
+      <div class="canvas" id="canvas">
+        <svg id="edges" aria-hidden="true"></svg>
+        <div id="stages"></div>
+        <div id="units"></div>
+        <div id="final-unit"></div>
+        <div class="staff-rail" id="staff-rail"></div>
+      </div>
+    </section>
+
+    <aside class="detail-panel" aria-live="polite">
+      <div class="detail-scroll" id="details"></div>
+    </aside>
+  </main>
+
+  <script src="workflow-data.js"></script>
+  <script>
+    (() => {
+      const workflow = window.WORKFLOW_DATA;
+      if (!workflow) {
+        document.getElementById("details").innerHTML = '<div class="empty-state"><h3>Workflow 数据未加载</h3><p>请确认 workflow-data.js 与本文件位于同一目录。</p></div>';
+        return;
+      }
+
+      const labels = {
+        "research-evidence-pack": ["证据研究", "01"],
+        "narrative-deck-blueprint": ["叙事蓝图", "02"],
+        "quant-model-chart-spec": ["数据与图表", "03A"],
+        "visual-system-design": ["视觉系统", "03B"],
+        "pptxgenjs-deck-build": ["PPT 构建", "04"],
+        "deck-qa-verification": ["独立 QA", "05"]
+      };
+      const staffLabels = {
+        "staff-workflow-architect": ["Workflow Architect", "设计节点、DAG、人员与 Gate"],
+        "staff-delivery-governor": ["Delivery Governor", "处理预算、阻塞、恢复与交付节奏"],
+        "staff-quality-governor": ["Quality Governor", "处理评审冲突与质量仲裁"]
+      };
+      const stageNames = ["01 · 研究事实", "02 · 设计叙事", "03 · 并行设计", "04 · 构建交付", "05 · 独立验证", "FINAL · 整体验收"];
+      const xByDepth = [70, 390, 720, 1050, 1380, 1700];
+      const canvas = document.getElementById("canvas");
+      const viewport = document.getElementById("viewport");
+      const details = document.getElementById("details");
+      const nodeMap = new Map(workflow.nodes.map(node => [node.id, node]));
+      const depths = new Map();
+
+      function depthOf(node) {
+        if (depths.has(node.id)) return depths.get(node.id);
+        const depth = node.dependsOn.length ? Math.max(...node.dependsOn.map(id => depthOf(nodeMap.get(id)))) + 1 : 0;
+        depths.set(node.id, depth);
+        return depth;
+      }
+      workflow.nodes.forEach(depthOf);
+
+      const groups = new Map();
+      workflow.nodes.forEach(node => {
+        const depth = depths.get(node.id);
+        const list = groups.get(depth) || [];
+        list.push(node);
+        groups.set(depth, list);
+      });
+
+      const positions = new Map();
+      for (const [depth, nodes] of groups) {
+        const ys = nodes.length === 1 ? [265] : nodes.length === 2 ? [90, 500] : nodes.map((_, index) => 70 + index * 310);
+        nodes.forEach((node, index) => positions.set(node.id, { x: xByDepth[depth], y: ys[index] }));
+      }
+
+      document.getElementById("workflow-name").textContent = workflow.name;
+      document.getElementById("workflow-meta").textContent = `${workflow.id} · v${workflow.version} · Skill: ${workflow.skill.name} · ${workflow.globalBudget.mode === "unbounded" ? "无全局预算上限" : "有界预算"}`;
+      document.getElementById("metrics").innerHTML = [
+        [workflow.nodes.length, "执行节点"],
+        [workflow.nodes.reduce((sum, n) => sum + n.gate.semanticCriteria.length, 0), "语义准出标准"],
+        [workflow.acceptanceCriteria.length, "最终验收目标"]
+      ].map(([value, label]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join("");
+
+      document.getElementById("stages").innerHTML = stageNames.map((name, index) =>
+        `<div class="stage-label" style="left:${xByDepth[index]}px">${name}</div>`
+      ).join("");
+
+      const unitRoot = document.getElementById("units");
+      workflow.nodes.forEach((node, index) => {
+        const position = positions.get(node.id);
+        const [name, number] = labels[node.id] || [node.id, String(index + 1).padStart(2, "0")];
+        const depth = depths.get(node.id);
+        const className = depth === 2 ? "parallel" : node.id.includes("build") ? "build" : node.id.includes("qa") ? "qa" : "";
+        const unit = document.createElement("div");
+        unit.className = "unit";
+        unit.style.left = `${position.x}px`;
+        unit.style.top = `${position.y}px`;
+        unit.dataset.nodeId = node.id;
+        unit.innerHTML = `
+          <button class="node-card ${className}" data-kind="node" data-id="${node.id}" aria-label="查看节点 ${name}">
+            <div class="node-topline"><span class="node-index">${number}</span><span class="kind-pill">EXECUTION NODE</span></div>
+            <h3 class="node-title">${name}</h3>
+            <div class="node-id">${node.id}</div>
+            <div class="agent-row">员工 · <strong>${node.agentCardRef.id}</strong></div>
+            <div class="artifact-preview"><span>DELIVERABLE</span><strong>${node.output.artifactType}</strong></div>
+          </button>
+          <div class="artifact-flow"><span>candidate</span></div>
+          <button class="gate-card" data-kind="gate" data-id="${node.id}" aria-label="查看质量门 ${node.gate.id}">
+            <div class="gate-topline"><span class="kind-pill">QUALITY GATE</span><span style="color:#15966f;font-size:14px">◆</span></div>
+            <h4 class="gate-title">节点准出评审</h4>
+            <div class="gate-id">${node.gate.id}</div>
+            <div class="gate-counts"><span class="count-chip">机械 ${node.gate.mechanicalCriteria.length}</span><span class="count-chip semantic">语义 ${node.gate.semanticCriteria.length}</span></div>
+            <div class="route-row"><span class="route pass">PASS → 后继</span><span class="route rework">REWORK ↺</span><span class="route blocked">BLOCKED ↑</span></div>
+          </button>`;
+        unitRoot.appendChild(unit);
+      });
+
+      const finalUnit = document.getElementById("final-unit");
+      finalUnit.className = "final-unit";
+      finalUnit.style.left = `${xByDepth[5]}px`;
+      finalUnit.style.top = "300px";
+      finalUnit.innerHTML = `
+        <button class="final-gate-card" data-kind="final-gate" data-id="${workflow.finalGate.id}">
+          <span class="kind-pill">FINAL QUALITY GATE</span>
+          <h3>整体交付验收</h3>
+          <p>汇总最终 PPTX 与独立 QA Artifact，重新核对全部用户验收目标。</p>
+          <div class="gate-counts"><span class="count-chip">机械 ${workflow.finalGate.mechanicalCriteria.length}</span><span class="count-chip semantic">语义 ${workflow.finalGate.semanticCriteria.length}</span></div>
+          <div class="delivery-badge">PASS · 发布最终 .pptx</div>
+        </button>`;
+
+      const staffRail = document.getElementById("staff-rail");
+      staffRail.innerHTML = `<div class="staff-heading"><strong>ST Core 治理层</strong><span>不生产业务 Artifact，只做流程、交付和质量治理</span></div>` +
+        workflow.staff.core.map(ref => {
+          const [name, role] = staffLabels[ref.id] || [ref.id, "Staff Core"]; 
+          return `<button class="staff-chip" data-kind="staff" data-id="${ref.id}"><strong>${name}</strong><span>${role}</span></button>`;
+        }).join("");
+
+      const svg = document.getElementById("edges");
+      svg.innerHTML = `
+        <defs>
+          <marker id="arrow-pass" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#15966f"/></marker>
+          <marker id="arrow-rework" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#d88618"/></marker>
+        </defs>`;
+
+      function path(d, className, marker = "arrow-pass") {
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        el.setAttribute("d", d);
+        el.setAttribute("fill", "none");
+        el.setAttribute("stroke", className === "rework" ? "#d88618" : "#15966f");
+        el.setAttribute("stroke-width", className === "rework" ? "1.6" : "2.2");
+        if (className === "rework") el.setAttribute("stroke-dasharray", "6 5");
+        el.setAttribute("marker-end", `url(#${marker})`);
+        el.setAttribute("opacity", className === "rework" ? ".78" : ".75");
+        svg.appendChild(el);
+      }
+
+      workflow.nodes.forEach(node => {
+        const from = positions.get(node.id);
+        const gateY = from.y + 303;
+        const loopX = from.x - 24;
+        path(`M ${from.x + 8} ${gateY} C ${loopX - 22} ${gateY}, ${loopX - 22} ${from.y + 85}, ${from.x + 3} ${from.y + 85}`, "rework", "arrow-rework");
+      });
+
+      workflow.nodes.forEach(target => {
+        const to = positions.get(target.id);
+        target.dependsOn.forEach(sourceId => {
+          const from = positions.get(sourceId);
+          const sx = from.x + 270;
+          const sy = from.y + 303;
+          const tx = to.x;
+          const ty = to.y + 92;
+          const bend = Math.max(55, (tx - sx) * .48);
+          path(`M ${sx} ${sy} C ${sx + bend} ${sy}, ${tx - bend} ${ty}, ${tx - 7} ${ty}`, "pass");
+        });
+      });
+
+      workflow.finalArtifactNodeIds.forEach(sourceId => {
+        const from = positions.get(sourceId);
+        const sx = from.x + 270;
+        const sy = from.y + 303;
+        const tx = xByDepth[5];
+        const ty = 410;
+        path(`M ${sx} ${sy} C ${sx + 80} ${sy}, ${tx - 90} ${ty}, ${tx - 7} ${ty}`, "pass");
+      });
+
+      function chips(items, tone = "") {
+        if (!items || !items.length) return '<span class="chip">无</span>';
+        return `<div class="chips">${items.map(item => `<span class="chip ${tone}">${escapeHtml(String(item))}</span>`).join("")}</div>`;
+      }
+
+      function section(title, content) {
+        return `<section class="detail-section"><h4>${title}</h4>${content}</section>`;
+      }
+
+      function box(title, text, code = false) {
+        return `<div class="detail-box"><strong>${escapeHtml(title)}</strong>${code ? `<code>${escapeHtml(text)}</code>` : `<p>${escapeHtml(text)}</p>`}</div>`;
+      }
+
+      function escapeHtml(value) {
+        return value.replace(/[&<>"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[char]));
+      }
+
+      function showNode(node) {
+        const [name] = labels[node.id] || [node.id];
+        const inputs = node.inputs.length ? node.inputs.map(input => box(input.name, `${input.fromNodeId} → ${input.artifactType}`, true)).join("") : box("起始节点", "不依赖上游 Artifact");
+        details.innerHTML = `
+          <div class="detail-kicker">Execution Node</div>
+          <h2 class="detail-title">${name}</h2>
+          <div class="detail-id">${node.id}</div>
+          <p class="detail-lead">${escapeHtml(node.objective)}</p>
+          ${section("执行员工", box(node.agentCardRef.id, `v${node.agentCardRef.version} · ${node.requiredCapabilities.join(" · ")}`))}
+          ${section("上游输入", inputs)}
+          ${section("节点交付物", box(node.output.artifactType, node.output.description) + box("业务意义", node.output.businessPurpose))}
+          ${section("工具", chips(node.tools, "blue"))}
+          ${section("权限边界", `<div class="detail-box"><dl class="kv"><dt>Workspace</dt><dd>${node.permissions.workspace}</dd><dt>读取范围</dt><dd>${node.permissions.readScopes.join(", ")}</dd><dt>写入范围</dt><dd>${node.permissions.writeScopes.join(", ") || "无"}</dd><dt>外部动作</dt><dd>${node.permissions.externalActions ? "允许" : "禁止"}</dd></dl></div>`)}
+          ${section("失败与返工", `<div class="detail-box"><dl class="kv"><dt>最大 Attempt</dt><dd>${node.rework.maxAttempts}</dd><dt>返工目标</dt><dd>${node.rework.targetNodeId}</dd><dt>阻塞路由</dt><dd>${node.routes.blocked}</dd><dt>耗尽路由</dt><dd>${node.routes.exhausted}</dd></dl></div>`)}
+          <div class="flow-callout">执行者只能提交 candidate Artifact。只有下方 Gate 的机械检查和独立语义评审全部通过，文件才会进入 accepted 并对后继节点可见。</div>`;
+      }
+
+      function criterionBoxes(items, semantic) {
+        return items.map(item => box(item.id, item.description) + (semantic ? `<div class="chips" style="margin:-3px 0 9px 12px">${item.reviewerCapabilities.map(cap => `<span class="chip blue">${cap}</span>`).join("")}</div>` : "")).join("");
+      }
+
+      function showGate(gate, node) {
+        details.innerHTML = `
+          <div class="detail-kicker">Quality Gate</div>
+          <h2 class="detail-title">${node ? (labels[node.id] || [node.id])[0] + " · 节点准出" : "最终整体交付验收"}</h2>
+          <div class="detail-id">${gate.id}</div>
+          <p class="detail-lead">先做确定性机械检查；全部通过后，多个独立 Reviewer 并发检查语义 Criterion。确定性聚合仅在冲突或 INCONCLUSIVE 时请求 Staff 仲裁。</p>
+          ${section("机械准出标准", criterionBoxes(gate.mechanicalCriteria, false))}
+          ${section("语义准出标准", criterionBoxes(gate.semanticCriteria, true))}
+          ${section("Reviewer Requirements", gate.reviewers.map(reviewer => box(`${reviewer.id} · ${reviewer.minCount} 人`, reviewer.capabilities.join(" · "))).join(""))}
+          ${section("结果路由", `<div class="detail-box"><dl class="kv"><dt>PASS</dt><dd>${gate.routes.pass}</dd><dt>REWORK</dt><dd>${gate.routes.rework}</dd><dt>BLOCKED</dt><dd>${gate.routes.blocked}</dd><dt>ESCALATE</dt><dd>${gate.routes.escalate}</dd></dl></div>`)}
+          <div class="flow-callout"><strong>PASS：</strong>发布 accepted Artifact，并沿绿色路径进入后继节点。<br><strong>REWORK：</strong>保留本次记录，把评审意见交回生产节点创建新 Attempt。<br><strong>BLOCKED：</strong>不发布 Artifact，交给 Staff 或用户解决信息、权限或环境问题。</div>`;
+      }
+
+      function showStaff(id) {
+        const ref = workflow.staff.core.find(item => item.id === id);
+        const [name, role] = staffLabels[id] || [id, "Staff Core"];
+        details.innerHTML = `
+          <div class="detail-kicker">Fixed ST Core</div>
+          <h2 class="detail-title">${name}</h2>
+          <div class="detail-id">${id}</div>
+          <p class="detail-lead">${role}。它是治理成员，不属于 pptx Skill，也不直接生产任何业务 Artifact。</p>
+          ${section("冻结引用", `<div class="detail-box"><dl class="kv"><dt>版本</dt><dd>${ref.version}</dd><dt>Hash</dt><dd>${ref.hash}</dd></dl></div>`)}
+          ${section("职责边界", box("治理权", role) + box("无直接状态写入权", "只能提交结构化 Decision，由 Runtime 校验允许动作并推进 Ledger 状态。"))}`;
+      }
+
+      function showOverview() {
+        details.innerHTML = `
+          <div class="detail-kicker">Workflow Overview</div>
+          <h2 class="detail-title">${escapeHtml(workflow.name)}</h2>
+          <div class="detail-id">${workflow.id} · v${workflow.version}</div>
+          <p class="detail-lead">${escapeHtml(workflow.objective)}</p>
+          ${section("最终验收目标", workflow.acceptanceCriteria.map(item => box(item.id, item.description)).join(""))}
+          ${section("最终 Artifact 节点", chips(workflow.finalArtifactNodeIds, "green"))}
+          <div class="flow-callout">点击画布中的任一执行节点、Quality Gate、Final Gate 或 ST Core 成员，查看冻结配置。</div>`;
+      }
+
+      document.addEventListener("click", event => {
+        const target = event.target.closest("[data-kind]");
+        if (!target) return;
+        const kind = target.dataset.kind;
+        const id = target.dataset.id;
+        if (kind === "node") showNode(nodeMap.get(id));
+        if (kind === "gate") {
+          const node = nodeMap.get(id);
+          showGate(node.gate, node);
+        }
+        if (kind === "final-gate") showGate(workflow.finalGate);
+        if (kind === "staff") showStaff(id);
+      });
+
+      document.getElementById("overview-button").addEventListener("click", showOverview);
+      let zoom = .68;
+      function applyZoom() {
+        canvas.style.transform = `scale(${zoom})`;
+        viewport.style.setProperty("--zoom", zoom);
+      }
+      document.getElementById("zoom-in").addEventListener("click", () => { zoom = Math.min(1.2, zoom + .1); applyZoom(); });
+      document.getElementById("zoom-out").addEventListener("click", () => { zoom = Math.max(.5, zoom - .1); applyZoom(); });
+      document.getElementById("zoom-reset").addEventListener("click", () => { zoom = .68; applyZoom(); viewport.scrollTo({ left: 0, top: 0, behavior: "smooth" }); });
+      document.addEventListener("keydown", event => { if (event.key === "Escape") showOverview(); });
+
+      showOverview();
+      applyZoom();
+    })();
+  </script>
+</body>
+</html>

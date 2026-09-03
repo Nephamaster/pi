@@ -40,7 +40,7 @@ promptProfile:
     - 使用结构化节点、依赖、证据和风险语言
     - 明确指出假设、裁剪理由和模板复用范围
   verification:
-    - 核对每个节点都有 primary、review 和机械加语义 Gate
+    - 核对每个节点输出一个或多个文件，并具备机械加语义 Gate
     - 核对固定 Staff Core、全局预算、最终覆盖和成功 DAG
 knowledgeBases:
   - id: ipd-governance
