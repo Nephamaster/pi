@@ -16,6 +16,7 @@ import {
 	type IpdToolExecutionError,
 	type IpdToolResult,
 	parseIpdToolCommand,
+	type UserResumeResolution,
 } from "../src/index.ts";
 
 export type IpdExtensionDetails = IpdToolResult | { error: IpdToolExecutionError };
@@ -25,6 +26,12 @@ export interface IpdExtensionOptions {
 }
 
 const BUILTIN_TOOL_NAMES = new Set(["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]);
+const RESOLUTION_LABELS: Record<UserResumeResolution, string> = {
+	retry_node: "重试当前节点",
+	request_replan: "请求修改 Workflow",
+	continue_run: "继续当前治理流程",
+	fail_run: "终止并标记 Run 失败",
+};
 
 function executionSignal(toolSignal: AbortSignal | undefined, contextSignal: AbortSignal | undefined) {
 	if (toolSignal && contextSignal && toolSignal !== contextSignal) return AbortSignal.any([toolSignal, contextSignal]);
@@ -117,6 +124,21 @@ export function registerIpdExtension(pi: ExtensionAPI, options: IpdExtensionOpti
 				ctx.ui.notify("Run 当前没有匹配的开放用户 Escalation", "error");
 				return;
 			}
+			const resolutionLabel = await ctx.ui.select(
+				"选择恢复动作",
+				current.question.allowedResolutions.map((resolution) => RESOLUTION_LABELS[resolution]),
+			);
+			if (!resolutionLabel) {
+				ctx.ui.notify("未选择恢复动作，Run 保持 waiting_user", "info");
+				return;
+			}
+			const resolution = current.question.allowedResolutions.find(
+				(candidate) => RESOLUTION_LABELS[candidate] === resolutionLabel,
+			);
+			if (!resolution) {
+				ctx.ui.notify("恢复动作无效，Run 保持 waiting_user", "error");
+				return;
+			}
 			const answer = await ctx.ui.input(current.question.prompt, "请输入你的回答");
 			if (!answer?.trim()) {
 				ctx.ui.notify("未提交回答，Run 保持 waiting_user", "info");
@@ -124,7 +146,7 @@ export function registerIpdExtension(pi: ExtensionAPI, options: IpdExtensionOpti
 			}
 			const confirmed = await ctx.ui.confirm(
 				"确认恢复 IPD Run",
-				`Run: ${runId}\nEscalation: ${escalationId}\n\n${answer.trim()}`,
+				`Run: ${runId}\nEscalation: ${escalationId}\n动作: ${RESOLUTION_LABELS[resolution]}\n\n${answer.trim()}`,
 			);
 			if (!confirmed) {
 				ctx.ui.notify("已取消，Run 保持 waiting_user", "info");
@@ -138,7 +160,7 @@ export function registerIpdExtension(pi: ExtensionAPI, options: IpdExtensionOpti
 			try {
 				const result = await (
 					await controller(ctx)
-				).resumeAsUser(runId, escalationId, answer.trim(), {
+				).resumeAsUser(runId, escalationId, resolution, answer.trim(), {
 					cwd: ctx.cwd,
 					projectTrusted: ctx.isProjectTrusted(),
 					model: ctx.model as Model<Api> | undefined,

@@ -50,6 +50,7 @@ export interface IpdDiagnostic {
 	path: string;
 	message: string;
 	source?: string;
+	nodeId?: string;
 }
 
 export interface AgentCardCompileContext {

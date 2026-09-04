@@ -89,7 +89,7 @@ budget_reached
 hard_limit_reached
 ```
 
-用户专用 `/ipd-resume` 会追加 `user_answer_receipt` Decision；evidence 保存 Escalation ID、`source=user_command` 和接收时间。回答正文仍由 Escalation Record 保存。
+用户专用 `/ipd-resume` 会追加 `user_answer_receipt` Decision；evidence 保存 Escalation ID、显式 resolution、`source=user_command` 和接收时间。回答正文仍由 Escalation Record 保存。
 
 状态更新和对应 Event 在同一 SQLite 事务中提交。Event 用于审计和一致性检查，不是第二套可写状态机。
 
@@ -194,12 +194,14 @@ Ledger 还执行关系约束，例如：
 
 `amendWorkflow()` 只能在 Run=replanning 时调用。它追加 `workflow_revision_history`、更新当前 `workflow_versions` 指针并令 Run 回到 ready。旧 revision、Attempt、Gate、Decision 和 Artifact 不会被覆盖。为避免旧执行状态被错误套到新计划：
 
-- 已 succeeded 且有 accepted Artifact 的 Node 只有定义 Hash 完全不变时才能复用；
+- 已 succeeded 且有 accepted Artifact 的 Node 只有执行定义和 Gate 契约不变时才能复用；替换失败下游 Node 时可以只重定向其 `gate.routes.pass`，因为这不改变已完成 Artifact 或既有 Gate 结论；
 - 已经尝试但未 succeeded 的 Node 必须由 ST 使用新 Node ID 替换；
 - 新候选仍必须完整通过 Compiler；
 - Amendment 必须改变 Workflow Hash。
 
 每次 Planner 初始、恢复或 Amendment 调用先追加 `workflow_planning_started`，其中的 planningCycle 使新 AgentSession、Usage 和幂等键不会与中断前的半完成规划冲突。初始规划恢复还会从最后一条 rejected workflow_candidate Decision 恢复合法候选作为下一轮 Builder 基线。
+
+Amendment Context 根据目标失败节点计算 `editableSections` 引用闭包，并提供 `lockedAcceptedNodeIds`。Builder 会在 Tool 提交时拒绝删除或修改 locked Node，而不是等完整候选进入 Compiler 才发现。Amendment 连续耗尽候选 revision 时，Run 从 replanning 进入 waiting_user，并保存 `amendment_exhausted` Escalation；已有 Artifact 和 revision 不会因 Planner 失败而进入不可逆终态。
 
 保存完整 Pool 而不只保存生产者，是因为 Dynamic Reviewer 需要在执行期从同一冻结池选人。恢复时不重新读取外部 Card 文件。
 

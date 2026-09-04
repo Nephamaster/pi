@@ -3,6 +3,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { createSkillSnapshot, type SkillSnapshot } from "../adapter/node-runner.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
+import type { UserResumeResolution } from "../runtime/graph-engine.ts";
 import type { IpdRuntime, IpdRuntimeExecutionContext } from "../runtime/ipd-runtime.ts";
 import type { IpdToolCommand } from "./ipd-command.ts";
 import type { IpdToolResult } from "./ipd-result.ts";
@@ -65,10 +66,11 @@ export class IpdToolController {
 	async resumeAsUser(
 		runId: string,
 		escalationId: string,
+		resolution: UserResumeResolution,
 		answer: string,
 		context: IpdToolControllerContext,
 	): Promise<IpdToolResult> {
-		return this.runtime.resume(runId, escalationId, answer, await this.executionContext(context), {
+		return this.runtime.resume(runId, escalationId, resolution, answer, await this.executionContext(context), {
 			source: "user_command",
 			receivedAt: Date.now(),
 		});

@@ -123,6 +123,44 @@ function planningFailureCategory(code: WorkflowPlanningFailureCode): IpdFailureC
 	return "internal_error";
 }
 
+function amendmentTarget(context: JsonValue | undefined): string | undefined {
+	return typeof context === "object" &&
+		context !== null &&
+		!Array.isArray(context) &&
+		typeof context.nodeId === "string"
+		? context.nodeId
+		: undefined;
+}
+
+function amendmentEditableSections(workflow: WorkflowDefinition, targetNodeId: string): string[] {
+	const affected = new Set([targetNodeId]);
+	let changed = true;
+	while (changed) {
+		changed = false;
+		for (const node of workflow.nodes) {
+			if (affected.has(node.id)) continue;
+			if (
+				node.dependsOn.some((dependency) => affected.has(dependency)) ||
+				node.inputs.some((input) => affected.has(input.fromNodeId))
+			) {
+				affected.add(node.id);
+				changed = true;
+			}
+		}
+	}
+	for (const node of workflow.nodes) {
+		if (node.gate.routes.pass === targetNodeId) affected.add(node.id);
+	}
+	const sections = Array.from(affected, (nodeId) => `node:${nodeId}`);
+	if (
+		workflow.finalArtifactNodeIds.some((nodeId) => affected.has(nodeId)) ||
+		affected.has(workflow.finalGate.routes.rework)
+	) {
+		sections.push("final");
+	}
+	return sections;
+}
+
 export class WorkflowPlanner {
 	private readonly ledger: SqliteIpdLedger;
 	private readonly nodeRunner: NodeRunner;
@@ -285,6 +323,14 @@ export class WorkflowPlanner {
 			},
 		});
 		let previousCandidate: WorkflowDefinition | undefined = currentWorkflow?.definition;
+		const latestNodes = new Map<string, RunSnapshot["nodes"][number]>();
+		for (const attempt of planningSnapshot.nodes) {
+			const current = latestNodes.get(attempt.nodeId);
+			if (!current || attempt.attemptNumber > current.attemptNumber) latestNodes.set(attempt.nodeId, attempt);
+		}
+		const lockedNodes = request.amendExistingWorkflow
+			? (currentWorkflow?.definition.nodes.filter((node) => latestNodes.get(node.id)?.status === "succeeded") ?? [])
+			: [];
 		if (request.resumeExistingRun && !previousCandidate) {
 			const rejected = [...planningSnapshot.decisions]
 				.reverse()
@@ -316,7 +362,7 @@ export class WorkflowPlanner {
 				budgetMode: request.globalBudget.mode,
 				tokenBudget: request.globalBudget.mode === "bounded" ? request.globalBudget.staffTokens : undefined,
 				timeoutMs: request.globalBudget.mode === "bounded" ? request.globalBudget.timeLimitMs : undefined,
-				context: this.createPlannerContext(request, revision, previousCandidate, previousDiagnostics),
+				context: this.createPlannerContext(request, revision, previousCandidate, previousDiagnostics, lockedNodes),
 				checks: this.checks,
 				workflowConstraints: {
 					skill: { name: request.skill.name, hash: request.skill.hash },
@@ -331,6 +377,7 @@ export class WorkflowPlanner {
 				},
 				initialWorkflow:
 					previousCandidate ?? (request.workflowTemplateId ? request.templates[0]?.workflow : undefined),
+				lockedNodes,
 				signal: request.signal,
 			});
 			traces.push(result.trace);
@@ -480,15 +527,19 @@ export class WorkflowPlanner {
 		}
 
 		const message = `Workflow planning exhausted all ${maxRevisions} candidate revisions`;
-		await this.failRun(
-			request.runId,
-			planningCycle,
-			maxRevisions,
-			"compiler_exhausted",
-			message,
-			previousDiagnostics,
-			traces,
-		);
+		if (request.amendExistingWorkflow) {
+			this.pauseAmendment(request.runId, planningCycle, maxRevisions, message, previousDiagnostics, traces);
+		} else {
+			await this.failRun(
+				request.runId,
+				planningCycle,
+				maxRevisions,
+				"compiler_exhausted",
+				message,
+				previousDiagnostics,
+				traces,
+			);
+		}
 		return {
 			ok: false,
 			failure: planningFailure("compiler_exhausted", message, previousDiagnostics),
@@ -522,6 +573,7 @@ export class WorkflowPlanner {
 		revision: number,
 		previousCandidate: WorkflowDefinition | undefined,
 		previousDiagnostics: readonly IpdDiagnostic[],
+		lockedNodes: readonly WorkflowDefinition["nodes"][number][],
 	) {
 		const preloaded = previousCandidate ?? request.templates[0]?.workflow;
 		const loadedSections = preloaded
@@ -536,6 +588,7 @@ export class WorkflowPlanner {
 		const editableSections = Array.from(
 			new Set(
 				previousDiagnostics.map((diagnostic) => {
+					if (diagnostic.nodeId) return `node:${diagnostic.nodeId}`;
 					const nodeMatch = diagnostic.path.match(/^\/nodes\/(\d+)/);
 					if (nodeMatch && previousCandidate) {
 						const node = previousCandidate.nodes[Number(nodeMatch[1])];
@@ -547,6 +600,13 @@ export class WorkflowPlanner {
 				}),
 			),
 		);
+		const targetNodeId = amendmentTarget(request.amendmentContext);
+		const initialAmendmentSections =
+			request.amendExistingWorkflow && previousDiagnostics.length === 0 && preloaded
+				? targetNodeId
+					? amendmentEditableSections(preloaded, targetNodeId)
+					: []
+				: [];
 		return toJsonValue({
 			revision,
 			workflowRevision: request.amendExistingWorkflow
@@ -557,14 +617,20 @@ export class WorkflowPlanner {
 						mode: "same_run",
 						context: request.amendmentContext ?? null,
 						constraints: [
-							"Keep already accepted Nodes byte-for-byte unchanged when reusing their Artifacts",
+							"Keep accepted execution and Gate contracts unchanged when reusing Artifacts; only an outgoing Gate pass route may be retargeted to a replacement Node",
 							"Replace every attempted non-succeeded Node with a new Node ID",
 							"Do not mutate or delete prior Attempts, Gates, Decisions, or Artifacts",
 						],
 					}
 				: null,
 			loadedSections,
-			editableSections: editableSections.length > 0 ? editableSections : ["all"],
+			editableSections:
+				editableSections.length > 0
+					? editableSections
+					: initialAmendmentSections.length > 0
+						? initialAmendmentSections
+						: ["all"],
+			lockedAcceptedNodeIds: lockedNodes.map((node) => node.id),
 			globalBudget: request.globalBudget,
 			fixedStaffCore: request.staffCoreCards.map((card) => cardSummary(card, true)),
 			agentCards: request.agentCards.map((card) =>
@@ -604,6 +670,46 @@ export class WorkflowPlanner {
 			previousCandidate: previousCandidate ?? null,
 			previousDiagnostics,
 		});
+	}
+
+	private pauseAmendment(
+		runId: string,
+		planningCycle: number,
+		revision: number,
+		message: string,
+		diagnostics: readonly IpdDiagnostic[],
+		traces: readonly NodeRunTrace[],
+	): void {
+		try {
+			this.ledger.recordDecision({
+				runId,
+				idempotencyKey: `workflow-planner:${runId}:cycle:${planningCycle}:paused-decision:${revision}`,
+				decisionId: `workflow-planning-paused:${runId}:${planningCycle}:${revision}`,
+				type: "workflow_planning",
+				action: "pause",
+				rationale: message,
+				evidence: toJsonValue({ code: "compiler_exhausted", diagnostics, traces }),
+			});
+			const escalationId = `${runId}:workflow-amendment:${planningCycle}`;
+			this.ledger.createEscalation({
+				runId,
+				idempotencyKey: `workflow-planner:${runId}:cycle:${planningCycle}:paused-escalation`,
+				escalationId,
+				target: "user",
+				question: `${message}. Review the Compiler diagnostics and choose whether to revise the Workflow again or fail the Run.`,
+				context: {
+					reason: "amendment_exhausted",
+					diagnostics: toJsonValue(diagnostics),
+				},
+			});
+			this.ledger.transitionRun({
+				runId,
+				idempotencyKey: `workflow-planner:${runId}:cycle:${planningCycle}:paused:${revision}`,
+				status: "waiting_user",
+			});
+		} catch {
+			// Preserve the original planning failure returned to the caller.
+		}
 	}
 
 	private async failRun(

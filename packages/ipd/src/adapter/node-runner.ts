@@ -87,6 +87,7 @@ export interface WorkflowPlannerRunInput extends CommonRunInput {
 	checks: readonly CheckDefinition[];
 	workflowConstraints: Pick<WorkflowDefinition, "skill" | "globalBudget" | "staff">;
 	initialWorkflow?: WorkflowDefinition;
+	lockedNodes?: readonly ExecutionNodeDefinition[];
 }
 
 export interface ReviewerRunInput extends CommonRunInput {

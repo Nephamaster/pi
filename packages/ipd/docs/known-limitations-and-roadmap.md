@@ -52,8 +52,10 @@ Tool start、Run 表、Workflow Schema 和 Planner 都要求 Skill name/hash。
 
 - 外部调用方不能直接提交或修改 Workflow；
 - 已执行但未成功的 Node ID 必须替换，不能把旧状态套入新定义；
-- 已 accepted 的 Node 只有定义完全不变时才能复用；
+- 已 accepted 的 Node 只有执行定义和 Gate 契约不变时才能复用；替换下游节点所需的 `gate.routes.pass` 可以受控重定向；
 - 还没有独立于 Staff/用户 Decision 的 Amendment 审批资产。
+
+Planner 候选 revision 耗尽时，已有 Workflow 的 Amendment 会进入 waiting_user 并保留全部成果；初始 Workflow 规划耗尽仍会失败。
 
 继续演进前应先出现需要部分重算、Artifact supersede 或多级审批的真实案例，再扩展现有兼容性协议。
 

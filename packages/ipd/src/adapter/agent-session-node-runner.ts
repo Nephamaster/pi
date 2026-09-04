@@ -324,7 +324,12 @@ export class AgentSessionNodeRunner implements NodeRunner {
 		}
 		const prompt = buildDecisionPrompt(input);
 		if (input.kind === "workflow_planner") {
-			const capture = new WorkflowSubmissionBuilder(input.checks, input.workflowConstraints, input.initialWorkflow);
+			const capture = new WorkflowSubmissionBuilder(
+				input.checks,
+				input.workflowConstraints,
+				input.initialWorkflow,
+				input.lockedNodes,
+			);
 			const tools = createWorkflowSubmissionTools(capture);
 			const executed = await this.runStructured(
 				input,
@@ -555,9 +560,22 @@ export class AgentSessionNodeRunner implements NodeRunner {
 						);
 					}
 				}
-				if (input.kind === "execution" && event.type === "tool_execution_start") {
+				if (
+					input.kind === "execution" &&
+					event.type === "tool_execution_start" &&
+					!submissionToolNameSet.has(event.toolName)
+				) {
 					executionToolCalls++;
-					if (executionToolCalls === Math.ceil(this.maxExecutionToolCalls * 0.8)) {
+					if (executionToolCalls === this.maxExecutionToolCalls) {
+						session?.setActiveToolsByName([...submissionToolNames]);
+						queueWarning(
+							`Runtime Tool budget is exhausted (${executionToolCalls}/${this.maxExecutionToolCalls}). Non-submission tools are now disabled. Call submit_artifact with the completed files now.`,
+						);
+					} else if (executionToolCalls === Math.ceil(this.maxExecutionToolCalls * 0.9)) {
+						queueWarning(
+							`Runtime Tool budget is at 90% (${executionToolCalls}/${this.maxExecutionToolCalls}). Finish the current edit or check, then call submit_artifact.`,
+						);
+					} else if (executionToolCalls === Math.ceil(this.maxExecutionToolCalls * 0.8)) {
 						queueWarning(
 							`Runtime Tool budget is at 80% (${executionToolCalls}/${this.maxExecutionToolCalls}). Stop optional commands and prepare submit_artifact.`,
 						);

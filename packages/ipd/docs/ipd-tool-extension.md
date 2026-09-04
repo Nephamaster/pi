@@ -92,7 +92,7 @@ npm:pi-web-access@0.27.0
 /ipd-resume <runId> <escalationId>
 ```
 
-该命令不属于 Tool Schema，LLM 无法调用。Command 先验证 Run 当前确实等待精确 Escalation，再用 Pi UI 采集非空回答并要求二次确认，最后调用 `IpdToolController.resumeAsUser()`。取消输入或确认时 Run 保持 waiting_user。成功回答会写入 `user_answer_receipt` Decision，记录 `source=user_command` 和接收时间。
+该命令不属于 Tool Schema，LLM 无法调用。Command 先验证 Run 当前确实等待精确 Escalation，再让用户从 `allowedResolutions` 中选择明确动作，然后采集非空回答并要求二次确认，最后调用 `IpdToolController.resumeAsUser()`。取消选择、输入或确认时 Run 保持 waiting_user。成功回答会写入 `user_answer_receipt` Decision，记录 resolution、`source=user_command` 和接收时间。
 
 ### 3.3 status
 
@@ -245,7 +245,8 @@ Controller Snapshot 当前全部 Skill
 ```text
 用户输入 /ipd-resume runId escalationId
   → 校验匹配的 waiting_user question
-  → Pi UI 输入回答并二次确认
+  → Pi UI 选择允许的恢复动作
+  → 输入回答并二次确认
   → 读取全部当前 Skill Snapshot
   → Run 存在
   → 找到冻结 Skill name+hash
@@ -310,6 +311,7 @@ interface IpdToolResult {
     escalationId: string;
     prompt: string;
     context: string;
+    allowedResolutions: Array<"retry_node" | "request_replan" | "continue_run" | "fail_run">;
   };
   artifacts?: ArtifactManifest[];
   failure?: IpdFailure;
@@ -397,7 +399,8 @@ Extension 成功时：
   "question": {
     "escalationId": "run-123:escalation:analysis:attempt-1",
     "prompt": "请确认允许使用哪项正式数据源",
-    "context": "{\"nodeId\":\"analysis\"}"
+    "context": "{\"nodeId\":\"analysis\"}",
+    "allowedResolutions": ["retry_node", "request_replan", "fail_run"]
   },
   "usage": {
     "totalTokens": 24500,

@@ -1,5 +1,6 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import Type, { type Static } from "typebox";
+import { hashJson } from "../ir/hash.ts";
 import {
 	AcceptanceCriterionSchema,
 	AgentCardRefSchema,
@@ -214,6 +215,7 @@ function parseJsonValue(value: string, path: string): JsonValue {
 export class WorkflowSubmissionBuilder {
 	private readonly checks: ReadonlyMap<string, CheckDefinition>;
 	private readonly constraints: Pick<WorkflowDefinition, "skill" | "globalBudget" | "staff">;
+	private readonly lockedNodes: ReadonlyMap<string, ExecutionNodeDefinition>;
 	private header?: WorkflowHeaderSubmission;
 	private readonly acceptanceCriteria = new Map<string, WorkflowAcceptanceSubmission>();
 	private readonly nodes = new Map<string, WorkflowNodeSubmission>();
@@ -226,10 +228,25 @@ export class WorkflowSubmissionBuilder {
 		checks: readonly CheckDefinition[],
 		constraints: Pick<WorkflowDefinition, "skill" | "globalBudget" | "staff">,
 		initialWorkflow?: WorkflowDefinition,
+		lockedNodes: readonly ExecutionNodeDefinition[] = [],
 	) {
 		this.checks = new Map(checks.map((check) => [check.id, check]));
 		this.constraints = structuredClone(constraints);
 		if (initialWorkflow) this.load(initialWorkflow);
+		this.lockedNodes = new Map(lockedNodes.map((node) => [node.id, structuredClone(node)]));
+		for (const node of this.lockedNodes.values()) {
+			const preloadedGate = this.nodeGates.get(node.id);
+			this.loadNode(node);
+			if (
+				preloadedGate &&
+				hashJson(this.gateWithoutPass(preloadedGate)) === hashJson(this.gateWithoutPass(node.gate))
+			) {
+				this.nodeGates.set(node.id, {
+					...structuredClone(node.gate),
+					routes: { ...node.gate.routes, pass: preloadedGate.routes.pass },
+				});
+			}
+		}
 	}
 
 	submitHeader(header: WorkflowHeaderSubmission): void {
@@ -246,18 +263,31 @@ export class WorkflowSubmissionBuilder {
 		if (this.constraints.globalBudget.mode === "bounded" && submission.budget?.mode !== "bounded") {
 			throw new Error("Bounded Workflow Nodes require a bounded budget");
 		}
-		this.nodes.set(submission.id, structuredClone(submission));
+		const normalized = structuredClone(submission);
+		if (this.constraints.globalBudget.mode === "unbounded") normalized.budget = undefined;
+		const locked = this.lockedNodes.get(submission.id);
+		if (locked && hashJson(this.nodeSubmission(locked)) !== hashJson(normalized)) {
+			throw new Error(`Accepted Workflow Node ${submission.id} is locked and cannot be modified`);
+		}
+		this.nodes.set(submission.id, normalized);
 		this.finalized = undefined;
 	}
 
 	removeNode(nodeId: string): void {
+		if (this.lockedNodes.has(nodeId))
+			throw new Error(`Accepted Workflow Node ${nodeId} is locked and cannot be removed`);
 		if (!this.nodes.delete(nodeId)) throw new Error(`Workflow Node does not exist: ${nodeId}`);
 		this.nodeGates.delete(nodeId);
 		this.finalized = undefined;
 	}
 
 	submitNodeGate(submission: WorkflowNodeGateSubmission): void {
-		this.nodeGates.set(submission.nodeId, this.convertGate(submission.gate, `/nodes/${submission.nodeId}/gate`));
+		const gate = this.convertGate(submission.gate, `/nodes/${submission.nodeId}/gate`);
+		const locked = this.lockedNodes.get(submission.nodeId);
+		if (locked && hashJson(this.gateWithoutPass(locked.gate)) !== hashJson(this.gateWithoutPass(gate))) {
+			throw new Error(`Accepted Workflow Node ${submission.nodeId} Gate is locked; only routes.pass may change`);
+		}
+		this.nodeGates.set(submission.nodeId, gate);
 		this.finalized = undefined;
 	}
 
@@ -359,28 +389,38 @@ export class WorkflowSubmissionBuilder {
 		for (const criterion of workflow.acceptanceCriteria) {
 			this.acceptanceCriteria.set(criterion.id, structuredClone(criterion));
 		}
-		for (const node of workflow.nodes) {
-			this.nodes.set(node.id, {
-				id: node.id,
-				objective: node.objective,
-				agentCardRef: structuredClone(node.agentCardRef),
-				requiredCapabilities: [...node.requiredCapabilities],
-				knowledgeBaseRefs: [...node.knowledgeBaseRefs],
-				dependsOn: [...node.dependsOn],
-				inputs: structuredClone(node.inputs),
-				output: structuredClone(node.output),
-				tools: [...node.tools],
-				permissions: structuredClone(node.permissions),
-				budget: this.constraints.globalBudget.mode === "unbounded" ? undefined : structuredClone(node.budget),
-				rework: { targetNodeId: node.rework.targetNodeId },
-				routes: structuredClone(node.routes),
-			});
-			this.nodeGates.set(node.id, structuredClone(node.gate));
-		}
+		for (const node of workflow.nodes) this.loadNode(node);
 		this.finalSection = {
 			finalArtifactNodeIds: [...workflow.finalArtifactNodeIds],
 			finalGate: structuredClone(workflow.finalGate),
 		};
+	}
+
+	private loadNode(node: ExecutionNodeDefinition): void {
+		this.nodes.set(node.id, this.nodeSubmission(node));
+		this.nodeGates.set(node.id, structuredClone(node.gate));
+	}
+
+	private nodeSubmission(node: ExecutionNodeDefinition): WorkflowNodeSubmission {
+		return {
+			id: node.id,
+			objective: node.objective,
+			agentCardRef: structuredClone(node.agentCardRef),
+			requiredCapabilities: [...node.requiredCapabilities],
+			knowledgeBaseRefs: [...node.knowledgeBaseRefs],
+			dependsOn: [...node.dependsOn],
+			inputs: structuredClone(node.inputs),
+			output: structuredClone(node.output),
+			tools: [...node.tools],
+			permissions: structuredClone(node.permissions),
+			budget: this.constraints.globalBudget.mode === "unbounded" ? undefined : structuredClone(node.budget),
+			rework: { targetNodeId: node.rework.targetNodeId },
+			routes: structuredClone(node.routes),
+		};
+	}
+
+	private gateWithoutPass(gate: GateDefinition): GateDefinition {
+		return { ...structuredClone(gate), routes: { ...gate.routes, pass: "__AMENDMENT_TARGET__" } };
 	}
 }
 

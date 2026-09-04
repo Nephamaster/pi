@@ -12,7 +12,7 @@ import type { ExecutionNodeDefinition, GateDefinition, WorkflowDefinition } from
 import type { CompiledAgentCard, JsonValue } from "../ir/types.ts";
 import { validateSchema } from "../ir/validation.ts";
 import type { SqliteIpdLedger } from "../ledger/sqlite-ledger.ts";
-import type { ArtifactRecord, NodeInstanceRecord, RunSnapshot, RunStatus } from "../ledger/types.ts";
+import type { ArtifactRecord, EscalationRecord, NodeInstanceRecord, RunSnapshot, RunStatus } from "../ledger/types.ts";
 import { type AttemptWorkspace, AttemptWorkspaceManager, type RunWorkspace } from "./attempt-workspace.ts";
 import { type BudgetController, NoopBudgetController } from "./budget-manager.ts";
 import { createIpdFailure, type IpdFailure, type IpdFailureCategory, normalizeNodeRunFailure } from "./failure.ts";
@@ -38,6 +38,26 @@ export interface GraphRunResult {
 export interface UserAnswerProvenance {
 	source: "user_command" | "trusted_host";
 	receivedAt: number;
+}
+
+export type UserResumeResolution = "retry_node" | "request_replan" | "continue_run" | "fail_run";
+
+function escalationReason(escalation: EscalationRecord): string | undefined {
+	return typeof escalation.context === "object" &&
+		escalation.context !== null &&
+		!Array.isArray(escalation.context) &&
+		typeof escalation.context.reason === "string"
+		? escalation.context.reason
+		: undefined;
+}
+
+export function allowedUserResumeResolutions(escalation: EscalationRecord): UserResumeResolution[] {
+	const reason = escalationReason(escalation);
+	if (["attempts_exhausted", "amendment_exhausted", "replan_required"].includes(reason ?? "")) {
+		return ["request_replan", "fail_run"];
+	}
+	if (escalation.nodeId) return ["retry_node", "request_replan", "fail_run"];
+	return ["continue_run", "fail_run"];
 }
 
 export class GraphEngineError extends Error {
@@ -169,6 +189,7 @@ export class GraphEngine {
 	async resume(
 		runId: string,
 		escalationId: string,
+		resolution: UserResumeResolution,
 		answer: string,
 		context: GraphRunContext,
 		provenance: UserAnswerProvenance = { source: "trusted_host", receivedAt: Date.now() },
@@ -182,6 +203,12 @@ export class GraphEngine {
 		if (!escalation) throw new GraphEngineError(`Open Escalation not found: ${escalationId}`);
 		if (escalation.target !== "user") {
 			throw new GraphEngineError(`Escalation is not addressed to the user: ${escalationId}`);
+		}
+		const allowedResolutions = allowedUserResumeResolutions(escalation);
+		if (!allowedResolutions.includes(resolution)) {
+			throw new GraphEngineError(
+				`Resolution ${resolution} is not allowed for ${escalationId}; choose ${allowedResolutions.join(", ")}`,
+			);
 		}
 		this.ledger.answerEscalation({
 			runId,
@@ -197,16 +224,28 @@ export class GraphEngine {
 			action: "answer_escalation",
 			rationale: "Received an answer through a trusted host path",
 			nodeId: escalation.nodeId,
-			evidence: { escalationId, source: provenance.source, receivedAt: provenance.receivedAt },
+			evidence: { escalationId, resolution, source: provenance.source, receivedAt: provenance.receivedAt },
 		});
-		const escalationReason =
-			typeof escalation.context === "object" &&
-			escalation.context !== null &&
-			!Array.isArray(escalation.context) &&
-			typeof escalation.context.reason === "string"
-				? escalation.context.reason
-				: undefined;
-		if (escalationReason === "attempts_exhausted") {
+		if (resolution === "fail_run") {
+			this.ledger.recordDecision({
+				runId,
+				idempotencyKey: `graph:${runId}:resume:${escalationId}:fail`,
+				decisionId: `${escalationId}:fail-run`,
+				type: "user_resolution",
+				action: "fail_run",
+				rationale: answer,
+				nodeId: escalation.nodeId,
+				evidence: { escalationId, ...provenance },
+			});
+			this.ledger.transitionRun({
+				runId,
+				idempotencyKey: `graph:${runId}:resume:${escalationId}:failed`,
+				status: "failed",
+				failure: this.failure(runId, "user_terminated", "cancelled", answer, false),
+			});
+			return this.stableResult(runId);
+		}
+		if (resolution === "request_replan") {
 			const attempt = escalation.nodeId ? latestAttempts(snapshot).get(escalation.nodeId) : undefined;
 			this.ledger.recordDecision({
 				runId,
@@ -225,7 +264,7 @@ export class GraphEngine {
 			});
 			return this.stableResult(runId);
 		}
-		if (escalation.nodeId) {
+		if (resolution === "retry_node" && escalation.nodeId) {
 			this.ledger.recordDecision({
 				runId,
 				idempotencyKey: `graph:${runId}:resume:${escalationId}:decision`,
@@ -1126,7 +1165,8 @@ export class GraphEngine {
 		trace: { sessionId?: string; sessionFile?: string },
 		context: GraphRunContext,
 	): Promise<void> {
-		if (failure.retryable && this.qualityAttemptNumber(runId, node.id) < node.rework.maxAttempts) {
+		const attemptsExhausted = this.qualityAttemptNumber(runId, node.id) >= node.rework.maxAttempts;
+		if (failure.retryable && !attemptsExhausted) {
 			this.ledger.transitionNode({
 				runId,
 				idempotencyKey: `graph:${runId}:attempt:${attempt.attemptId}:rework`,
@@ -1147,7 +1187,8 @@ export class GraphEngine {
 				sessionId: trace.sessionId,
 				sessionFile: trace.sessionFile,
 			});
-			await this.routeExhausted(runId, node, attempt, failure, context);
+			if (attemptsExhausted) await this.routeExhausted(runId, node, attempt, failure, context);
+			else this.failRunFromFailure(runId, { ...failure, retryable: false });
 		}
 	}
 

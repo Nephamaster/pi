@@ -62,6 +62,12 @@ export function normalizeNodeRunFailure(
 		code: failure.code,
 		category: NODE_FAILURE_CATEGORIES[failure.code],
 		message: failure.message,
-		retryable: ["provider_error", "timeout", "missing_submission", "invalid_submission"].includes(failure.code),
+		retryable: [
+			"provider_error",
+			"timeout",
+			"missing_submission",
+			"invalid_submission",
+			"tool_limit_exceeded",
+		].includes(failure.code),
 	});
 }

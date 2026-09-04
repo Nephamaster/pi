@@ -46,3 +46,6 @@
 - Fixed Compiler and Runtime Reviewer selection drift by using one deterministic global matching allocator that enforces mutually exclusive AgentCard assignments across every Gate requirement.
 - Removed Escalation `resume` from the model Tool schema; only the user-triggered `/ipd-resume` command can collect, confirm, submit, and record the provenance of a human answer.
 - Fixed independent execution Nodes being serialized when one used Bash; workspace scheduling now relies on frozen write scopes instead of widening Bash access to the whole Run workspace.
+- Fixed completed execution work being lost at the Tool-call guard by reserving a submission-only turn and treating same-batch Tool overflow as retryable while Attempts remain.
+- Fixed user Escalation answers selecting the wrong recovery path by requiring an explicit validated resolution separate from the answer rationale.
+- Fixed same-Run Amendment dead ends by locking accepted Node contracts, allowing only safe outgoing pass-route retargeting, scoping affected sections, and pausing exhausted revisions for user recovery instead of failing the Run.

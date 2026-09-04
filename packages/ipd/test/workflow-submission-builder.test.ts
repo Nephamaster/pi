@@ -71,4 +71,49 @@ describe("WorkflowSubmissionBuilder", () => {
 		expect(() => builder.finalize()).toThrow("submit_workflow_node at least once");
 		expect(() => builder.removeNode("produce")).toThrow("Workflow Node does not exist: produce");
 	});
+
+	it("locks accepted Node content while allowing its outgoing pass route to be retargeted", () => {
+		const workflow = createValidWorkflow();
+		const node = workflow.nodes[0];
+		const checks = [
+			{
+				id: "artifact-exists",
+				parameters: Type.Object({ path: Type.String() }, { additionalProperties: false }),
+			},
+		];
+		const builder = new WorkflowSubmissionBuilder(
+			checks,
+			{ skill: workflow.skill, globalBudget: workflow.globalBudget, staff: workflow.staff },
+			workflow,
+			[node],
+		);
+		expect(() => builder.removeNode(node.id)).toThrow("locked");
+		builder.submitNodeGate({
+			nodeId: node.id,
+			gate: {
+				...node.gate,
+				mechanicalCriteria: node.gate.mechanicalCriteria.map(({ parameters, ...criterion }) => ({
+					...criterion,
+					parametersJson: JSON.stringify(parameters),
+				})),
+				routes: { ...node.gate.routes, pass: "replacement-node" },
+			},
+		});
+		expect(builder.finalize().nodes[0].gate.routes.pass).toBe("replacement-node");
+
+		const changedGate = structuredClone(node.gate);
+		changedGate.semanticCriteria[0].description = "Changed accepted Criterion";
+		expect(() =>
+			builder.submitNodeGate({
+				nodeId: node.id,
+				gate: {
+					...changedGate,
+					mechanicalCriteria: changedGate.mechanicalCriteria.map(({ parameters, ...criterion }) => ({
+						...criterion,
+						parametersJson: JSON.stringify(parameters),
+					})),
+				},
+			}),
+		).toThrow("only routes.pass may change");
+	});
 });

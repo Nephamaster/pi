@@ -59,7 +59,7 @@ V1 的核心约束是：
 | Artifact | 多文件路径、MIME 内容、大小、SHA-256、Candidate/Accepted/Rejected 生命周期 |
 | Gate | 机械检查、Review Bundle、历史 Criterion 上下文、独立 Reviewer、Criterion 聚合和 ST 仲裁 |
 | Ledger | SQLite、事务、幂等写入、状态快照、不可变事件序列和一致性检查 |
-| Recovery | Attempt Workspace/Checkpoint、技术恢复、外部副作用核验、同 Run Workflow Amendment 和严格 Resume |
+| Recovery | Attempt Workspace/Checkpoint、技术恢复、外部副作用核验、显式用户 resolution、同 Run Workflow Amendment 和严格 Resume |
 | Budget | Usage 归集、80%/100% 软预算事件、ST 决策和 Hard Limit |
 | Failure | 统一 Failure Category、retryable 标记和节点/Gate/Run 追溯字段 |
 | Model Adapter | 基于 Pi `ModelRuntime` 的 AgentSession NodeRunner |
@@ -260,7 +260,7 @@ bounded 模式下 `tokenBudget` 是软预算，`hardTokenLimit` 可选且不能�
 /ipd-resume <run-id> <exact-open-escalation-id>
 ```
 
-Pi UI 随后采集回答并要求二次确认，再直接调用内部恢复接口。`resume`、`answer` 和 `escalationId` 不存在于模型 Tool Schema；错误、关闭或属于其他 Run 的 Escalation ID 不会改变状态。
+Pi UI 随后先从当前问题的 `allowedResolutions` 中选择 `retry_node`、`request_replan`、`continue_run` 或 `fail_run` 的合法子集，再采集回答并要求二次确认。动作控制状态机，回答只作为理由。`resume`、`answer` 和 `escalationId` 不存在于模型 Tool Schema；错误、关闭、属于其他 Run 的 Escalation ID或不允许的动作不会改变状态。
 
 Pi 进程退出后，使用同一 Run ID 接管 planning/compiling/replanning/ready/running 状态：
 
@@ -308,6 +308,7 @@ interface IpdToolResult {
     escalationId: string;
     prompt: string;
     context: string;
+    allowedResolutions: Array<"retry_node" | "request_replan" | "continue_run" | "fail_run">;
   };
   artifacts?: ArtifactManifest[];
   failure?: IpdFailure;

@@ -497,7 +497,7 @@ describe("AgentSessionNodeRunner", () => {
 		expect(result.ok).toBe(true);
 	});
 
-	it("enforces cumulative generation and Tool-call limits for Execution Nodes", async () => {
+	it("enforces cumulative generation limits and reserves finalization after the Execution Tool limit", async () => {
 		const tokenFixture = await createFixture();
 		tokenFixture.faux.setResponses([fauxAssistantMessage("This response exceeds a one-token generation budget")]);
 		const tokenResult = await tokenFixture.runner.runExecutionNode({
@@ -510,18 +510,43 @@ describe("AgentSessionNodeRunner", () => {
 		const toolFixture = await createFixture({ maxExecutionToolCalls: 2 });
 		await writeFile(join(toolFixture.root, "input.txt"), "bounded input");
 		let warningObserved = false;
+		let finalizationTools: string[] = [];
 		toolFixture.faux.setResponses([
 			fauxAssistantMessage(fauxToolCall("read", { path: "input.txt" }), { stopReason: "toolUse" }),
 			fauxAssistantMessage(fauxToolCall("read", { path: "input.txt" }), { stopReason: "toolUse" }),
 			(context) => {
-				warningObserved = JSON.stringify(context.messages).includes("Runtime Tool budget is at 80%");
-				return fauxAssistantMessage(fauxToolCall("read", { path: "input.txt" }), { stopReason: "toolUse" });
+				warningObserved = JSON.stringify(context.messages).includes("Runtime Tool budget is exhausted");
+				finalizationTools = context.tools?.map((tool) => tool.name) ?? [];
+				return fauxAssistantMessage(
+					fauxToolCall("submit_artifact", {
+						summary: "Submit after the Tool budget is exhausted",
+						files: [{ path: "outputs/result.txt", mimeType: "text/plain" }],
+						metadata: {},
+					}),
+					{ stopReason: "toolUse" },
+				);
 			},
 		]);
 		const toolResult = await toolFixture.runner.runExecutionNode(toolFixture.execution);
-		expect(toolResult.ok).toBe(false);
-		if (!toolResult.ok) expect(toolResult.failure.code).toBe("tool_limit_exceeded");
+		expect(toolResult.ok).toBe(true);
 		expect(warningObserved).toBe(true);
+		expect(finalizationTools).toEqual(["submit_artifact"]);
+
+		const overflowFixture = await createFixture({ maxExecutionToolCalls: 2 });
+		await writeFile(join(overflowFixture.root, "input.txt"), "bounded input");
+		overflowFixture.faux.setResponses([
+			fauxAssistantMessage(
+				[
+					fauxToolCall("read", { path: "input.txt" }),
+					fauxToolCall("read", { path: "input.txt" }),
+					fauxToolCall("read", { path: "input.txt" }),
+				],
+				{ stopReason: "toolUse" },
+			),
+		]);
+		const overflowResult = await overflowFixture.runner.runExecutionNode(overflowFixture.execution);
+		expect(overflowResult.ok).toBe(false);
+		if (!overflowResult.ok) expect(overflowResult.failure.code).toBe("tool_limit_exceeded");
 	});
 
 	it("supports timeout and explicit abort", async () => {

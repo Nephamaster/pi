@@ -58,6 +58,8 @@ class FakeNodeRunner implements NodeRunner {
 	private readonly blockedNodes: Set<string>;
 	private readonly failureOnceNodes: Set<string>;
 	private readonly providerFailureOnceNodes: Set<string>;
+	private readonly toolLimitOnceNodes: Set<string>;
+	private readonly configurationFailureOnceNodes: Set<string>;
 	private readonly blockedWaiters = new Map<string, () => void>();
 	private readonly delayMs: number;
 	private readonly staffSubmission?: StaffDecisionSubmission;
@@ -68,6 +70,8 @@ class FakeNodeRunner implements NodeRunner {
 		blockedNodes?: string[];
 		failureOnceNodes?: string[];
 		providerFailureOnceNodes?: string[];
+		toolLimitOnceNodes?: string[];
+		configurationFailureOnceNodes?: string[];
 		delayMs?: number;
 		staffSubmission?: StaffDecisionSubmission;
 	}) {
@@ -75,6 +79,8 @@ class FakeNodeRunner implements NodeRunner {
 		this.blockedNodes = new Set(options.blockedNodes ?? []);
 		this.failureOnceNodes = new Set(options.failureOnceNodes ?? []);
 		this.providerFailureOnceNodes = new Set(options.providerFailureOnceNodes ?? []);
+		this.toolLimitOnceNodes = new Set(options.toolLimitOnceNodes ?? []);
+		this.configurationFailureOnceNodes = new Set(options.configurationFailureOnceNodes ?? []);
 		this.delayMs = options.delayMs ?? 0;
 		this.staffSubmission = options.staffSubmission;
 	}
@@ -117,6 +123,20 @@ class FakeNodeRunner implements NodeRunner {
 				return {
 					ok: false,
 					failure: { code: "provider_error", message: `Provider failed for ${input.node.id}` },
+					trace: this.trace(input),
+				};
+			}
+			if (this.toolLimitOnceNodes.delete(input.node.id)) {
+				return {
+					ok: false,
+					failure: { code: "tool_limit_exceeded", message: `Tool limit reached for ${input.node.id}` },
+					trace: this.trace(input),
+				};
+			}
+			if (this.configurationFailureOnceNodes.delete(input.node.id)) {
+				return {
+					ok: false,
+					failure: { code: "configuration_error", message: `Invalid configuration for ${input.node.id}` },
 					trace: this.trace(input),
 				};
 			}
@@ -315,6 +335,8 @@ async function createFixture(options?: {
 	blockedNodes?: string[];
 	failureOnceNodes?: string[];
 	providerFailureOnceNodes?: string[];
+	toolLimitOnceNodes?: string[];
+	configurationFailureOnceNodes?: string[];
 	staffSubmission?: StaffDecisionSubmission;
 	delayMs?: number;
 	executorCard?: CompiledAgentCard;
@@ -354,6 +376,8 @@ async function createFixture(options?: {
 		blockedNodes: options?.blockedNodes,
 		failureOnceNodes: options?.failureOnceNodes,
 		providerFailureOnceNodes: options?.providerFailureOnceNodes,
+		toolLimitOnceNodes: options?.toolLimitOnceNodes,
+		configurationFailureOnceNodes: options?.configurationFailureOnceNodes,
 		delayMs: options?.delayMs,
 		staffSubmission: options?.staffSubmission,
 	});
@@ -651,6 +675,45 @@ describe("GraphEngine", () => {
 		}
 	});
 
+	it("retries a Tool-limit failure while Attempts remain instead of requesting a Workflow amendment", async () => {
+		const fixture = await createFixture({ toolLimitOnceNodes: ["produce"] });
+		try {
+			const result = await fixture.engine.run("run-1", fixture.context);
+			expect(result.status).toBe("succeeded");
+			expect(result.snapshot.nodes.map((node) => node.status)).toEqual(["rework_pending", "succeeded"]);
+			expect(result.snapshot.nodes[0].error).toMatchObject({
+				code: "tool_limit_exceeded",
+				category: "tool_error",
+				retryable: true,
+			});
+			expect(result.snapshot.escalations).toEqual([]);
+			expect(result.snapshot.decisions).not.toContainEqual(
+				expect.objectContaining({ type: "workflow_amendment_request" }),
+			);
+		} finally {
+			fixture.ledger.close();
+		}
+	});
+
+	it("does not mislabel a non-retryable early failure as exhausted Attempts", async () => {
+		const fixture = await createFixture({ configurationFailureOnceNodes: ["produce"] });
+		try {
+			const result = await fixture.engine.run("run-1", fixture.context);
+			expect(result.status).toBe("failed");
+			expect(result.snapshot.nodes).toHaveLength(1);
+			expect(result.snapshot.run.failure).toMatchObject({
+				code: "configuration_error",
+				category: "validation_error",
+			});
+			expect(result.snapshot.escalations).toEqual([]);
+			expect(result.snapshot.decisions).not.toContainEqual(
+				expect.objectContaining({ type: "workflow_amendment_request" }),
+			);
+		} finally {
+			fixture.ledger.close();
+		}
+	});
+
 	it("routes exhausted Attempts to failure", async () => {
 		const fixture = await createFixture({
 			workflow(workflow) {
@@ -680,9 +743,20 @@ describe("GraphEngine", () => {
 			expect(result.status).toBe("waiting_user");
 			expect(result.snapshot.escalations).toHaveLength(1);
 			expect(result.snapshot.escalations[0].target).toBe("user");
+			await expect(
+				fixture.engine.resume(
+					"run-1",
+					result.snapshot.escalations[0].id,
+					"retry_node",
+					"Retry beyond the frozen limit",
+					fixture.context,
+				),
+			).rejects.toMatchObject({ code: "invalid_resume" });
+			expect(fixture.ledger.getRunSnapshot("run-1").escalations[0].status).toBe("open");
 			const resumed = await fixture.engine.resume(
 				"run-1",
 				result.snapshot.escalations[0].id,
+				"request_replan",
 				"Create a revised Workflow instead of exceeding the frozen Attempt limit",
 				fixture.context,
 			);
@@ -905,6 +979,7 @@ describe("GraphEngine", () => {
 			const resumed = await fixture.engine.resume(
 				"run-1",
 				waiting.snapshot.escalations[0].id,
+				"retry_node",
 				"The prior action did not complete; reconcile state and retry safely",
 				fixture.context,
 			);
@@ -936,13 +1011,20 @@ describe("GraphEngine", () => {
 			expect(escalation).toMatchObject({ status: "open", target: "user", nodeId: "produce" });
 
 			await expect(
-				fixture.engine.resume("run-1", "wrong-escalation", "Use the approved source", fixture.context),
+				fixture.engine.resume(
+					"run-1",
+					"wrong-escalation",
+					"retry_node",
+					"Use the approved source",
+					fixture.context,
+				),
 			).rejects.toMatchObject({ code: "invalid_resume" });
 			expect(fixture.ledger.getRunSnapshot("run-1").run.status).toBe("waiting_user");
 
 			const resumed = await fixture.engine.resume(
 				"run-1",
 				escalation.id,
+				"retry_node",
 				"Use the approved source",
 				fixture.context,
 			);
@@ -1037,6 +1119,7 @@ describe("GraphEngine", () => {
 			const resumed = await engine.resume(
 				"run-1",
 				escalation.id,
+				"continue_run",
 				"Continue over budget without reducing the Reviewer budget",
 				fixture.context,
 			);
@@ -1084,6 +1167,7 @@ describe("GraphEngine", () => {
 			const resumed = await engine.resume(
 				"run-1",
 				result.snapshot.escalations[0].id,
+				"continue_run",
 				"Keep the existing absolute limit",
 				fixture.context,
 			);

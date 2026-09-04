@@ -16,6 +16,8 @@ Before every Tool call, compare arguments with its exposed JSON Schema: include 
 
 For a Compiler revision, `loadedSections` is already present in the Builder. Modify only `editableSections`; do not resubmit unchanged sections. For an initial plan, `editableSections=["all"]`.
 
+For a same-Run amendment, `lockedAcceptedNodeIds` cannot be removed or rewritten. Their execution and Gate contracts remain frozen; only an outgoing `gate.routes.pass` reference may be retargeted when a failed downstream Node is replaced. Modify only the affected replacement and reference closure listed in `editableSections`.
+
 ## Design method
 
 - Build the successful Artifact dependency graph as a DAG. Independent work may run in parallel; every Artifact input comes from a direct dependency.

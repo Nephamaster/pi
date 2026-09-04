@@ -408,6 +408,45 @@ describe("WorkflowPlanner", () => {
 		}
 	});
 
+	it("pauses an exhausted Workflow amendment for an explicit user resolution", async () => {
+		const fixture = await createFixture();
+		fixture.faux.setResponses(createWorkflowSubmissionMessages(fixture.candidate));
+		try {
+			const initial = await fixture.planner.planAndFreeze(fixture.request);
+			expect(initial.ok).toBe(true);
+			fixture.ledger.transitionRun({ runId: "run-1", idempotencyKey: "run-start", status: "running" });
+			fixture.ledger.transitionRun({ runId: "run-1", idempotencyKey: "run-replanning", status: "replanning" });
+
+			const invalid = structuredClone(fixture.candidate);
+			invalid.version = "1.1.0";
+			invalid.nodes[0].agentCardRef.hash = "0".repeat(64);
+			fixture.faux.setResponses([
+				...createWorkflowSubmissionMessages(invalid),
+				...createWorkflowSubmissionMessages(invalid),
+			]);
+			const result = await fixture.planner.planAndFreeze({
+				...fixture.request,
+				amendExistingWorkflow: true,
+				amendmentContext: { nodeId: "produce", rationale: "Replace the failed Node" },
+				maxRevisions: 2,
+			});
+
+			expect(result.ok).toBe(false);
+			if (result.ok) return;
+			expect(result.failure.code).toBe("compiler_exhausted");
+			const snapshot = fixture.ledger.getRunSnapshot("run-1");
+			expect(snapshot.run.status).toBe("waiting_user");
+			expect(snapshot.run.failure).toBeUndefined();
+			expect(snapshot.escalations[0]).toMatchObject({
+				target: "user",
+				context: { reason: "amendment_exhausted" },
+			});
+			expect(snapshot.decisions.map((decision) => decision.action)).toEqual(["accept", "reject", "reject", "pause"]);
+		} finally {
+			fixture.ledger.close();
+		}
+	});
+
 	it("fails fast and marks repeated malformed Planner submissions as non-retryable", async () => {
 		const fixture = await createFixture();
 		fixture.faux.setResponses(

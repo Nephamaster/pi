@@ -177,6 +177,7 @@ Gate 在 Attempt Workspace 中读取 Candidate；只有 PASS 后，Manifest 文�
 - 约束 Tool 集合；
 - 对 PDF 使用 `pdftotext` 可读视图，并阻止 Office/ZIP/BIN 原始字节进入文本上下文；
 - 对 Execution Session 执行累计生成 Token、Tool Call 和 80%/90% 收口保护；
+- 达到非提交 Tool Call 上限后切换为仅允许结构化 Artifact 提交；
 - 捕获 Artifact、Workflow 分段、Review 和 Staff Decision 的结构化提交；
 - 返回 Session、Usage、Timeout 和 Failure Trace；
 - 装配默认 Ledger、Planner、GraphEngine、Gate 和 BudgetController。
@@ -267,17 +268,20 @@ Skill 或 AgentCard 解析失败发生在 Planner 创建 Run 之前，不会留�
 
 ```text
 /ipd-resume runId escalationId
-  → Pi UI 采集回答并二次确认
-  → Controller.resumeAsUser(runId, escalationId, answer)
+  → Pi UI 从 allowedResolutions 选择恢复动作
+  → 采集回答并二次确认
+  → Controller.resumeAsUser(runId, escalationId, resolution, answer)
   → Controller 重新读取当前可用 Skill 文件
   → Runtime 查找 Run 冻结的 skill name + hash
   → Skill Snapshot 不存在或 Hash 改变：拒绝恢复
   → GraphEngine 要求 Run == waiting_user
   → 查找相同 runId 下 status=open 的精确 escalationId
+  → 校验 resolution 属于该 Escalation 的允许动作
   → Ledger 回答 Escalation
-  → 若关联 Node，记录 user_answer / retry_node Decision
-  → waiting_user → running
-  → 从原阻塞 Node 创建下一 Attempt
+  → retry_node：从原阻塞 Node 创建下一 Attempt
+  → request_replan：同一 Run 进入 Workflow Amendment
+  → continue_run：继续 Run 级治理流程
+  → fail_run：按用户决定终止 Run
 ```
 
 错误 Escalation ID、关闭的 Escalation、空回答或非 waiting Run 都不会恢复任务。
@@ -338,3 +342,4 @@ cancel
 - AgentCard knowledge base 是受权限约束的引用，IPD 没有独立向量检索服务；
 - Workspace Scope 不等于 OS 沙箱；
 - Planner、BudgetController 和 GraphEngine 都是可信 Runtime 写入方，当前没有单一 GraphEngine 命令总线。
+- 初始 Workflow 规划候选耗尽仍是终态失败；已有 Workflow 的 Amendment 候选耗尽会进入 waiting_user，等待显式再次修订或终止。

@@ -329,6 +329,7 @@ describe("IPD Extension", () => {
 		);
 		expect("error" in waiting.details ? undefined : waiting.details.question).toMatchObject({
 			escalationId: "expected-escalation",
+			allowedResolutions: ["retry_node", "request_replan", "fail_run"],
 		});
 		expect(registered.tool.parameters.properties.action.anyOf).not.toContainEqual(
 			expect.objectContaining({ const: "resume" }),
@@ -392,6 +393,7 @@ describe("IPD Extension", () => {
 			...context,
 			hasUI: true,
 			ui: {
+				select: async () => "重试当前节点",
 				input: async () => "Use A",
 				confirm: async () => true,
 				notify(message: string, type?: "info" | "warning" | "error") {

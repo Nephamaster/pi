@@ -214,7 +214,7 @@ Graph 路径使用：
 
 ## 9. 用户专用 Resume
 
-模型 Tool Schema 不包含 `resume`、`answer` 或 `escalationId`。用户输入 `/ipd-resume <runId> <escalationId>` 后，Pi UI 采集回答并二次确认，再调用内部 Resume，并以 `user_answer_receipt/source=user_command` 记录来源。前置条件：
+模型 Tool Schema 不包含 `resume`、`answer` 或 `escalationId`。用户输入 `/ipd-resume <runId> <escalationId>` 后，Pi UI 先显示当前 Escalation 允许的恢复动作，再采集回答并二次确认。动作与回答分开保存：动作控制状态机，回答只作为 rationale，Runtime 不再从自然语言猜测或忽略用户意图。`user_answer_receipt` 记录 `source=user_command`、恢复动作和接收时间。前置条件：
 
 1. answer 非空；
 2. Run 状态是 waiting_user；
@@ -222,17 +222,19 @@ Graph 路径使用：
 4. Escalation 状态是 open；
 5. Escalation `target=user`；
 6. 当前 Pi Context 中存在与 Run 冻结 name+hash 一致的 Skill Snapshot。
+7. 用户选择的 resolution 属于该 Escalation 的 `allowedResolutions`。
 
 成功时：
 
 ```text
 Escalation open → answered
-若关联且未耗尽的 blocked Node：记录 user_answer / retry_node Decision
-若 reason=attempts_exhausted：记录 workflow_amendment_request，同一 Run → replanning
-若 reason=unknown_outcome：把核验答案记录为 retry_node Decision，再从 Checkpoint 开始新 Session
-若属于软预算：下一次 Budget Staff Context 接收 userAnswer，并以新 instanceId 再决策
-其他合法恢复：Run waiting_user → running，Graph 从原阻塞点继续
+resolution=retry_node：记录 user_answer / retry_node Decision，从上一 Attempt Workspace 创建新 Attempt
+resolution=request_replan：记录 workflow_amendment_request，同一 Run → replanning
+resolution=continue_run：用于 Run 级预算治理，Run → running
+resolution=fail_run：按用户明确决定终止 Run
 ```
+
+`attempts_exhausted` 和 `amendment_exhausted` 只允许 request_replan/fail_run；有关联 Node 的普通 blocked/unknown_outcome 允许 retry_node/request_replan/fail_run；Run 级预算 Escalation 允许 continue_run/fail_run。错误或不允许的动作在回答写入前拒绝。
 
 错误 ID 在回答和状态写入前被拒绝，因此不会部分恢复。
 
@@ -284,6 +286,7 @@ internal_error
 | `blocked` | `blocked` | false，走 blocked 路径 |
 | `missing_submission` | `validation_error` | true |
 | `invalid_submission` | `validation_error` | true |
+| `tool_limit_exceeded` | `tool_error` | true |
 | `timeout` | `timeout` | true |
 | `aborted` | `cancelled` | false |
 
@@ -306,7 +309,17 @@ running
 running
   → validation_error(non-retryable)
   → Attempt failed
-  → exhausted route
+  → Run failed，不伪装成 Attempt 已耗尽
+```
+
+### 12.3 工具调用保护
+
+```text
+达到 96 次非提交 Tool Call
+  → 下一轮仅保留 submit_artifact
+  → 提交成功则进入 Gate
+  → 同批额外调用触发 tool_limit_exceeded(retryable)
+  → 尚有 Attempt 时继承工作区重试
 ```
 
 ### 12.3 质量失败

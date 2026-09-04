@@ -221,6 +221,7 @@ Execution、Reviewer 和 Staff 使用 `SingleSubmission`，要求恰好一次合
 - 不再让模型一次生成整个深层 Workflow；
 - Header、Acceptance、Node Core、Node Gate 和 Final Gate 分开接受；
 - 显式模板和 Compiler 上一版候选会预载到 Builder，修订只需替换诊断片段；
+- same-Run Amendment 会把已 accepted 节点作为 locked Node 传入 Builder：不能删除或修改执行/Gate 契约，只允许为替换失败下游而更新 `gate.routes.pass`；
 - 过时的预载 Node 可显式删除；Builder 同时删除对应 Gate，其余依赖、输入、路由和 Final Artifact 引用仍由 ST 修订并交给 Compiler 校验；
 - 机械 Check 的 `parametersJson` 在 Runtime 中解析，并按实际 Check Schema 校验；
 - 所有分段组装后再用正式 `WorkflowDefinitionSchema` 验证；
@@ -267,7 +268,7 @@ selected.maxTokens = min(model.maxTokens, tokenBudget)
 - Blocked Staff：`staffTokens`；
 - Reviewer：BudgetController 收缩后的 reviewer budget；没有收缩 Decision 时不覆盖模型 `maxTokens`。
 
-Token Budget 同时限制单次模型输出和整个 Planner/Execution Session 的累计生成 Token；超过时返回 `budget_exceeded`。Execution 在 80%/90% Token 或时间阈值收到收口指令，默认最多 96 次 Tool Call，超过返回 `tool_limit_exceeded`。Planner 上限仍为 64 次 Tool Call。输入、Cache Read 和 Cache Write 按真实 Session Stats 计量，因此总 Provider Usage 仍可能高于生成 Token Budget。
+Token Budget 同时限制单次模型输出和整个 Planner/Execution Session 的累计生成 Token；超过时返回 `budget_exceeded`。Execution 在 80%/90% Token 或时间阈值收到收口指令。默认最多执行 96 次非提交 Tool Call；达到上限后 Runtime 在下一轮禁用普通工具，只保留 `submit_artifact`，并且提交调用本身不计入该上限。同一 Assistant 批次已经生成的额外普通 Tool Call 仍会触发 `tool_limit_exceeded`，并在剩余 Attempt 内恢复。Planner 上限仍为 64 次 Tool Call。输入、Cache Read 和 Cache Write 按真实 Session Stats 计量，因此总 Provider Usage 仍可能高于生成 Token Budget。
 
 `agentCard.defaultBudget.tokens` 当前作为员工资产信息交给 ST 参考，但 NodeRunner 不会自动使用它覆盖 Execution/Decision Token 上限；实际调用以 Workflow/Controller 显式传入预算为准。
 
@@ -354,6 +355,7 @@ blocked
 missing_submission
 invalid_submission
 budget_exceeded
+tool_limit_exceeded
 timeout
 aborted
 ```

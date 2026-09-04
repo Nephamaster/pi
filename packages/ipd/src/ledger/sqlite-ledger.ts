@@ -472,6 +472,12 @@ function cardHashValue(card: CompiledAgentCard): JsonValue {
 	};
 }
 
+function acceptedNodeAmendmentHash(node: WorkflowDefinition["nodes"][number]): string {
+	const stable = structuredClone(node);
+	stable.gate.routes.pass = "__AMENDMENT_TARGET__";
+	return hashJson(stable);
+}
+
 export class SqliteIpdLedger implements Disposable {
 	private readonly db: DatabaseSync;
 	private readonly now: () => number;
@@ -909,11 +915,16 @@ WHERE run_id = ? AND node_id = ? ORDER BY attempt_number DESC LIMIT 1`,
 			);
 			if (!latest) continue;
 			const previousNode = currentNodes.get(nextNode.id);
-			if (latest.status !== "succeeded" || !previousNode || hashJson(previousNode) !== hashJson(nextNode)) {
+			if (
+				latest.status !== "succeeded" ||
+				!previousNode ||
+				acceptedNodeAmendmentHash(previousNode) !== acceptedNodeAmendmentHash(nextNode)
+			) {
 				diagnostics.push({
 					code: "workflow_amendment_invalid",
 					path: `/nodes/${index}/id`,
-					message: `Amended Workflow must replace attempted Node ${nextNode.id} with a new Node ID unless its accepted definition is unchanged`,
+					message: `Amended Workflow must replace attempted Node ${nextNode.id} with a new Node ID unless its accepted execution and Gate contract is unchanged; only the outgoing Gate pass route may be retargeted`,
+					nodeId: nextNode.id,
 				});
 			}
 		}

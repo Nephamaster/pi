@@ -183,6 +183,168 @@ describe("SqliteIpdLedger", () => {
 		}
 	});
 
+	it("reuses an accepted upstream Node when only its pass route targets a replacement Node", async () => {
+		const databasePath = await createDatabasePath();
+		const cards = createTestCards();
+		const definition = createValidWorkflow(cards);
+		const upstream = structuredClone(definition.nodes[0]);
+		upstream.id = "upstream";
+		upstream.output.id = "upstream-output";
+		upstream.output.artifactType = "upstream-artifact";
+		upstream.gate.id = "upstream-gate";
+		upstream.gate.mechanicalCriteria[0].id = "upstream-gate-mechanical";
+		upstream.gate.semanticCriteria[0].id = "upstream-gate-semantic";
+		upstream.gate.reviewers[0].id = "upstream-gate-reviewer";
+		upstream.gate.routes.pass = "downstream";
+		upstream.gate.routes.rework = "upstream";
+		upstream.rework.targetNodeId = "upstream";
+		const downstream = structuredClone(definition.nodes[0]);
+		downstream.id = "downstream";
+		downstream.dependsOn = ["upstream"];
+		downstream.inputs = [
+			{ name: "upstream", fromNodeId: "upstream", artifactType: "upstream-artifact", required: true },
+		];
+		downstream.output.id = "downstream-output";
+		downstream.output.artifactType = "downstream-artifact";
+		downstream.gate.id = "downstream-gate";
+		downstream.gate.mechanicalCriteria[0].id = "downstream-gate-mechanical";
+		downstream.gate.semanticCriteria[0].id = "downstream-gate-semantic";
+		downstream.gate.reviewers[0].id = "downstream-gate-reviewer";
+		downstream.gate.routes.rework = "downstream";
+		downstream.rework.targetNodeId = "downstream";
+		definition.nodes = [upstream, downstream];
+		definition.finalArtifactNodeIds = ["downstream"];
+		definition.finalGate.routes.rework = "downstream";
+		const compiled = compileWorkflow(definition, createCompileContext(cards));
+		if (!compiled.ok) throw new Error(compiled.diagnostics.map((item) => item.message).join("\n"));
+
+		const ledger = new SqliteIpdLedger({ databasePath });
+		try {
+			freezeRun(ledger, compiled.value);
+			ledger.transitionRun({ runId: "run-1", idempotencyKey: "run-start", status: "running" });
+			ledger.createNodeAttempt({
+				runId: "run-1",
+				idempotencyKey: "upstream-attempt-create",
+				attemptId: "upstream-attempt",
+				nodeId: "upstream",
+				attemptNumber: 1,
+				agentCardRef: cardRef(cards.executor),
+			});
+			ledger.transitionNode({
+				runId: "run-1",
+				idempotencyKey: "upstream-attempt-ready",
+				attemptId: "upstream-attempt",
+				status: "ready",
+			});
+			ledger.transitionNode({
+				runId: "run-1",
+				idempotencyKey: "upstream-attempt-running",
+				attemptId: "upstream-attempt",
+				status: "running",
+			});
+			ledger.recordArtifact({
+				runId: "run-1",
+				idempotencyKey: "upstream-artifact-create",
+				artifactId: "upstream-artifact",
+				nodeId: "upstream",
+				attemptId: "upstream-attempt",
+				contractId: "upstream-output",
+				manifest: { files: [{ path: "outputs/upstream.txt" }] },
+			});
+			ledger.transitionNode({
+				runId: "run-1",
+				idempotencyKey: "upstream-gate-checking",
+				attemptId: "upstream-attempt",
+				status: "gate_checking",
+			});
+			recordPassingGate({
+				ledger,
+				runId: "run-1",
+				gateRunId: "upstream-gate-run",
+				gateId: "upstream-gate",
+				reviewerId: "upstream-reviewer",
+				reviewerCard: cards.reviewer,
+				nodeId: "upstream",
+				attemptId: "upstream-attempt",
+				artifactId: "upstream-artifact",
+			});
+			ledger.transitionNode({
+				runId: "run-1",
+				idempotencyKey: "upstream-gate-reviewing",
+				attemptId: "upstream-attempt",
+				status: "gate_reviewing",
+			});
+			ledger.transitionArtifact({
+				runId: "run-1",
+				idempotencyKey: "upstream-artifact-accepted",
+				artifactId: "upstream-artifact",
+				status: "accepted",
+			});
+			ledger.transitionNode({
+				runId: "run-1",
+				idempotencyKey: "upstream-succeeded",
+				attemptId: "upstream-attempt",
+				status: "succeeded",
+			});
+			ledger.createNodeAttempt({
+				runId: "run-1",
+				idempotencyKey: "downstream-attempt-create",
+				attemptId: "downstream-attempt",
+				nodeId: "downstream",
+				attemptNumber: 1,
+				agentCardRef: cardRef(cards.executor),
+			});
+			ledger.transitionNode({
+				runId: "run-1",
+				idempotencyKey: "downstream-attempt-ready",
+				attemptId: "downstream-attempt",
+				status: "ready",
+			});
+			ledger.transitionNode({
+				runId: "run-1",
+				idempotencyKey: "downstream-attempt-running",
+				attemptId: "downstream-attempt",
+				status: "running",
+			});
+			ledger.transitionNode({
+				runId: "run-1",
+				idempotencyKey: "downstream-attempt-failed",
+				attemptId: "downstream-attempt",
+				status: "failed",
+			});
+			ledger.transitionRun({ runId: "run-1", idempotencyKey: "run-replanning", status: "replanning" });
+
+			const amended = structuredClone(definition);
+			amended.version = "1.1.0";
+			amended.nodes[0].gate.routes.pass = "downstream-v2";
+			const replacement = amended.nodes[1];
+			replacement.id = "downstream-v2";
+			replacement.output.id = "downstream-v2-output";
+			replacement.gate.id = "downstream-v2-gate";
+			replacement.gate.mechanicalCriteria[0].id = "downstream-v2-gate-mechanical";
+			replacement.gate.semanticCriteria[0].id = "downstream-v2-gate-semantic";
+			replacement.gate.reviewers[0].id = "downstream-v2-gate-reviewer";
+			replacement.gate.routes.rework = "downstream-v2";
+			replacement.rework.targetNodeId = "downstream-v2";
+			amended.finalArtifactNodeIds = ["downstream-v2"];
+			amended.finalGate.routes.rework = "downstream-v2";
+			const compiledAmendment = compileWorkflow(amended, createCompileContext(cards));
+			if (!compiledAmendment.ok) {
+				throw new Error(compiledAmendment.diagnostics.map((item) => item.message).join("\n"));
+			}
+			expect(ledger.validateWorkflowAmendment("run-1", compiledAmendment.value)).toEqual([]);
+			expect(
+				ledger.amendWorkflow({
+					runId: "run-1",
+					idempotencyKey: "safe-route-retarget",
+					workflow: compiledAmendment.value,
+				}).revision,
+			).toBe(2);
+		} finally {
+			ledger.close();
+		}
+	});
+
 	it("stores a complete Run with atomic snapshots and contiguous events", async () => {
 		const databasePath = await createDatabasePath();
 		const workflow = createCompiledWorkflow();

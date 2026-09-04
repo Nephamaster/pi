@@ -55,6 +55,7 @@ waiting_user
 
 replanning
   ├─→ ready
+  ├─→ waiting_user
   ├─→ failed
   └─→ cancelled
 ```
@@ -71,6 +72,7 @@ replanning
 | waiting_user → running | 用户 `/ipd-resume` → GraphEngine.resume | `escalation_answered`、`run_status_changed` |
 | running/waiting_user → replanning | Staff 或用户请求计划修订 | `decision_recorded`、`run_status_changed` |
 | replanning → ready | `amendWorkflow()` | `workflow_amended` |
+| replanning → waiting_user | Amendment 候选 revision 耗尽 | `decision_recorded`、`escalation_created`、`run_status_changed` |
 | running → succeeded | Final Gate PASS | `run_status_changed` |
 | 非终态 → failed/cancelled | Runtime 控制路径 | `run_status_changed` |
 
@@ -263,6 +265,8 @@ running → rework_pending
 下一轮创建新 Attempt
 ```
 
+`tool_limit_exceeded` 属于可恢复的 `tool_error`。Execution 达到非提交 Tool Call 上限时，下一轮只保留 `submit_artifact`；提交本身不计入上限。同一 Assistant 批次仍超过上限时，本 Attempt 进入 rework_pending 并继承工作区重试，不会被误标成 attempts_exhausted。
+
 不可重试或已耗尽时：
 
 ```text
@@ -311,9 +315,11 @@ Staff 调用失败时，Runtime 降级为用户 Escalation，并保存失败原�
 
 - `routes.exhausted: fail` → 使用最后 Attempt 的真实 Failure 终止 Run；
 - `routes.exhausted: staff` → 调用 Delivery Staff，只允许 `request_replan`、`ask_user`、`fail_run`；`request_replan` 令同一 Run 进入 replanning；
-- `routes.exhausted: user` → 创建带 `reason=attempts_exhausted` 的用户 Escalation；用户回答后同一 Run 进入 replanning。
+- `routes.exhausted: user` → 创建带 `reason=attempts_exhausted` 的用户 Escalation；用户只能显式选择 request_replan 或 fail_run。
 
 Runtime 在 replanning 中重新调用 ST Planner。新候选必须通过 Compiler 和 `amendWorkflow()` 兼容性检查，随后作为新的 revision 回到 ready。旧 revision 与执行历史保留；只有用户目标发生实质变化才创建新 Run。
+
+已 accepted 节点的执行定义和 Gate 契约保持锁定；替换失败下游 Node 时，仅允许重定向已 accepted 上游的 `gate.routes.pass`。Planner Amendment 连续耗尽候选 revision 时进入 waiting_user，而不是把已有执行成果的 Run 直接标记为 failed。
 
 `target=staff` Escalation 不能由用户 `/ipd-resume`，也不会作为公开 question 返回。
 
@@ -359,7 +365,7 @@ Runtime 在 replanning 中重新调用 ST Planner。新候选必须通过 Compil
 - Tool effect 为 external-idempotent/external-non-idempotent，或 Node 声明 externalActions 时，创建 `unknown_outcome` 用户 Escalation；
 - 不从 AgentSession 流中间位置续传；恢复单位是完整 Attempt，但返工可继承上一 Attempt Workspace 和 `checkpoint.json`。
 
-用户回答会成为该 Node 的 `retry_node` Decision 并进入下一 Session 上下文。恢复动作追加新 Event，不改写中断前记录，也不把 interrupted 执行计入质量返工额度。
+用户通过 `/ipd-resume` 先选择 Runtime 提供的显式 resolution，再输入 rationale：`retry_node`、`request_replan`、`continue_run` 或 `fail_run`。不同 Escalation 只开放合法子集；Runtime 不从回答文本推断动作。恢复追加新 Event，不改写中断前记录，也不把 interrupted 执行计入质量返工额度。
 
 ## 16. 对应测试
 

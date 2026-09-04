@@ -2,6 +2,7 @@ import type { ArtifactManifest } from "../artifact/manifest.ts";
 import type { JsonValue } from "../ir/types.ts";
 import type { EscalationRecord, GateRunRecord, NodeInstanceRecord, RunRecord, RunSnapshot } from "../ledger/types.ts";
 import type { IpdFailure } from "../runtime/failure.ts";
+import type { UserResumeResolution } from "../runtime/graph-engine.ts";
 
 export type IpdToolStatus = "running" | "waiting_user" | "succeeded" | "failed" | "cancelled";
 
@@ -23,6 +24,7 @@ export interface IpdToolQuestion {
 	escalationId: string;
 	prompt: string;
 	context: string;
+	allowedResolutions: UserResumeResolution[];
 }
 
 export interface IpdProgress {

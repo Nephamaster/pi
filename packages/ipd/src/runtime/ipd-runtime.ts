@@ -14,10 +14,12 @@ import type { PlanAndFreezeWorkflowRequest, PlanAndFreezeWorkflowResult } from "
 import type { IpdToolResult, IpdToolResultDetails, IpdToolStatus } from "../tool/ipd-result.ts";
 import { createIpdFailure, type IpdFailure } from "./failure.ts";
 import {
+	allowedUserResumeResolutions,
 	GraphEngineError,
 	type GraphRunContext,
 	type GraphRunResult,
 	type UserAnswerProvenance,
+	type UserResumeResolution,
 } from "./graph-engine.ts";
 
 export interface IpdWorkflowPlanningService {
@@ -29,6 +31,7 @@ export interface IpdGraphExecutionService {
 	resume(
 		runId: string,
 		escalationId: string,
+		resolution: UserResumeResolution,
 		answer: string,
 		context: GraphRunContext,
 		provenance?: UserAnswerProvenance,
@@ -284,6 +287,7 @@ export class IpdRuntime implements Disposable {
 	async resume(
 		runId: string,
 		escalationId: string,
+		resolution: UserResumeResolution,
 		answer: string,
 		context: IpdRuntimeExecutionContext,
 		provenance?: UserAnswerProvenance,
@@ -303,6 +307,7 @@ export class IpdRuntime implements Disposable {
 			const result = await this.graphEngine.resume(
 				runId,
 				escalationId,
+				resolution,
 				answer,
 				this.graphContext(skill, context),
 				provenance,
@@ -553,6 +558,7 @@ export class IpdRuntime implements Disposable {
 							escalationId: openEscalation.id,
 							prompt: openEscalation.question,
 							context: JSON.stringify(openEscalation.context),
+							allowedResolutions: allowedUserResumeResolutions(openEscalation),
 						}
 					: undefined,
 			artifacts: artifacts.length > 0 ? artifacts : undefined,
