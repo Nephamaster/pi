@@ -1,49 +1,24 @@
 import type { TSchema } from "typebox";
-import type { AgentCardRef, CompiledAgentCard, JsonValue, SkillRef, WorkflowDefinition } from "./schemas.ts";
+import type { WorkflowAsset } from "../contracts/workflow-asset.ts";
 
 export type IpdDiagnosticCode =
 	| "schema_invalid"
-	| "asset_read_failed"
-	| "asset_parse_failed"
 	| "asset_collision"
 	| "invalid_scope"
 	| "explicit_model_incomplete"
 	| "unknown_model"
-	| "unknown_agent_card"
 	| "unknown_skill"
-	| "skill_mismatch"
 	| "unknown_tool"
 	| "unknown_check"
 	| "check_parameters_invalid"
 	| "duplicate_id"
-	| "unknown_dependency"
-	| "success_graph_cycle"
-	| "unreachable_node"
-	| "artifact_producer_invalid"
-	| "artifact_type_mismatch"
 	| "permission_exceeded"
-	| "gate_route_invalid"
-	| "rework_route_invalid"
-	| "reviewer_unavailable"
-	| "reviewer_not_independent"
-	| "staff_core_mismatch"
-	| "required_capability_missing"
-	| "knowledge_base_unknown"
-	| "knowledge_base_permission_exceeded"
-	| "employee_role_conflict"
-	| "budget_invalid"
-	| "final_artifact_invalid"
-	| "final_coverage_incomplete"
-	| "workflow_amendment_invalid"
-	| "workflow_version_conflict"
-	| "ledger_inconsistent"
 	| "artifact_path_invalid"
 	| "artifact_missing"
 	| "artifact_type_invalid"
 	| "artifact_content_invalid"
 	| "artifact_size_mismatch"
-	| "artifact_hash_mismatch"
-	| "artifact_view_failed";
+	| "artifact_hash_mismatch";
 
 export interface IpdDiagnostic {
 	code: IpdDiagnosticCode;
@@ -64,33 +39,8 @@ export interface CheckDefinition {
 	parameters: TSchema;
 }
 
-export interface WorkflowCompileContext {
-	agentCards: readonly CompiledAgentCard[];
-	fixedStaffCore: readonly AgentCardRef[];
-	runSkill: SkillRef;
-	skillNames: ReadonlySet<string>;
-	toolNames: ReadonlySet<string>;
-	checks: readonly CheckDefinition[];
-	workflowAssetIds: ReadonlySet<string>;
-	workflowAssetRefs: ReadonlySet<string>;
-}
-
-export interface CompiledWorkflow {
-	definition: WorkflowDefinition;
-	hash: string;
-	topologicalOrder: string[];
-	agentCards: ReadonlyMap<string, CompiledAgentCard>;
-}
-
-export type CompileWorkflowResult = { ok: true; value: CompiledWorkflow } | { ok: false; diagnostics: IpdDiagnostic[] };
-
-export interface AgentCardAssetRecord {
-	card: CompiledAgentCard;
-	ref: AgentCardRef;
-}
-
 export interface WorkflowAssetRecord {
-	workflow: WorkflowDefinition;
+	workflow: WorkflowAsset;
 	hash: string;
 	source: string;
 }
@@ -99,5 +49,3 @@ export interface ParsedAsset<T> {
 	value?: T;
 	diagnostics: IpdDiagnostic[];
 }
-
-export type { AgentCardRef, CompiledAgentCard, JsonValue, SkillRef, WorkflowDefinition };

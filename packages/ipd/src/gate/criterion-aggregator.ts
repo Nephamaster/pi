@@ -1,6 +1,6 @@
-import type { ReviewSubmission } from "../adapter/node-runner.ts";
-import type { GateDefinition } from "../ir/schemas.ts";
-import type { JsonValue } from "../ir/types.ts";
+import type { SubmitReview } from "../adapter/structured-submissions.ts";
+import type { GateDefinition } from "../contracts/gate.ts";
+import type { JsonValue } from "../contracts/primitives.ts";
 
 export interface CriterionAggregation {
 	decision: "PASS" | "REWORK" | "BLOCKED" | "ARBITRATE";
@@ -9,7 +9,7 @@ export interface CriterionAggregation {
 }
 
 export class CriterionAggregator {
-	aggregate(gate: GateDefinition, reviews: readonly ReviewSubmission[]): CriterionAggregation {
+	aggregate(gate: GateDefinition, reviews: readonly SubmitReview[]): CriterionAggregation {
 		const feedback: string[] = [];
 		const results: Record<string, string[]> = {};
 		let arbitration = false;

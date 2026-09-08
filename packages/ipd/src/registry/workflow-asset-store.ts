@@ -1,8 +1,8 @@
 import { link, mkdir, open, readdir, readFile, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { type WorkflowAsset, WorkflowAssetSchema } from "../contracts/workflow-asset.ts";
 import { hashJson } from "../ir/hash.ts";
-import { type WorkflowDefinition, WorkflowDefinitionSchema } from "../ir/schemas.ts";
 import type { WorkflowAssetRecord } from "../ir/types.ts";
 import { validateSchema } from "../ir/validation.ts";
 
@@ -24,7 +24,7 @@ export class WorkflowAssetWriteError extends Error {
 }
 
 export interface WorkflowAssetStore {
-	save(workflow: WorkflowDefinition, hash: string): Promise<WorkflowAssetWriteResult>;
+	save(workflow: WorkflowAsset, hash: string): Promise<WorkflowAssetWriteResult>;
 }
 
 export interface FileWorkflowAssetStoreOptions {
@@ -41,7 +41,7 @@ export class FileWorkflowAssetStore implements WorkflowAssetStore {
 		this.format = options.format ?? "json";
 	}
 
-	async save(workflow: WorkflowDefinition, hash: string): Promise<WorkflowAssetWriteResult> {
+	async save(workflow: WorkflowAsset, hash: string): Promise<WorkflowAssetWriteResult> {
 		const actualHash = hashJson(workflow);
 		if (actualHash !== hash) {
 			throw new WorkflowAssetWriteError(
@@ -100,7 +100,7 @@ export class FileWorkflowAssetStore implements WorkflowAssetStore {
 		return { record: { workflow: existing, hash, source: path }, reused };
 	}
 
-	private async read(path: string): Promise<WorkflowDefinition> {
+	private async read(path: string): Promise<WorkflowAsset> {
 		let value: unknown;
 		try {
 			const content = await readFile(path, "utf8");
@@ -108,7 +108,7 @@ export class FileWorkflowAssetStore implements WorkflowAssetStore {
 		} catch (error) {
 			throw new WorkflowAssetWriteError("write_failed", `Failed to read Workflow Asset: ${path}`, { cause: error });
 		}
-		const parsed = validateSchema<WorkflowDefinition>(WorkflowDefinitionSchema, value, path);
+		const parsed = validateSchema<WorkflowAsset>(WorkflowAssetSchema, value, path);
 		if (!parsed.ok) {
 			throw new WorkflowAssetWriteError(
 				"write_failed",

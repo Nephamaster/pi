@@ -1,7 +1,8 @@
 import type { Static, TSchema } from "typebox";
 import { Compile } from "typebox/compile";
 import type { ArtifactContract, ArtifactManifest } from "../artifact/manifest.ts";
-import type { CheckDefinition, IpdDiagnostic, JsonValue } from "../ir/types.ts";
+import type { JsonValue } from "../contracts/primitives.ts";
+import type { CheckDefinition, IpdDiagnostic } from "../ir/types.ts";
 import type { CheckRegistry } from "./check-registry.ts";
 
 export interface CheckExecutionContext {

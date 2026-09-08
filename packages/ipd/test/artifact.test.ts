@@ -3,9 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ArtifactValidationError, createArtifactManifest, validateArtifactManifest } from "../src/index.ts";
-import { createValidWorkflow } from "./fixtures.ts";
 
 const roots: string[] = [];
+const contract = {
+	id: "content-output",
+	artifactType: "text-bundle",
+	description: "Text files produced by the test",
+	businessPurpose: "Verify Artifact manifest behavior",
+};
 
 afterEach(async () => {
 	await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -37,7 +42,6 @@ describe("Artifact Manifest", () => {
 		const workspace = await createWorkspace();
 		await writeFile(join(workspace, "outputs", "primary.txt"), "primary");
 		await writeFile(join(workspace, "outputs", "review.txt"), "review");
-		const contract = createValidWorkflow().nodes[0].output;
 		const manifest = await createArtifactManifest({
 			workspace,
 			contract,
@@ -56,7 +60,6 @@ describe("Artifact Manifest", () => {
 		const workspace = await createWorkspace();
 		await writeFile(join(workspace, "outputs", "primary.txt"), "primary");
 		await writeFile(join(workspace, "outputs", "review.txt"), "review");
-		const contract = createValidWorkflow().nodes[0].output;
 		const opaqueSubmission = {
 			...submission([
 				{ path: "outputs/primary.txt", mimeType: "text/plain" },
@@ -84,7 +87,6 @@ describe("Artifact Manifest", () => {
 		const workspace = await createWorkspace();
 		await writeFile(join(workspace, "outputs", "primary.txt"), "first");
 		await writeFile(join(workspace, "outputs", "review.txt"), "review");
-		const contract = createValidWorkflow().nodes[0].output;
 		const manifest = await createArtifactManifest({
 			workspace,
 			contract,
@@ -104,7 +106,6 @@ describe("Artifact Manifest", () => {
 		const workspace = await createWorkspace();
 		await writeFile(join(workspace, "outputs", "primary.txt"), "primary");
 		await writeFile(join(workspace, "outputs", "manifest.json"), "# Artifact Manifest\n");
-		const contract = createValidWorkflow().nodes[0].output;
 		await expect(
 			createArtifactManifest({
 				workspace,
@@ -121,7 +122,6 @@ describe("Artifact Manifest", () => {
 
 	it("rejects missing files, duplicate paths, and workspace escapes", async () => {
 		const workspace = await createWorkspace();
-		const contract = createValidWorkflow().nodes[0].output;
 		await writeFile(join(workspace, "outputs", "primary.txt"), "primary");
 		const outside = join(workspace, "..", `outside-${Date.now()}.txt`);
 		await writeFile(outside, "outside");

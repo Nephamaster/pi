@@ -1,11 +1,14 @@
-import type { ExecutionNodeDefinition } from "./schemas.ts";
+export interface DirectedNode {
+	id: string;
+	dependsOn: readonly string[];
+}
 
 export interface TopologicalSortResult {
 	order: string[];
 	cycle: string[];
 }
 
-export function topologicalSort(nodes: readonly ExecutionNodeDefinition[]): TopologicalSortResult {
+export function topologicalSort(nodes: readonly DirectedNode[]): TopologicalSortResult {
 	const nodeIds = new Set(nodes.map((node) => node.id));
 	const indegree = new Map(nodes.map((node) => [node.id, 0]));
 	const dependents = new Map<string, string[]>();

@@ -1,15 +1,16 @@
 import { open, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import Type, { type Static } from "typebox";
+import type { ArtifactContract } from "../contracts/artifact.ts";
 import {
-	type ArtifactContractSchema,
 	IdentifierSchema,
+	type JsonValue,
 	JsonValueSchema,
 	NonEmptyStringSchema,
 	OpaqueIdSchema,
-} from "../ir/schemas.ts";
+} from "../contracts/primitives.ts";
 import { normalizeScope } from "../ir/scopes.ts";
-import type { IpdDiagnostic, JsonValue } from "../ir/types.ts";
+import type { IpdDiagnostic } from "../ir/types.ts";
 import { validateSchema } from "../ir/validation.ts";
 import { hashFile } from "./hash-file.ts";
 
@@ -64,7 +65,7 @@ export const ArtifactManifestSchema = Type.Object(
 );
 
 export type ArtifactManifest = Static<typeof ArtifactManifestSchema>;
-export type ArtifactContract = Static<typeof ArtifactContractSchema>;
+export type { ArtifactContract } from "../contracts/artifact.ts";
 
 export interface ArtifactValidationResult {
 	ok: boolean;

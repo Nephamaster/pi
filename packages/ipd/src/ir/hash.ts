@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { JsonValue } from "./schemas.ts";
+import type { JsonValue } from "../contracts/primitives.ts";
 
 function canonicalizeValue(value: JsonValue): string {
 	if (value === null || typeof value === "boolean" || typeof value === "number") {

@@ -20,7 +20,7 @@
 	],
 	"scripts": {
 		"clean": "shx rm -rf dist",
-		"build": "tsgo -p tsconfig.build.json && shx mkdir -p dist/ledger/migrations && shx cp src/ledger/migrations/*.sql dist/ledger/migrations/",
+		"build": "tsgo -p tsconfig.build.json",
 		"test": "vitest --run"
 	},
 	"dependencies": {

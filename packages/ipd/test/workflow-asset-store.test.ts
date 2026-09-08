@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { FileWorkflowAssetStore, hashJson, WorkflowAssetWriteError } from "../src/index.ts";
-import { createValidWorkflow } from "./fixtures.ts";
 
 const roots: string[] = [];
 
@@ -18,10 +17,20 @@ async function createRoot(): Promise<string> {
 	return root;
 }
 
+function createWorkflowAsset() {
+	return {
+		id: "example-workflow",
+		version: "1.0.0",
+		name: "Example Workflow",
+		objective: "Exercise immutable Workflow asset storage",
+		nodes: [],
+	};
+}
+
 describe("FileWorkflowAssetStore", () => {
 	it("persists immutable, content-addressed Workflow Assets and reuses equal content", async () => {
 		const root = await createRoot();
-		const workflow = createValidWorkflow();
+		const workflow = createWorkflowAsset();
 		const hash = hashJson(workflow);
 		const store = new FileWorkflowAssetStore({ directory: root });
 
@@ -37,7 +46,7 @@ describe("FileWorkflowAssetStore", () => {
 
 	it("rejects a corrupted existing Asset instead of overwriting it", async () => {
 		const root = await createRoot();
-		const workflow = createValidWorkflow();
+		const workflow = createWorkflowAsset();
 		const hash = hashJson(workflow);
 		const store = new FileWorkflowAssetStore({ directory: root });
 		const created = await store.save(workflow, hash);
@@ -49,7 +58,7 @@ describe("FileWorkflowAssetStore", () => {
 
 	it("requires a version increment when Workflow content changes", async () => {
 		const root = await createRoot();
-		const workflow = createValidWorkflow();
+		const workflow = createWorkflowAsset();
 		const store = new FileWorkflowAssetStore({ directory: root });
 		await store.save(workflow, hashJson(workflow));
 		const changed = structuredClone(workflow);

@@ -1,6 +1,6 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import Type, { type Static, type TSchema } from "typebox";
-import { JsonValueSchema, NonEmptyStringSchema, WorkflowDefinitionSchema } from "../ir/schemas.ts";
+import { JsonValueSchema, NonEmptyStringSchema } from "../contracts/primitives.ts";
 
 export const SubmitArtifactSchema = Type.Object(
 	{
@@ -112,5 +112,3 @@ export function createSubmissionTool<TParameters extends TSchema>(options: {
 		},
 	});
 }
-
-export const SubmitWorkflowSchema = WorkflowDefinitionSchema;

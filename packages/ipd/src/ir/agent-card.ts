@@ -1,5 +1,5 @@
+import { type AgentCardAsset, AgentCardAssetSchema, type CompiledAgentCard } from "../contracts/agent-card.ts";
 import { freezeDeep, hashJson } from "./hash.ts";
-import { type AgentCardAsset, AgentCardAssetSchema, type CompiledAgentCard } from "./schemas.ts";
 import { normalizeScope, scopeContains } from "./scopes.ts";
 import type { AgentCardCompileContext, IpdDiagnostic, ParsedAsset } from "./types.ts";
 import { validateSchema } from "./validation.ts";

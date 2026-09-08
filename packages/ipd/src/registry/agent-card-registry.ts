@@ -1,4 +1,5 @@
-import type { AgentCardRef, CompiledAgentCard, IpdDiagnostic } from "../ir/types.ts";
+import type { AgentCardRef, CompiledAgentCard } from "../contracts/agent-card.ts";
+import type { IpdDiagnostic } from "../ir/types.ts";
 
 export interface AgentCardRegistry {
 	list(): readonly CompiledAgentCard[];

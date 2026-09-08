@@ -11,9 +11,14 @@ import {
 	MechanicalCheckError,
 	MechanicalChecker,
 } from "../src/index.ts";
-import { createValidWorkflow } from "./fixtures.ts";
 
 const roots: string[] = [];
+const contract = {
+	id: "content-output",
+	artifactType: "text-bundle",
+	description: "Text files produced by the test",
+	businessPurpose: "Verify mechanical checks",
+};
 
 afterEach(async () => {
 	await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -25,7 +30,6 @@ async function createFixture() {
 	await mkdir(join(workspace, "outputs"));
 	await writeFile(join(workspace, "outputs", "primary.txt"), "primary");
 	await writeFile(join(workspace, "outputs", "review.txt"), "review");
-	const contract = createValidWorkflow().nodes[0].output;
 	const manifest = await createArtifactManifest({
 		workspace,
 		contract,

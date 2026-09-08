@@ -1,15 +1,14 @@
-import Type, { type Static } from "typebox";
+import Type from "typebox";
 import { validateArtifactManifest } from "../artifact/manifest.ts";
+import type { GateDefinition, MechanicalCriterion } from "../contracts/gate.ts";
+import type { JsonValue } from "../contracts/primitives.ts";
 import { toJsonValue } from "../ir/hash.ts";
-import type { GateDefinition, MechanicalCriterionSchema } from "../ir/schemas.ts";
-import type { IpdDiagnostic, JsonValue } from "../ir/types.ts";
+import type { IpdDiagnostic } from "../ir/types.ts";
 import {
 	type CheckExecutionContext,
 	type CheckExecutorRegistry,
 	defineCheckExecutor,
 } from "../registry/check-executor-registry.ts";
-
-type MechanicalCriterion = Static<typeof MechanicalCriterionSchema>;
 
 export interface MechanicalCriterionOutcome {
 	criterionId: string;

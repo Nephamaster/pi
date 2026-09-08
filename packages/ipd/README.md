@@ -1,5 +1,9 @@
 # @earendil-works/pi-ipd
 
+> **重构状态：** 旧 V1 编排运行时已按 `checkpoint/reconstruct_list.md` 裁剪。本包当前只保留
+> AgentCard、Artifact Manifest、机械检查、Workflow 资产存储、确定性基础原语和结构化提交等重构内核，
+> 暂不提供可运行的 IPD Tool。下文为已退役 V1 的历史说明，不能作为当前代码能力清单。
+
 Private V1 package for IPD workflow assets, deterministic compilation, transactional execution records,
 Artifact integrity, mechanical checks, semantic review views, and workspace locking.
 
