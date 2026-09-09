@@ -88,6 +88,7 @@ export const OutputDefinitionSchema = Type.Object(
 		business_purpose: NonEmptyStringSchema,
 		path_prefix: NonEmptyStringSchema,
 		evidence_requirements: Type.Array(NonEmptyStringSchema),
+		process_evidence_requirement_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),
 		criterion_refs: Type.Array(IdentifierSchema, { minItems: 1, uniqueItems: true }),
 	},
 	{ additionalProperties: false },
@@ -153,6 +154,7 @@ export const SemanticCriterionDefinitionSchema = Type.Object(
 		criterion_id: IdentifierSchema,
 		description: NonEmptyStringSchema,
 		evidence_requirements: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+		process_criterion_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),
 	},
 	{ additionalProperties: false },
 );
@@ -193,7 +195,7 @@ export const WorkflowCompletionSchema = Type.Object(
 
 export const WorkflowDefinitionSchema = Type.Object(
 	{
-		schema_version: Type.Literal(1),
+		schema_version: Type.Literal(2),
 		workflow_id: IdentifierSchema,
 		workflow_version: VersionSchema,
 		name: NonEmptyStringSchema,

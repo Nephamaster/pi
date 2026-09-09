@@ -194,6 +194,21 @@ export function validateWorkflowRelations(
 				);
 		}
 	}
+	const missingSemanticCriteria = (key: string, reviewIds: readonly string[]): string[] => {
+		const output = outputs.get(key);
+		if (!output) return [];
+		const required = output.node.outputs[output.outputIndex].criterion_refs.filter(
+			(id) => criteria.get(id)?.kind === "semantic",
+		);
+		const covered = new Set(
+			reviews
+				.filter((review) => reviewIds.includes(review.node_id))
+				.flatMap((review) =>
+					review.targets.filter((target) => outputKey(target) === key).flatMap((target) => target.criterion_refs),
+				),
+		);
+		return required.filter((criterionId) => !covered.has(criterionId));
+	};
 
 	const dependencies = new Map(workflow.nodes.map((node) => [node.node_id, new Set<string>()]));
 	for (const [index, node] of workflow.nodes.entries()) {
@@ -246,6 +261,17 @@ export function validateWorkflowRelations(
 					);
 				else dependencies.get(node.node_id)?.add(reviewId);
 			}
+			if (input.availability === "approved") {
+				const missing = missingSemanticCriteria(key, input.approval_review_node_ids);
+				if (missing.length > 0)
+					add(
+						diagnostics,
+						"approval_criteria_incomplete",
+						`/nodes/${index}/inputs/${inputIndex}/approval_review_node_ids`,
+						`Approved input ${key} does not cover semantic criteria: ${missing.join(", ")}`,
+						node.node_id,
+					);
+			}
 		}
 	}
 	for (const review of reviews)
@@ -279,15 +305,13 @@ export function validateWorkflowRelations(
 		const key = outputKey(ref);
 		if (!outputs.has(key))
 			add(diagnostics, "final_output_unknown", `/completion/final_outputs/${index}`, `Unknown final output ${key}`);
-		const requiredReviews = workflow.completion.required_review_node_ids.filter((id) =>
-			(reviewsByOutput[key] ?? []).includes(id),
-		);
-		if (requiredReviews.length === 0)
+		const missing = missingSemanticCriteria(key, workflow.completion.required_review_node_ids);
+		if (missing.length > 0)
 			add(
 				diagnostics,
-				"final_output_unreviewed",
+				"final_output_review_incomplete",
 				`/completion/final_outputs/${index}`,
-				`Final output ${key} lacks a required completion review`,
+				`Final output ${key} lacks completion review coverage for: ${missing.join(", ")}`,
 			);
 	}
 	const finalOutputKeys = new Set(workflow.completion.final_outputs.map(outputKey));
@@ -307,15 +331,13 @@ export function validateWorkflowRelations(
 				`/completion/delivery_outputs/${index}`,
 				`Delivery output ${key} must also be a final output`,
 			);
-		const requiredReviews = workflow.completion.required_review_node_ids.filter((id) =>
-			(reviewsByOutput[key] ?? []).includes(id),
-		);
-		if (requiredReviews.length === 0)
+		const missing = missingSemanticCriteria(key, workflow.completion.required_review_node_ids);
+		if (missing.length > 0)
 			add(
 				diagnostics,
-				"delivery_output_unreviewed",
+				"delivery_output_review_incomplete",
 				`/completion/delivery_outputs/${index}`,
-				`Delivery output ${key} lacks a required completion review`,
+				`Delivery output ${key} lacks completion review coverage for: ${missing.join(", ")}`,
 			);
 	}
 	for (const nodeId of workflow.completion.required_node_ids)

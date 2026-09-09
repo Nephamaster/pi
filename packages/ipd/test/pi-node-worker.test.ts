@@ -5,7 +5,7 @@ import type { Context } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
-import { compileWorkflow, PiNodeWorker } from "../src/index.ts";
+import { compileWorkflow, type NodeRoundWork, NodeSubmissionProtocolError, PiNodeWorker } from "../src/index.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
 describe("PiNodeWorker", () => {
@@ -34,7 +34,14 @@ describe("PiNodeWorker", () => {
 				{ stopReason: "toolUse" },
 			);
 		};
-		faux.setResponses([response("first"), response("revised")]);
+		faux.setResponses([
+			(context) => {
+				contexts.push(JSON.stringify(context));
+				return fauxAssistantMessage("I finished but forgot the submission tool.");
+			},
+			response("first"),
+			response("revised"),
+		]);
 		try {
 			const modelRuntime = await ModelRuntime.create({ modelsPath: null, refreshOnCreate: false });
 			const model = faux.getModel();
@@ -55,7 +62,7 @@ describe("PiNodeWorker", () => {
 				model,
 				thinkingLevel: "off",
 			});
-			const first = await worker.runExecution({
+			const firstRound: NodeRoundWork = {
 				runId: "run-1",
 				roundId: "round-1",
 				node,
@@ -64,7 +71,9 @@ describe("PiNodeWorker", () => {
 				taskContext: { objectives: [], requirements: [], materials: [], unresolvedFacts: [] },
 				forbiddenMutableReadPaths: [],
 				feedback: [],
-			});
+			};
+			await expect(worker.runExecution(firstRound)).rejects.toBeInstanceOf(NodeSubmissionProtocolError);
+			const first = await worker.runExecution(firstRound);
 			const second = await worker.runExecution({
 				runId: "run-1",
 				roundId: "round-2",
@@ -76,12 +85,12 @@ describe("PiNodeWorker", () => {
 				feedback: [{ type: "quality_rework", issue: "revise" }],
 			});
 			expect([first.summary, second.summary]).toEqual(["first", "revised"]);
-			expect(faux.state.callCount).toBe(2);
+			expect(faux.state.callCount).toBe(3);
 			expect(contexts[0]).toContain("Authoritative Node Contract");
 			expect(contexts[0]).toContain("ipd_current_round");
 			expect(contexts[0]).toContain("round-1");
-			expect(contexts[1]).toContain("round-2");
-			expect(contexts[1]).toContain("revise");
+			expect(contexts[2]).toContain("round-2");
+			expect(contexts[2]).toContain("revise");
 			const taskScope = contexts[0].indexOf("TASK_SCOPE.md");
 			const contract = contexts[0].indexOf("NODE_CONTRACT.md");
 			const role = contexts[0].indexOf("PROFESSIONAL_ROLE.md");

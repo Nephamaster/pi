@@ -1,8 +1,8 @@
 # 公开流程工程化映射；不是华为内部正式模板。
 # 含本次员工池尚未覆盖的产品/硬件验证能力，勿未经匹配自动激活。
-schema_version: 1
+schema_version: 2
 process_spec_id: huawei-public-ipd-ptm-product
-version: 1.0.0
+version: 2.0.0
 name: 公开 IPD-PTM 产品测试管理：全范围语义映射
 description: |-
   “全范围”仅指五页公开资料的活动和验证类型集合，不表示完整内部 PTM 手册。
@@ -19,6 +19,7 @@ source: |-
   H3 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1504.html
   H4 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1505.html
   H5 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1506.html
+default_executable: false
 applicable_when:
 - 任务是包含原型、系统集成、制造验证和物理可靠性要求的产品测试管理。
 - 能够提供确定版本的需求/规格、产品或测试数据、授权环境及具备对应产品测试能力的员工和工具。
@@ -146,113 +147,145 @@ required_deliverables:
   artifact_type: product-test-artifact
   description: 测试规格、需求分析、来源和覆盖表；字段至少包含要求 ID、对象、条件、观察结果、来源定位、风险和未确认项。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P01.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P01.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P02
   activity_id: P02
   artifact_type: product-test-artifact
   description: 总体策略及风险—方法映射；说明 SDV/SIT/SVT 在实际产品中的范围、前提与材料，不把成熟度名称当成已经通过。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P02.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P02.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P03
   activity_id: P03
   artifact_type: product-test-artifact
   description: 验证计划与 WBS，注明活动、专业、输入、产物、准入、依赖、并行、汇聚及待取得条件。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P03.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P03.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P04
   activity_id: P04
   artifact_type: product-test-artifact
   description: 特性分析表：特性/需求、路径、约束、状态、风险、验证点和来源。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P04.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P04.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P05
   activity_id: P05
   artifact_type: product-test-artifact
   description: 特性方案：目标、前置、方法、步骤、预期、证据和复测条件。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P05.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P05.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P06
   activity_id: P06
   artifact_type: product-test-artifact
   description: SDV/SIT/SVT 阶段执行策略及所需硬件/环境说明。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P06.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P06.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P07
   activity_id: P07
   artifact_type: product-test-artifact
   description: 自动化可行性、工具选择、成本收益前提和限制报告。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P07.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P07.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P08
   activity_id: P08
   artifact_type: product-test-artifact
   description: 工具/配置/依赖版本、使用说明及适配验证。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P08.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P08.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P09
   activity_id: P09
   artifact_type: product-test-artifact
   description: 版本化用例集与要求覆盖关系。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P09.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P09.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P10
   activity_id: P10
   artifact_type: product-test-artifact
   description: 脚本、代码、数据生成或索引、依赖配置及复现说明。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P10.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P10.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P11
   activity_id: P11
   artifact_type: product-test-artifact
   description: 调试记录、工具和用例版本、环境、实际日志和未解决项。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P11.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P11.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P12
   activity_id: P12
   artifact_type: product-test-artifact
   description: 执行台账、原始观察、环境/产品标识和缺陷记录。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P12.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P12.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P13
   activity_id: P13
   artifact_type: product-test-artifact
   description: 物理可靠性试验报告、原始结果和薄弱环节；所需现实试验渠道缺失时阻塞。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P13.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P13.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P14
   activity_id: P14
   artifact_type: product-test-artifact
   description: 缺陷分析、证据链、严重性依据、修复/复测建议与残余风险。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P14.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P14.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P15
   activity_id: P15
   artifact_type: product-test-artifact
   description: 产品质量报告，附需求/用例/结果/缺陷/证据关联及限制。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P15.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P15.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 - deliverable_id: D-P16
   activity_id: P16
   artifact_type: product-test-artifact
   description: 项目补充：发布准备评价（READY/NOT_READY/UNDETERMINED 仅为报告语义）及测试过程回顾。不是企业 DCP 决策或真实发布授权。
   evidence_requirements:
-  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
-  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+  - evidence_requirement_id: D-P16.evidence.1
+    description: 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - evidence_requirement_id: D-P16.evidence.2
+    description: 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
 required_reviews:
 - review_id: G-P01
   deliverable_id: D-P01
@@ -261,9 +294,12 @@ required_reviews:
   - domain-test-review
   independent_agent: true
   criteria:
-  - 每项测试要求有来源且可验证；无法验证者说明原因。
-  - 功能和质量属性覆盖完整，未添加未经批准的业务前提。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P01.criterion.1
+    description: 每项测试要求有来源且可验证；无法验证者说明原因。
+  - process_criterion_id: G-P01.criterion.2
+    description: 功能和质量属性覆盖完整，未添加未经批准的业务前提。
+  - process_criterion_id: G-P01.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P02
   deliverable_id: D-P02
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P02 的质量；不是自动审批产品发布。
@@ -271,9 +307,12 @@ required_reviews:
   - domain-test-review
   independent_agent: true
   criteria:
-  - 方法与风险相匹配，环境及真实能力缺口可见。
-  - 验证阶段没有互相替代或混淆。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P02.criterion.1
+    description: 方法与风险相匹配，环境及真实能力缺口可见。
+  - process_criterion_id: G-P02.criterion.2
+    description: 验证阶段没有互相替代或混淆。
+  - process_criterion_id: G-P02.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P03
   deliverable_id: D-P03
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 project-planning 的非生产者检查 D-P03 的质量；不是自动审批产品发布。
@@ -281,9 +320,12 @@ required_reviews:
   - project-planning
   independent_agent: true
   criteria:
-  - 各关键交付有责任和必要前置，计划未隐去跨专业依赖。
-  - 项目估计与 IPD 运行预算分开。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P03.criterion.1
+    description: 各关键交付有责任和必要前置，计划未隐去跨专业依赖。
+  - process_criterion_id: G-P03.criterion.2
+    description: 项目估计与 IPD 运行预算分开。
+  - process_criterion_id: G-P03.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P04
   deliverable_id: D-P04
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P04 的质量；不是自动审批产品发布。
@@ -291,9 +333,12 @@ required_reviews:
   - domain-test-review
   independent_agent: true
   criteria:
-  - 特性分析覆盖边界和相互作用。
-  - 分解没有丢失总体要求或改变阈值。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P04.criterion.1
+    description: 特性分析覆盖边界和相互作用。
+  - process_criterion_id: G-P04.criterion.2
+    description: 分解没有丢失总体要求或改变阈值。
+  - process_criterion_id: G-P04.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P05
   deliverable_id: D-P05
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P05 的质量；不是自动审批产品发布。
@@ -301,9 +346,12 @@ required_reviews:
   - domain-test-review
   independent_agent: true
   criteria:
-  - 方案能被实施人员据此执行，无需猜测预期。
-  - 测量和观察能够真正证明要求。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P05.criterion.1
+    description: 方案能被实施人员据此执行，无需猜测预期。
+  - process_criterion_id: G-P05.criterion.2
+    description: 测量和观察能够真正证明要求。
+  - process_criterion_id: G-P05.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P06
   deliverable_id: D-P06
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P06 的质量；不是自动审批产品发布。
@@ -311,9 +359,12 @@ required_reviews:
   - domain-test-review
   independent_agent: true
   criteria:
-  - SDV/SIT/SVT 的对象与证明目的正确。
-  - 缺少正式硬件不得以模拟数据或软件测试替代 SVT。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P06.criterion.1
+    description: SDV/SIT/SVT 的对象与证明目的正确。
+  - process_criterion_id: G-P06.criterion.2
+    description: 缺少正式硬件不得以模拟数据或软件测试替代 SVT。
+  - process_criterion_id: G-P06.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P07
   deliverable_id: D-P07
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P07 的质量；不是自动审批产品发布。
@@ -321,9 +372,12 @@ required_reviews:
   - domain-test-review
   independent_agent: true
   criteria:
-  - 自动化选择有可行性依据，不为了完整而强制重写工具。
-  - 不自动化的工作仍有责任与证据方案。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P07.criterion.1
+    description: 自动化选择有可行性依据，不为了完整而强制重写工具。
+  - process_criterion_id: G-P07.criterion.2
+    description: 不自动化的工作仍有责任与证据方案。
+  - process_criterion_id: G-P07.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P08
   deliverable_id: D-P08
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 automation-tool-review 的非生产者检查 D-P08 的质量；不是自动审批产品发布。
@@ -331,9 +385,12 @@ required_reviews:
   - automation-tool-review
   independent_agent: true
   criteria:
-  - 工具能承载既定用例并返回有效结果。
-  - 运行错误与被测失败可以区分。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P08.criterion.1
+    description: 工具能承载既定用例并返回有效结果。
+  - process_criterion_id: G-P08.criterion.2
+    description: 运行错误与被测失败可以区分。
+  - process_criterion_id: G-P08.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P09
   deliverable_id: D-P09
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P09 的质量；不是自动审批产品发布。
@@ -341,9 +398,12 @@ required_reviews:
   - domain-test-review
   independent_agent: true
   criteria:
-  - 用例预期来自固定要求，包含必要负向和边界。
-  - 未执行用例不附虚构运行结果。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P09.criterion.1
+    description: 用例预期来自固定要求，包含必要负向和边界。
+  - process_criterion_id: G-P09.criterion.2
+    description: 未执行用例不附虚构运行结果。
+  - process_criterion_id: G-P09.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P10
   deliverable_id: D-P10
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 automation-tool-review 的非生产者检查 D-P10 的质量；不是自动审批产品发布。
@@ -351,9 +411,12 @@ required_reviews:
   - automation-tool-review
   independent_agent: true
   criteria:
-  - 脚本断言与用例一致，数据和环境可追溯。
-  - 并行或重跑不造成隐含污染。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P10.criterion.1
+    description: 脚本断言与用例一致，数据和环境可追溯。
+  - process_criterion_id: G-P10.criterion.2
+    description: 并行或重跑不造成隐含污染。
+  - process_criterion_id: G-P10.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P11
   deliverable_id: D-P11
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P11 的质量；不是自动审批产品发布。
@@ -361,9 +424,12 @@ required_reviews:
   - domain-test-review
   independent_agent: true
   criteria:
-  - “可执行”不等于产品所有要求均满足。
-  - 实际调试与模拟验证范围清楚。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P11.criterion.1
+    description: “可执行”不等于产品所有要求均满足。
+  - process_criterion_id: G-P11.criterion.2
+    description: 实际调试与模拟验证范围清楚。
+  - process_criterion_id: G-P11.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P12
   deliverable_id: D-P12
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P12 的质量；不是自动审批产品发布。
@@ -371,9 +437,12 @@ required_reviews:
   - domain-test-review
   independent_agent: true
   criteria:
-  - 执行、失败、阻塞、跳过与未运行完整登记。
-  - 缺陷有复现和影响证据，不以摘要替代原始结果。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P12.criterion.1
+    description: 执行、失败、阻塞、跳过与未运行完整登记。
+  - process_criterion_id: G-P12.criterion.2
+    description: 缺陷有复现和影响证据，不以摘要替代原始结果。
+  - process_criterion_id: G-P12.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P13
   deliverable_id: D-P13
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 physical-reliability-review 的非生产者检查 D-P13 的质量；不是自动审批产品发布。
@@ -381,9 +450,12 @@ required_reviews:
   - physical-reliability-review
   independent_agent: true
   criteria:
-  - 对象、设备、条件和方法符合本产品试验范围。
-  - 软件长稳压测不能冒充材料/制造可靠性试验。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P13.criterion.1
+    description: 对象、设备、条件和方法符合本产品试验范围。
+  - process_criterion_id: G-P13.criterion.2
+    description: 软件长稳压测不能冒充材料/制造可靠性试验。
+  - process_criterion_id: G-P13.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P14
   deliverable_id: D-P14
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P14 的质量；不是自动审批产品发布。
@@ -391,9 +463,12 @@ required_reviews:
   - domain-test-review
   independent_agent: true
   criteria:
-  - 缺陷归因有证据，未证实者显式保留为假设。
-  - 去重没有丢失受影响用例。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P14.criterion.1
+    description: 缺陷归因有证据，未证实者显式保留为假设。
+  - process_criterion_id: G-P14.criterion.2
+    description: 去重没有丢失受影响用例。
+  - process_criterion_id: G-P14.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P15
   deliverable_id: D-P15
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P15 的质量；不是自动审批产品发布。
@@ -401,9 +476,12 @@ required_reviews:
   - domain-test-review
   independent_agent: true
   criteria:
-  - 产品状态与现有结果一致，未测项和已知问题透明。
-  - 报告完整不等于产品满足发布条件。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P15.criterion.1
+    description: 产品状态与现有结果一致，未测项和已知问题透明。
+  - process_criterion_id: G-P15.criterion.2
+    description: 报告完整不等于产品满足发布条件。
+  - process_criterion_id: G-P15.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 - review_id: G-P16
   deliverable_id: D-P16
   description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 pdt-technical-review 的非生产者检查 D-P16 的质量；不是自动审批产品发布。
@@ -411,9 +489,12 @@ required_reviews:
   - pdt-technical-review
   independent_agent: true
   criteria:
-  - 判定逐项关联固定标准与产品证据，不能强制通过。
-  - 过程建议只影响后续规范版本，不改本 Run 标准。
-  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+  - process_criterion_id: G-P16.criterion.1
+    description: 判定逐项关联固定标准与产品证据，不能强制通过。
+  - process_criterion_id: G-P16.criterion.2
+    description: 过程建议只影响后续规范版本，不改本 Run 标准。
+  - process_criterion_id: G-P16.criterion.3
+    description: 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
 workflow_rules:
 - rule_id: R-FULL-SOURCE-SCOPE
   description: 保留全部必需活动；公开资料中的物理验证不得通过改名替换。Workflow 设计阶段按 required_activities/deliverables/reviews 逐项覆盖。

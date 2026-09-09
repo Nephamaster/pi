@@ -97,6 +97,41 @@ export function validateProcessCoverage(
 	const reviewNodes = new Map(
 		workflow.nodes.filter((node): node is ReviewNode => node.kind === "review").map((node) => [node.node_id, node]),
 	);
+	const processEvidenceIds = new Set(
+		spec.required_deliverables.flatMap((deliverable) =>
+			deliverable.evidence_requirements.map((requirement) => requirement.evidence_requirement_id),
+		),
+	);
+	const processCriterionIds = new Set(
+		spec.required_reviews.flatMap((review) => review.criteria.map((criterion) => criterion.process_criterion_id)),
+	);
+	for (const node of executionNodes.values()) {
+		for (const output of node.outputs) {
+			for (const processEvidenceId of output.process_evidence_requirement_refs) {
+				if (!processEvidenceIds.has(processEvidenceId))
+					error(
+						diagnostics,
+						"process_evidence_reference_unknown",
+						"/nodes",
+						`Output ${node.node_id}/${output.output_id} references unknown process evidence requirement ${processEvidenceId}`,
+						processEvidenceId,
+					);
+			}
+		}
+	}
+	for (const criterion of workflow.criteria) {
+		if (criterion.kind !== "semantic") continue;
+		for (const processCriterionId of criterion.process_criterion_refs) {
+			if (!processCriterionIds.has(processCriterionId))
+				error(
+					diagnostics,
+					"process_criterion_reference_unknown",
+					"/criteria",
+					`Criterion ${criterion.criterion_id} references unknown ProcessSpec criterion ${processCriterionId}`,
+					processCriterionId,
+				);
+		}
+	}
 
 	for (const activity of spec.required_activities) {
 		const item = coverage.get(coverageKey("process_activity", activity.activity_id));
@@ -141,6 +176,25 @@ export function validateProcessCoverage(
 				deliverable.deliverable_id,
 			);
 		}
+		const implementedEvidence = new Set(
+			matching.flatMap((ref) => {
+				const node = executionNodes.get(ref.node_id);
+				return (
+					node?.outputs.find((output) => output.output_id === ref.output_id)?.process_evidence_requirement_refs ??
+					[]
+				);
+			}),
+		);
+		for (const requirement of deliverable.evidence_requirements) {
+			if (!implementedEvidence.has(requirement.evidence_requirement_id))
+				error(
+					diagnostics,
+					"process_evidence_unmapped",
+					"/requirement_coverage",
+					`Deliverable ${deliverable.deliverable_id} does not implement evidence requirement ${requirement.evidence_requirement_id}`,
+					requirement.evidence_requirement_id,
+				);
+		}
 	}
 
 	for (const requiredReview of spec.required_reviews) {
@@ -165,6 +219,29 @@ export function validateProcessCoverage(
 				requiredReview.review_id,
 			);
 			continue;
+		}
+		const implementedCriteria = new Set(
+			satisfyingReviews.flatMap((reviewId) => {
+				const review = reviewNodes.get(reviewId);
+				return (review?.targets ?? [])
+					.filter((target) => expectedTargets.has(outputKey(target)))
+					.flatMap((target) =>
+						target.criterion_refs.flatMap((criterionId) => {
+							const criterion = workflow.criteria.find((item) => item.criterion_id === criterionId);
+							return criterion?.kind === "semantic" ? criterion.process_criterion_refs : [];
+						}),
+					);
+			}),
+		);
+		for (const criterion of requiredReview.criteria) {
+			if (!implementedCriteria.has(criterion.process_criterion_id))
+				error(
+					diagnostics,
+					"process_criterion_unmapped",
+					"/requirement_coverage",
+					`Review ${requiredReview.review_id} does not implement ProcessSpec criterion ${criterion.process_criterion_id}`,
+					criterion.process_criterion_id,
+				);
 		}
 		if (!requiredReview.independent_agent) continue;
 		for (const reviewId of satisfyingReviews) {

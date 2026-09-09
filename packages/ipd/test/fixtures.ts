@@ -13,7 +13,7 @@ const hash = "a".repeat(64);
 
 export function createValidWorkflow(): WorkflowDefinition {
 	return {
-		schema_version: 1,
+		schema_version: 2,
 		workflow_id: "example-workflow",
 		workflow_version: "1.0.0",
 		name: "Example Workflow",
@@ -55,6 +55,7 @@ export function createValidWorkflow(): WorkflowDefinition {
 						business_purpose: "Satisfy the task",
 						path_prefix: "outputs/produce",
 						evidence_requirements: ["Source references"],
+						process_evidence_requirement_refs: ["content.evidence.1"],
 						criterion_refs: ["integrity", "quality"],
 					},
 				],
@@ -113,6 +114,7 @@ export function createValidWorkflow(): WorkflowDefinition {
 				criterion_id: "quality",
 				description: "The result satisfies the task",
 				evidence_requirements: ["Specific findings"],
+				process_criterion_refs: ["content-review.criterion.1"],
 			},
 		],
 		requirement_coverage: [
@@ -170,12 +172,13 @@ export function createCompilerFixture() {
 		unresolved_facts: [],
 	};
 	const processSpec: ProcessSpec = {
-		schema_version: 1,
+		schema_version: 2,
 		process_spec_id: "delivery-process",
 		version: "1.0.0",
 		name: "Delivery Process",
 		description: "Produce and independently review a deliverable",
 		source: "project-defined",
+		default_executable: true,
 		applicable_when: ["The task requires a reviewed deliverable"],
 		not_applicable_when: [],
 		required_activities: [
@@ -187,7 +190,12 @@ export function createCompilerFixture() {
 				activity_id: "produce",
 				artifact_type: "text-bundle",
 				description: "Reviewed content",
-				evidence_requirements: ["Source references"],
+				evidence_requirements: [
+					{
+						evidence_requirement_id: "content.evidence.1",
+						description: "Source references",
+					},
+				],
 			},
 		],
 		required_reviews: [
@@ -197,7 +205,12 @@ export function createCompilerFixture() {
 				description: "Independent content review",
 				reviewer_capabilities: ["review"],
 				independent_agent: true,
-				criteria: ["The content satisfies the task"],
+				criteria: [
+					{
+						process_criterion_id: "content-review.criterion.1",
+						description: "The content satisfies the task",
+					},
+				],
 			},
 		],
 		workflow_rules: [],

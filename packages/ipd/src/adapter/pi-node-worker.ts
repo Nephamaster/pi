@@ -3,7 +3,12 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { buildNodeRoundPrompt, buildNodeSystemPrompt } from "../runtime/node-prompts.ts";
-import { type NodeRoundWork, type NodeWorker, NodeWorkerError } from "../runtime/node-worker.ts";
+import {
+	type NodeRoundWork,
+	NodeSubmissionProtocolError,
+	type NodeWorker,
+	NodeWorkerError,
+} from "../runtime/node-worker.ts";
 import { renderCurrentRoundContext, renderNodeContextFiles } from "./node-context.ts";
 import { NodeSessionAdapter } from "./node-session-adapter.ts";
 import { type PiNodeSessionCreateInput, PiNodeSessionFactory } from "./pi-node-session-factory.ts";
@@ -61,7 +66,7 @@ export class PiNodeWorker implements NodeWorker {
 		binding.capture.beginRound();
 		await this.dispatch(work, binding);
 		const value = binding.capture.value;
-		if (!value) throw new NodeWorkerError("configuration", "Execution node submitted no Artifact", false);
+		if (!value) throw new NodeSubmissionProtocolError("Execution node did not call submit_artifact");
 		return value as SubmitArtifact;
 	}
 
@@ -70,7 +75,7 @@ export class PiNodeWorker implements NodeWorker {
 		binding.capture.beginRound();
 		await this.dispatch(work, binding);
 		const value = binding.capture.value;
-		if (!value) throw new NodeWorkerError("configuration", "Review node submitted no Review", false);
+		if (!value) throw new NodeSubmissionProtocolError("Review node did not call submit_review");
 		return value as SubmitReview;
 	}
 
@@ -167,7 +172,7 @@ export class PiNodeWorker implements NodeWorker {
 				buildNodeRoundPrompt(work),
 			);
 		} catch (error) {
-			if (error instanceof NodeWorkerError) throw error;
+			if (error instanceof NodeWorkerError || error instanceof NodeSubmissionProtocolError) throw error;
 			const message = error instanceof Error ? error.message : String(error);
 			throw new NodeWorkerError("transient", message, true, {
 				cause: error,

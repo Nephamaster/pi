@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { defineTool, loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
 import Type from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
-import { AssetAssembler, hashSkillPackage } from "../src/index.ts";
+import { AssetAssembler, hashSkillPackage, validateProcessSpecStaffing } from "../src/index.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
 describe("AssetAssembler", () => {
@@ -115,5 +115,51 @@ describe("AssetAssembler", () => {
 			const reviewers = cardsFor(review.reviewer_capabilities);
 			expect(reviewers.some((reviewer) => producers.some((producer) => producer.id !== reviewer.id))).toBe(true);
 		}
+	});
+
+	it("can staff every ProcessSpec marked executable with the default employee pool", async () => {
+		const result = await new AssetAssembler().assemble({
+			agentCardDirectories: [
+				fileURLToPath(new URL("../assets/agent-cards", import.meta.url)),
+				fileURLToPath(new URL("../assets/agency-role-library/agent-cards", import.meta.url)),
+			],
+			processSpecDirectories: [fileURLToPath(new URL("../assets/process-specs", import.meta.url))],
+			skills: [],
+			tools: [],
+			builtinToolNames: [
+				"read",
+				"write",
+				"edit",
+				"bash",
+				"grep",
+				"find",
+				"ls",
+				"web_search",
+				"get_search_content",
+				"fetch_content",
+				"source_check",
+			],
+			hasModel: () => true,
+		});
+		expect(result.agentCards).toContainEqual(expect.objectContaining({ id: "ipd-general-artifact-producer" }));
+		expect(result.agentCards).toContainEqual(expect.objectContaining({ id: "ipd-general-artifact-reviewer" }));
+		for (const spec of result.processSpecs.filter((candidate) => candidate.default_executable))
+			expect(validateProcessSpecStaffing(spec, result.agentCards)).toEqual([]);
+	});
+
+	it("does not manufacture builtin Tool assets that are absent from Pi's registry", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-default-assets-"));
+		roots.push(root);
+		const result = await new AssetAssembler().assembleDefault({
+			agentDir: root,
+			projectRoot: root,
+			projectTrusted: false,
+			skills: [],
+			tools: [],
+			hasModel: () => true,
+		});
+		expect(result.tools).toEqual([]);
+		expect(result.skills).toContainEqual(expect.objectContaining({ id: "process-selection" }));
+		expect(result.unavailableAgentCards.length).toBeGreaterThan(0);
 	});
 });

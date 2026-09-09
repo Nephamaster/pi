@@ -17,13 +17,29 @@ export const RequiredActivitySchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+export const ProcessEvidenceRequirementSchema = Type.Object(
+	{
+		evidence_requirement_id: IdentifierSchema,
+		description: NonEmptyStringSchema,
+	},
+	{ additionalProperties: false },
+);
+
 export const RequiredDeliverableSchema = Type.Object(
 	{
 		deliverable_id: IdentifierSchema,
 		activity_id: IdentifierSchema,
 		artifact_type: Type.Optional(IdentifierSchema),
 		description: NonEmptyStringSchema,
-		evidence_requirements: Type.Array(NonEmptyStringSchema),
+		evidence_requirements: Type.Array(ProcessEvidenceRequirementSchema, { minItems: 1 }),
+	},
+	{ additionalProperties: false },
+);
+
+export const ProcessCriterionSchema = Type.Object(
+	{
+		process_criterion_id: IdentifierSchema,
+		description: NonEmptyStringSchema,
 	},
 	{ additionalProperties: false },
 );
@@ -35,7 +51,7 @@ export const RequiredReviewSchema = Type.Object(
 		description: NonEmptyStringSchema,
 		reviewer_capabilities: Type.Array(IdentifierSchema, { minItems: 1, uniqueItems: true }),
 		independent_agent: Type.Boolean(),
-		criteria: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+		criteria: Type.Array(ProcessCriterionSchema, { minItems: 1 }),
 	},
 	{ additionalProperties: false },
 );
@@ -51,12 +67,13 @@ export const ProcessRuleSchema = Type.Object(
 
 export const ProcessSpecSchema = Type.Object(
 	{
-		schema_version: Type.Literal(1),
+		schema_version: Type.Literal(2),
 		process_spec_id: IdentifierSchema,
 		version: VersionSchema,
 		name: NonEmptyStringSchema,
 		description: NonEmptyStringSchema,
 		source: NonEmptyStringSchema,
+		default_executable: Type.Boolean(),
 		applicable_when: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
 		not_applicable_when: Type.Array(NonEmptyStringSchema),
 		required_activities: Type.Array(RequiredActivitySchema),

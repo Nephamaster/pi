@@ -1,7 +1,7 @@
 {
 	"name": "@earendil-works/pi-ipd",
 	"version": "0.85.1",
-	"description": "IPD workflow IR, asset registries, and compiler for pi",
+	"description": "Governed IPD workflow design, compilation, and execution for pi",
 	"private": true,
 	"type": "module",
 	"main": "./dist/index.js",

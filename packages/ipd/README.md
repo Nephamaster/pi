@@ -1,33 +1,48 @@
 # @earendil-works/pi-ipd
 
-> **重构状态：** 旧 V1 编排运行时已按 `checkpoint/reconstruct_list.md` 裁剪。本包当前只保留
-> AgentCard、Artifact Manifest、机械检查、Workflow 资产存储、确定性基础原语和结构化提交等重构内核，
-> 暂不提供可运行的 IPD Tool。下文为已退役 V1 的历史说明，不能作为当前代码能力清单。
+Private IPD V2 package for governed multi-Agent task execution on Pi.
 
-Private V1 package for IPD workflow assets, deterministic compilation, transactional execution records,
-Artifact integrity, mechanical checks, semantic review views, and workspace locking.
+The package provides an explicitly loaded Pi Extension; it is not enabled by default. The example entry is
+`examples/ipd-extension.ts`.
 
-The package currently targets Node.js 24 and includes an AgentSession adapter for
-isolated Execution and Decision nodes plus Compiler-guided ST Workflow planning and
-immutable Workflow Asset storage. Its deterministic Graph Engine schedules frozen
-Workflows through Node and Gate state transitions recorded in the SQLite Ledger.
-AgentCards remain independent employee assets and describe specialized role boundaries,
-applicable scenarios, operating principles, prompt profiles, knowledge references,
-models, tools, permissions, and budgets. A fixed Staff Core uses a versioned Workflow
-Authoring Guide and cannot be replaced by the Workflow it plans.
-Dynamic Gates combine deterministic checks, independent semantic Reviewers, strict
-Criterion aggregation, and Staff arbitration without majority-vote approval.
-Budget governance aggregates every AgentSession usage trace, emits soft and hard
-limit events, lets ST continue or reduce later Reviewer budgets, and prevents new
-work after an explicit Hard Limit. Blocked Nodes are resolved by ST or escalated
-to a user-bound record that can only resume through its matching escalation ID.
+## Runtime flow
 
-The current AgentSession API exposes no governed long-term-memory provider, so IPD
-does not add a separate memory directory, retrieval mechanism, or write path.
+```text
+ipd create_run
+  → Process Selector chooses one versioned ProcessSpec
+  → Workflow Designer builds a managed draft
+  → Compiler validates and freezes an ExecutionBaseline
+  → Runtime schedules execution/review nodes
+  → sealed Submissions, criterion-complete approvals, rework, and final delivery
+```
 
-The `ipd` Extension example exposes `start`, `resume`, `status`, and `cancel` Actions.
-It snapshots a mandatory Pi Skill, loads AgentCards and Workflow Assets at start,
-forwards the current cwd/model/AbortSignal, and returns concise text with a complete
-structured result for questions, accepted Artifacts, failures, and usage.
+Each execution or review node currently binds one AgentCard and one persistent Pi AgentSession. Forward dependencies
+come from typed inputs and remain a DAG; review rework returns to the responsible execution Session without changing
+the frozen acceptance criteria.
 
-Developer documentation starts at [`docs/README.md`](docs/README.md).
+## Main capabilities
+
+- TaskInput, ProcessSpec v2, WorkflowDefinition v2, ExecutionBaseline, and Runtime state contracts.
+- Versioned AgentCard, ProcessSpec, Skill, Tool, and Workflow asset loading.
+- Dedicated `process-selection` and `workflow-design` Skills bound only to their corresponding control-role Sessions.
+- Incremental Workflow draft tools with revision and operation idempotency.
+- Compiler checks for assets, permissions, output ownership, complete Gate coverage, ProcessSpec criterion/evidence
+  mappings, requirement coverage, and independent review.
+- Shared Run workspace with non-overlapping execution output roots and sealed, hashed Submission copies.
+- Parallel ready-node scheduling, exact input-version binding, local and cross-node rework invalidation, and final
+  delivery projection.
+- Query-only `ipd_get_run`, `ipd_read_events`, and `ipd_get_result` tools.
+
+Run data is stored under `<project>/.pi/ipd/runs/<run-id>/`; reusable Workflow assets are stored under
+`<project>/.pi/ipd/workflow/`.
+
+## Current boundaries
+
+- No node-internal multi-Agent collaboration, budget governance, HITL, asset self-evolution, or complete replan flow.
+- File `read/write/edit` calls are path-scoped, and review nodes cannot receive mutation or general-purpose Shell
+  tools. Execution-node Bash still requires a trusted environment or an external sandbox for system-level isolation.
+- State serialization and request idempotency are single-process; active Runs cannot resume their original
+  AgentSessions after process loss.
+- `packages/ipd/docs/develop/` contains retired V1 documentation and is not the V2 capability reference.
+
+The package requires Node.js 24.

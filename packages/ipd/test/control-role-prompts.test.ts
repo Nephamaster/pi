@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { buildInitialWorkflowDesignPrompt, buildWorkflowDesignRevisionPrompt } from "../src/index.ts";
+import {
+	buildInitialWorkflowDesignPrompt,
+	buildProcessSelectionPrompt,
+	buildWorkflowDesignRevisionPrompt,
+} from "../src/index.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
 describe("control-role prompt projection", () => {
+	it("explicitly loads the bound process-selection Skill", () => {
+		const fixture = createCompilerFixture();
+		const prompt = buildProcessSelectionPrompt("process-selection", fixture.taskInput);
+		expect(prompt).toContain("/skill:process-selection");
+		expect(prompt).toContain("TaskInput:");
+		expect(prompt).toContain(fixture.taskInput.raw_task.text);
+	});
+
 	it("sends frozen design inputs once and keeps revision prompts incremental", () => {
 		const fixture = createCompilerFixture();
 		const initial = buildInitialWorkflowDesignPrompt(

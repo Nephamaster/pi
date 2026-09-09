@@ -41,6 +41,13 @@ export interface NodeWorker {
 
 export type NodeWorkerFailureKind = "transient" | "external_outcome_unknown" | "session_lost" | "configuration";
 
+export class NodeSubmissionProtocolError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "NodeSubmissionProtocolError";
+	}
+}
+
 export class NodeWorkerError extends Error {
 	readonly kind: NodeWorkerFailureKind;
 	readonly retryable: boolean;

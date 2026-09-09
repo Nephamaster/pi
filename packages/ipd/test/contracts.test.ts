@@ -22,12 +22,13 @@ describe("IPD V2 contracts", () => {
 			unresolved_facts: [],
 		});
 		const spec = validateSchema(ProcessSpecSchema, {
-			schema_version: 1,
+			schema_version: 2,
 			process_spec_id: "delivery-process",
 			version: "1.0.0",
 			name: "Delivery Process",
 			description: "Produce and independently review a deliverable",
 			source: "project-defined",
+			default_executable: true,
 			applicable_when: ["The task requires a deliverable"],
 			not_applicable_when: [],
 			required_activities: [],

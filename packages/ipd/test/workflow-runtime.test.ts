@@ -8,6 +8,7 @@ import {
 	createArtifactIntegrityCheckExecutor,
 	FileRunStore,
 	MechanicalChecker,
+	NodeSubmissionProtocolError,
 	type NodeWorker,
 	NodeWorkerError,
 	prepareRunDirectory,
@@ -105,6 +106,88 @@ describe("WorkflowRuntime", () => {
 		expect(reviewRounds).toBe(3);
 		expect(result.rounds.filter((item) => item.nodeId === "review-produce")).toHaveLength(2);
 		expect(result.submissions.map((item) => item.status)).toEqual(["rejected", "approved"]);
+	});
+
+	it("corrects a missing structured submission in the same execution round", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-runtime-submit-correction-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		const compiled = compileWorkflow(fixture);
+		if (!compiled.ok) throw new Error("Fixture Workflow did not compile");
+		const directory = await prepareRunDirectory(root, "run-1");
+		const executionRoundIds: string[] = [];
+		const reviewRoundIds: string[] = [];
+		let executionCalls = 0;
+		let reviewCalls = 0;
+		const worker: NodeWorker = {
+			async runExecution(work) {
+				executionCalls++;
+				executionRoundIds.push(work.roundId);
+				if (executionCalls === 1)
+					throw new NodeSubmissionProtocolError("Execution node did not call submit_artifact");
+				expect(work.feedback).toContainEqual(
+					expect.objectContaining({
+						type: "submission_correction",
+						issue: "Execution node did not call submit_artifact",
+					}),
+				);
+				await mkdir(join(directory.workspace, "outputs", "produce"), { recursive: true });
+				await writeFile(join(directory.workspace, "outputs", "produce", "result.txt"), "corrected");
+				return {
+					summary: "corrected",
+					outputs: [
+						{
+							output_id: "content-output",
+							files: [{ path: "outputs/produce/result.txt", media_type: "text/plain" }],
+						},
+					],
+					evidence: [],
+					metadata: {},
+				};
+			},
+			async runReview(work) {
+				reviewCalls++;
+				reviewRoundIds.push(work.roundId);
+				if (reviewCalls === 1) throw new NodeSubmissionProtocolError("Review node did not call submit_review");
+				expect(work.feedback).toContainEqual(
+					expect.objectContaining({
+						type: "submission_correction",
+						issue: "Review node did not call submit_review",
+					}),
+				);
+				return {
+					decision: "PASS",
+					criteria: [
+						{
+							criterion_id: "quality",
+							result: "PASS",
+							evidence: reviewEvidence(),
+							rationale: "accepted",
+							required_rework: [],
+						},
+					],
+					rework_node_ids: [],
+					unresolved_issues: [],
+				};
+			},
+		};
+		const store = new FileRunStore();
+		store.bind("run-1", directory.stateFile);
+		const checks = new CheckExecutorRegistry();
+		checks.add(createArtifactIntegrityCheckExecutor());
+		const runtime = new WorkflowRuntime(
+			store,
+			directory,
+			worker,
+			new SubmissionStore(),
+			new MechanicalChecker(checks),
+		);
+		const result = await runtime.activate(compiled.baseline, fixture.taskInput).then(() => runtime.run());
+		expect(result.status).toBe("succeeded");
+		expect(executionRoundIds).toEqual(["produce:round:1", "produce:round:1"]);
+		expect(reviewRoundIds).toEqual(["review-produce:round:1", "review-produce:round:1"]);
+		expect(result.rounds.filter((round) => round.nodeId === "produce")).toHaveLength(1);
+		expect(result.rounds.filter((round) => round.nodeId === "review-produce")).toHaveLength(1);
 	});
 
 	it("dispatches independent execution nodes concurrently without a global workspace lock", async () => {

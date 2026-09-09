@@ -2,6 +2,28 @@ import { describe, expect, it } from "vitest";
 import { type CompilerAssetCatalog, compileWorkflow, hashJson } from "../src/index.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
+function addSecondaryReview(fixture: ReturnType<typeof createCompilerFixture>): void {
+	const producer = fixture.workflow.nodes.find((node) => node.kind === "execution");
+	const review = fixture.workflow.nodes.find((node) => node.kind === "review");
+	if (!producer || producer.kind !== "execution" || !review || review.kind !== "review")
+		throw new Error("Fixture nodes are missing");
+	producer.outputs[0].criterion_refs.push("secondary-quality");
+	fixture.workflow.criteria.push({
+		kind: "semantic",
+		criterion_id: "secondary-quality",
+		description: "The result satisfies a second quality dimension",
+		evidence_requirements: ["Independent findings"],
+		process_criterion_refs: [],
+	});
+	const secondary = structuredClone(review);
+	secondary.node_id = "review-secondary";
+	secondary.name = "Review Secondary Quality";
+	secondary.agents[0].participant_id = "secondary-reviewer";
+	secondary.targets = [{ node_id: "produce", output_id: "content-output", criterion_refs: ["secondary-quality"] }];
+	fixture.workflow.nodes.push(secondary);
+	fixture.workflow.completion.required_node_ids.push("review-secondary");
+}
+
 describe("compileWorkflow", () => {
 	it("compiles a valid execution and independent review workflow", () => {
 		const fixture = createCompilerFixture();
@@ -70,6 +92,74 @@ describe("compileWorkflow", () => {
 		expect(result.report.diagnostics.map((item) => item.code)).toContain("delivery_output_not_final");
 	});
 
+	it("requires completion Gates to cover every semantic output criterion", () => {
+		const fixture = createCompilerFixture();
+		addSecondaryReview(fixture);
+		const result = compileWorkflow(fixture);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.report.diagnostics.map((item) => item.code)).toContain("final_output_review_incomplete");
+	});
+
+	it("requires downstream approval Gates to cover every semantic input criterion", () => {
+		const fixture = createCompilerFixture();
+		addSecondaryReview(fixture);
+		fixture.assets = {
+			...fixture.assets,
+			agentCards: fixture.assets.agentCards.map((card) =>
+				card.id === "producer"
+					? { ...structuredClone(card), permissions: { ...card.permissions, writeScopes: ["outputs"] } }
+					: card,
+			),
+		};
+		const producer = fixture.workflow.nodes.find((node) => node.kind === "execution");
+		if (!producer || producer.kind !== "execution") throw new Error("Missing execution node");
+		const consumer = structuredClone(producer);
+		consumer.node_id = "consumer";
+		consumer.name = "Consumer";
+		consumer.agents[0].participant_id = "consumer";
+		consumer.agents[0].permissions.write_paths = ["outputs/consumer"];
+		consumer.inputs = [
+			{
+				kind: "node_output",
+				input_id: "upstream",
+				source: { node_id: "produce", output_id: "content-output" },
+				required: true,
+				availability: "approved",
+				approval_review_node_ids: ["review-produce"],
+			},
+		];
+		consumer.outputs[0].output_id = "consumer-output";
+		consumer.outputs[0].path_prefix = "outputs/consumer";
+		consumer.outputs[0].criterion_refs = ["integrity", "quality"];
+		consumer.outputs[0].process_evidence_requirement_refs = [];
+		fixture.workflow.nodes.push(consumer);
+		const result = compileWorkflow(fixture);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.report.diagnostics.map((item) => item.code)).toContain("approval_criteria_incomplete");
+	});
+
+	it("requires explicit ProcessSpec evidence and criterion mappings", () => {
+		const missingEvidence = createCompilerFixture();
+		const producer = missingEvidence.workflow.nodes.find((node) => node.kind === "execution");
+		if (!producer || producer.kind !== "execution") throw new Error("Missing execution node");
+		producer.outputs[0].process_evidence_requirement_refs = [];
+		const evidenceResult = compileWorkflow(missingEvidence);
+		expect(evidenceResult.ok).toBe(false);
+		if (!evidenceResult.ok)
+			expect(evidenceResult.report.diagnostics.map((item) => item.code)).toContain("process_evidence_unmapped");
+
+		const missingCriterion = createCompilerFixture();
+		const criterion = missingCriterion.workflow.criteria.find((item) => item.kind === "semantic");
+		if (!criterion || criterion.kind !== "semantic") throw new Error("Missing semantic criterion");
+		criterion.process_criterion_refs = [];
+		const criterionResult = compileWorkflow(missingCriterion);
+		expect(criterionResult.ok).toBe(false);
+		if (!criterionResult.ok)
+			expect(criterionResult.report.diagnostics.map((item) => item.code)).toContain("process_criterion_unmapped");
+	});
+
 	it("rejects an execution node that consumes an unapproved submission", () => {
 		const fixture = createCompilerFixture();
 		const producer = fixture.workflow.nodes.find((node) => node.kind === "execution");
@@ -109,22 +199,24 @@ describe("compileWorkflow", () => {
 		expect(result.report.diagnostics.map((item) => item.code)).toContain("unapproved_execution_input");
 	});
 
-	it("rejects native write tools on a read-only review node", () => {
-		const fixture = createCompilerFixture();
-		const review = fixture.workflow.nodes.find((node) => node.kind === "review");
-		if (!review) throw new Error("Missing review node");
-		review.agents[0].tools = [{ id: "write" }];
-		const assets = {
-			...fixture.assets,
-			agentCards: fixture.assets.agentCards.map((card) =>
-				card.id === "reviewer" ? { ...structuredClone(card), tools: ["write"] } : card,
-			),
-			tools: [{ id: "write", hash: "b".repeat(64), source: "pi-builtin" }],
-		};
-		const result = compileWorkflow({ ...fixture, assets });
-		expect(result.ok).toBe(false);
-		if (result.ok) return;
-		expect(result.report.diagnostics.map((item) => item.code)).toContain("review_write_tool_forbidden");
+	it("rejects mutation and general-purpose Shell tools on review nodes", () => {
+		for (const toolId of ["write", "bash"]) {
+			const fixture = createCompilerFixture();
+			const review = fixture.workflow.nodes.find((node) => node.kind === "review");
+			if (!review) throw new Error("Missing review node");
+			review.agents[0].tools = [{ id: toolId }];
+			const assets = {
+				...fixture.assets,
+				agentCards: fixture.assets.agentCards.map((card) =>
+					card.id === "reviewer" ? { ...structuredClone(card), tools: [toolId] } : card,
+				),
+				tools: [{ id: toolId, hash: "b".repeat(64), source: "pi-builtin" }],
+			};
+			const result = compileWorkflow({ ...fixture, assets });
+			expect(result.ok).toBe(false);
+			if (result.ok) continue;
+			expect(result.report.diagnostics.map((item) => item.code)).toContain("review_mutation_tool_forbidden");
+		}
 	});
 
 	it("allows a registered node Skill independently of AgentCard defaults", () => {

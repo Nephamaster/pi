@@ -8,7 +8,7 @@ import type { ExecutionNode, ReviewNode } from "../contracts/workflow.ts";
 import type { MechanicalChecker } from "../gate/mechanical-checker.ts";
 import { toJsonValue } from "../ir/hash.ts";
 import { materializeFinalSubmission } from "./final-submission.ts";
-import { type NodeRoundWork, type NodeWorker, NodeWorkerError } from "./node-worker.ts";
+import { type NodeRoundWork, NodeSubmissionProtocolError, type NodeWorker, NodeWorkerError } from "./node-worker.ts";
 import { validateReviewSubmission } from "./review-validation.ts";
 import type { RunDirectory } from "./run-directory.ts";
 import type { RunStore } from "./run-store.ts";
@@ -242,7 +242,11 @@ export class WorkflowRuntime {
 				break;
 			} catch (error) {
 				if (error instanceof NodeWorkerError) throw error;
-				if (!(error instanceof SubmissionValidationError) && !(error instanceof ArtifactValidationError)) {
+				if (
+					!(error instanceof NodeSubmissionProtocolError) &&
+					!(error instanceof SubmissionValidationError) &&
+					!(error instanceof ArtifactValidationError)
+				) {
 					throw new NodeWorkerError("transient", error instanceof Error ? error.message : String(error), true, {
 						cause: error,
 					});

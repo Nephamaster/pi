@@ -3,6 +3,10 @@ import type { ProcessSelection, ProcessSpec } from "../contracts/process-spec.ts
 import type { TaskInput } from "../contracts/task-input.ts";
 import { canonicalJson } from "../ir/hash.ts";
 
+export function buildProcessSelectionPrompt(selectionSkillId: string, task: TaskInput): string {
+	return `/skill:${selectionSkillId} Load the process-selection method, evaluate this TaskInput, inspect serious ProcessSpec candidates through the catalog tools, and submit one decision.\n\nTaskInput:\n${canonicalJson(task)}`;
+}
+
 export function buildInitialWorkflowDesignPrompt(
 	runSkillId: string,
 	task: TaskInput,

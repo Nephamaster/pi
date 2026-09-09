@@ -13,7 +13,7 @@ import type { WorkflowDraftManager, WorkflowDraftOperation } from "./workflow-dr
 
 const HeaderSchema = Type.Object(
 	{
-		schema_version: Type.Literal(1),
+		schema_version: Type.Literal(2),
 		workflow_id: IdentifierSchema,
 		workflow_version: VersionSchema,
 		name: NonEmptyStringSchema,

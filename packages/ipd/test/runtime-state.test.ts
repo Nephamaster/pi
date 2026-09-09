@@ -123,10 +123,12 @@ describe("runtime input and approval semantics", () => {
 			reviewNodeId: "review-produce",
 			submissionId: submission.submissionId,
 			outputId: "content-output",
-			criterionIds: ["quality"],
+			criterionIds: [],
 			status: "active",
 			createdAt: 1,
 		});
+		expect(nodeIsReady(consumer, state)).toBe(false);
+		state.approvals.at(-1)!.criterionIds = ["quality"];
 		expect(nodeIsReady(consumer, state)).toBe(true);
 		const projected = projectInputSubmissions(resolveInputBindings(consumer, state));
 		expect(projected).toHaveLength(1);

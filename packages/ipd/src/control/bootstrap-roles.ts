@@ -49,14 +49,14 @@ export class BootstrapWorkflowDesigner implements WorkflowDesigner {
 		if (!activity || !deliverable || !review) throw new Error("Bootstrap ProcessSpec is incomplete");
 		const output = { node_id: "produce", output_id: "result" };
 		return {
-			schema_version: 1,
+			schema_version: 2,
 			workflow_id: `task-${hashJson(task).slice(0, 12)}`,
 			workflow_version: "1.0.0",
 			name: "Bootstrap reviewed delivery",
 			task_input_ref: { id: task.task_input_id, hash: hashJson(task) },
 			process_selection_ref: { id: selection.process_selection_id, hash: hashJson(selection) },
 			nodes: [
-				this.executionNode(task, activity.required_capabilities, deliverable.artifact_type ?? "deliverable"),
+				this.executionNode(task, activity.required_capabilities, deliverable),
 				this.reviewNode(review.reviewer_capabilities),
 			],
 			criteria: [
@@ -71,8 +71,9 @@ export class BootstrapWorkflowDesigner implements WorkflowDesigner {
 				{
 					kind: "semantic",
 					criterion_id: "quality",
-					description: review.criteria.join("\n"),
+					description: review.criteria.map((criterion) => criterion.description).join("\n"),
 					evidence_requirements: ["Specific review findings"],
+					process_criterion_refs: review.criteria.map((criterion) => criterion.process_criterion_id),
 				},
 			],
 			requirement_coverage: [
@@ -117,7 +118,7 @@ export class BootstrapWorkflowDesigner implements WorkflowDesigner {
 	private executionNode(
 		task: TaskInput,
 		capabilities: string[],
-		artifactType: string,
+		deliverable: ProcessSpec["required_deliverables"][number],
 	): WorkflowDefinition["nodes"][number] {
 		return {
 			kind: "execution",
@@ -150,11 +151,14 @@ export class BootstrapWorkflowDesigner implements WorkflowDesigner {
 			outputs: [
 				{
 					output_id: "result",
-					artifact_type: artifactType,
+					artifact_type: deliverable.artifact_type ?? "deliverable",
 					description: "Requested deliverable",
 					business_purpose: task.raw_task.text,
 					path_prefix: "outputs/produce",
-					evidence_requirements: ["Requirement coverage"],
+					evidence_requirements: deliverable.evidence_requirements.map((item) => item.description),
+					process_evidence_requirement_refs: deliverable.evidence_requirements.map(
+						(item) => item.evidence_requirement_id,
+					),
 					criterion_refs: ["integrity", "quality"],
 				},
 			],

@@ -1,0 +1,204 @@
+schema_version: 2
+process_spec_id: project-important-meeting-presentation-simple
+version: 1.0.0
+name: Important Meeting Presentation - Simple
+description: >-
+  面向重要会议、管理层汇报、项目评审和正式方案沟通的简化 PPT 开发流程。
+  流程围绕“明确汇报目标—形成可信内容—设计汇报主线—制作成品—完成最终检查”展开，
+  重点保证内容可信、逻辑清楚、重点突出、视觉可用，并确保最终版本适合正式会议使用。
+source: >-
+  项目衍生规范，用于重要会议汇报 PPT 的场景穿刺。
+  参考正式内容开发、演示材料制作和阶段性质量评审的一般实践构建，
+  不是华为现行正式 IPD 模板。
+default_executable: true
+
+applicable_when:
+  - 任务需要为重要会议、正式评审、管理层沟通或决策讨论制作完整 PPT。
+  - 汇报内容对理解、判断、决策或项目推进具有较高影响，不能只依赖一次性生成。
+  - 已有明确或可确认的汇报目标、受众、基础材料和交付要求。
+
+not_applicable_when:
+  - 仅需要临时草稿、简单排版、单页修改或低风险演示材料。
+  - PPT 只是其他专业任务的附属记录，而不是主要交付成果。
+  - 关键事实、汇报目标或使用场景尚未明确到足以开展正式内容设计。
+
+required_activities:
+  - activity_id: presentation-brief
+    description: >-
+      明确会议背景、汇报目的、目标受众、希望形成的理解或决策、汇报时长、
+      交付形式、主要输入材料和必须覆盖的关键问题，形成统一的汇报任务基线。
+    required_capabilities:
+      - requirements-analysis
+
+  - activity_id: content-and-evidence
+    description: >-
+      整理并核对用于汇报的事实、数据、来源和关键结论，明确重要信息、限制条件和待确认事项，
+      保证主要观点能够得到可靠材料支撑。
+    required_capabilities:
+      - evidence-synthesis
+
+  - activity_id: storyline-design
+    description: >-
+      根据会议目标组织汇报主线、章节关系和主要页面结构，明确每个关键页面需要传达的信息、
+      关键结论和行动项，使整体内容能够在限定时间内清晰讲述。
+    required_capabilities:
+      - narrative-design
+
+  - activity_id: deck-production
+    description: >-
+      完成页面内容、图表、图片、视觉样式和版式制作，形成完整 PPT。
+      制作过程应保持事实和数据一致，视觉表达服务于信息层级和讲述重点。
+    required_capabilities:
+      - artifact-production
+
+  - activity_id: final-validation
+    description: >-
+      对确定版本的 PPT 进行最终检查，覆盖内容正确性、需求覆盖、叙事连贯性、
+      页面可读性、视觉一致性、关键数据、文件完整性以及实际汇报可用性。
+      发现问题后完成修订和复验，再形成正式会议版本。
+    required_capabilities:
+      - artifact-review
+
+required_deliverables:
+  - deliverable_id: presentation-brief
+    activity_id: presentation-brief
+    artifact_type: presentation-brief
+    description: >-
+      汇报任务基线，包括会议目的、受众、使用场景、时长、交付要求、
+      必须回答的问题、主要输入材料和待确认事项。
+    evidence_requirements:
+      - evidence_requirement_id: presentation-brief.evidence.1
+        description: 会议目标、受众和关键要求能够追溯到用户要求或正式材料。
+      - evidence_requirement_id: presentation-brief.evidence.2
+        description: 影响汇报方向的未知事项已明确记录，没有用假设替代。
+
+  - deliverable_id: content-baseline
+    activity_id: content-and-evidence
+    artifact_type: presentation-content-baseline
+    description: >-
+      经过核对的关键事实、数据、来源、主要结论和限制说明。
+    evidence_requirements:
+      - evidence_requirement_id: content-baseline.evidence.1
+        description: 关键事实、数字和引用具有可定位来源或可复算依据。
+      - evidence_requirement_id: content-baseline.evidence.2
+        description: 重要结论与现有证据强度一致，未知或争议内容没有包装为确定事实。
+
+  - deliverable_id: presentation-storyboard
+    activity_id: storyline-design
+    artifact_type: presentation-storyboard
+    description: >-
+      PPT 汇报主线和页面结构，包括章节顺序、关键页面目的、
+      主要结论、数据落点、行动项和必要附录安排。
+    evidence_requirements:
+      - evidence_requirement_id: presentation-storyboard.evidence.1
+        description: 主要页面与会议目标和关键要求具有明确对应关系。
+      - evidence_requirement_id: presentation-storyboard.evidence.2
+        description: 主线逻辑清楚，页面数量和信息密度与汇报时长基本匹配。
+
+  - deliverable_id: presentation-deck
+    activity_id: deck-production
+    artifact_type: presentation-deck
+    description: >-
+      完整可编辑的 PPT 成品及必要素材或辅助文件。
+    evidence_requirements:
+      - evidence_requirement_id: presentation-deck.evidence.1
+        description: PPT 内容与已确认的事实、数据和 storyboard 一致。
+      - evidence_requirement_id: presentation-deck.evidence.2
+        description: 文件可正常打开和演示，无明显错位、遮挡、截断、字体或媒体问题。
+      - evidence_requirement_id: presentation-deck.evidence.3
+        description: 页面层级、图表、颜色、字体和版式整体一致且服务于信息表达。
+
+  - deliverable_id: final-presentation-package
+    activity_id: final-validation
+    artifact_type: presentation-release-package
+    description: >-
+      完成最终检查和复验后的正式会议版本，包括最终 PPT 以及实际需要的备注、
+      附录、引用或版本说明。
+    evidence_requirements:
+      - evidence_requirement_id: final-presentation-package.evidence.1
+        description: 最终文件对应已完成检查和复验的确定版本。
+      - evidence_requirement_id: final-presentation-package.evidence.2
+        description: 已知问题和限制已处理或明确披露，不存在仍会直接影响会议使用的阻塞性问题。
+      - evidence_requirement_id: final-presentation-package.evidence.3
+        description: 正式版能够直接用于预定会议，不存在易混淆的过期或候选版本。
+
+required_reviews:
+  - review_id: brief-and-content-review
+    deliverable_id: content-baseline
+    description: >-
+      汇报内容基线评审。确认汇报目标理解正确，关键事实、数据、来源和主要结论可靠，
+      不存在会导致后续 PPT 方向错误的重大遗漏或无依据判断。
+    reviewer_capabilities:
+      - evidence-review
+    independent_agent: true
+    criteria:
+      - process_criterion_id: brief-and-content-review.criterion.1
+        description: 关键事实、数字和引用具有可靠且可定位的依据。
+      - process_criterion_id: brief-and-content-review.criterion.2
+        description: 汇报核心信息与会议目标和受众关注点一致。
+      - process_criterion_id: brief-and-content-review.criterion.3
+        description: 未确认事项和重要限制得到明确保留，没有被包装为确定事实。
+
+  - review_id: storyline-review
+    deliverable_id: presentation-storyboard
+    description: >-
+      汇报结构评审。确认主线清楚、重点合理、关键页面承担明确的信息职责，
+      并能够在预定会议时间内形成完整且有说服力的讲述。
+    reviewer_capabilities:
+      - proposal-review
+    independent_agent: true
+    criteria:
+      - process_criterion_id: storyline-review.criterion.1
+        description: 整体结构围绕会议目标组织，没有按材料顺序简单堆叠。
+      - process_criterion_id: storyline-review.criterion.2
+        description: 关键结论、证据和行动项之间逻辑连贯。
+      - process_criterion_id: storyline-review.criterion.3
+        description: 页面数量和信息密度与汇报时长及重点分配相匹配。
+
+  - review_id: final-deck-review
+    deliverable_id: final-presentation-package
+    description: >-
+      最终 PPT 综合评审。确认内容、数据、视觉、文件和实际讲述条件达到正式会议使用要求。
+    reviewer_capabilities:
+      - artifact-review
+    independent_agent: true
+    criteria:
+      - process_criterion_id: final-deck-review.criterion.1
+        description: 最终 PPT 内容完整，关键事实、数字和结论准确。
+      - process_criterion_id: final-deck-review.criterion.2
+        description: 页面视觉层级、图表和版式清楚，无明显影响理解或展示的缺陷。
+      - process_criterion_id: final-deck-review.criterion.3
+        description: 文件可正常打开和演示，正式版本清晰唯一。
+      - process_criterion_id: final-deck-review.criterion.4
+        description: 不存在仍会直接影响重要会议使用的已知阻塞问题。
+
+workflow_rules:
+  - rule_id: meeting-purpose-first
+    description: >-
+      汇报内容和页面结构必须优先服务会议目标和受众需要，
+      不得因为已有材料较多而简单按材料顺序堆叠页面。
+    enforced_by: review
+
+  - rule_id: evidence-integrity
+    description: >-
+      关键事实、数字、图表和结论必须保持来源和口径一致；
+      无法确认的信息不得为了增强说服力而补造或夸大。
+    enforced_by: review
+
+  - rule_id: storyline-before-production
+    description: >-
+      正式 PPT 制作应建立在相对稳定的汇报主线和内容基线上，
+      不应把成品制作阶段变成重新定义主要结论和临时补写核心事实的阶段。
+    enforced_by: review
+
+  - rule_id: independent-final-review
+    description: >-
+      重要会议使用的最终 PPT 应由不同于主要生产者的专业角色进行独立综合检查，
+      不能以生产者自检代替最终质量判断。
+    enforced_by: review
+
+  - rule_id: version-consistency
+    description: >-
+      进入评审和正式会议使用的 PPT 必须对应确定版本；
+      关键内容或数据修改后，应重新检查受影响页面和结论。
+    enforced_by: review

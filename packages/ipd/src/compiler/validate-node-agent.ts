@@ -153,12 +153,12 @@ export function validateNodeAgent(
 			"Review participants must be read-only and cannot perform external actions",
 			node.node_id,
 		);
-	if (node.kind === "review" && agent.tools.some((tool) => tool.id === "write" || tool.id === "edit"))
+	if (node.kind === "review" && agent.tools.some((tool) => ["write", "edit", "bash", "powershell"].includes(tool.id)))
 		addDiagnostic(
 			diagnostics,
-			"review_write_tool_forbidden",
+			"review_mutation_tool_forbidden",
 			`${path}/tools`,
-			"Review participants cannot receive native write or edit tools",
+			"Review participants cannot receive write, edit, or general-purpose Shell tools",
 			node.node_id,
 		);
 	if (node.kind === "execution" && agent.permissions.write_paths.length === 0)

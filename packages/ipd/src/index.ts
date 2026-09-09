@@ -9,6 +9,7 @@ export * from "./artifact/hash-file.ts";
 export * from "./artifact/manifest.ts";
 export * from "./compiler/compiler.ts";
 export * from "./compiler/types.ts";
+export * from "./compiler/validate-process-spec.ts";
 export * from "./contracts/agent-card.ts";
 export * from "./contracts/artifact.ts";
 export * from "./contracts/baseline.ts";

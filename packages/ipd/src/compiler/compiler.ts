@@ -18,6 +18,7 @@ import { freezeDeep, hashJson } from "../ir/hash.ts";
 import { validateSchema } from "../ir/validation.ts";
 import type { CompilerAssetCatalog } from "./types.ts";
 import { validateProcessCoverage } from "./validate-process-coverage.ts";
+import { validateProcessSpecSemantics } from "./validate-process-spec.ts";
 import { validateWorkflowRelations } from "./validate-workflow.ts";
 
 export interface CompileWorkflowInput {
@@ -100,6 +101,7 @@ export function compileWorkflow(input: CompileWorkflowInput): CompileWorkflowRes
 	const task = taskResult.value;
 	const selection = selectionResult.value;
 	const spec = specResult.value;
+	for (const diagnostic of validateProcessSpecSemantics(spec)) diagnostics.push({ ...diagnostic, severity: "error" });
 	const taskHash = hashJson(task);
 	const selectionHash = hashJson(selection);
 	const specHash = hashJson(spec);

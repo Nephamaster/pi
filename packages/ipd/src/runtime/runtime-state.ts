@@ -41,14 +41,34 @@ function findLatestSubmission(
 	return undefined;
 }
 
-function hasApproval(state: RunState, reviewNodeId: string, submissionId: string, outputId: string): boolean {
-	return state.approvals.some(
-		(approval) =>
-			approval.status === "active" &&
-			approval.reviewNodeId === reviewNodeId &&
-			approval.submissionId === submissionId &&
-			approval.outputId === outputId,
+function outputIsFullyApproved(
+	state: RunState,
+	nodeId: string,
+	submissionId: string,
+	outputId: string,
+	reviewNodeIds: readonly string[],
+): boolean {
+	if (reviewNodeIds.length === 0) return false;
+	const approvals = reviewNodeIds.map((reviewNodeId) =>
+		state.approvals.find(
+			(approval) =>
+				approval.status === "active" &&
+				approval.reviewNodeId === reviewNodeId &&
+				approval.submissionId === submissionId &&
+				approval.outputId === outputId,
+		),
 	);
+	if (approvals.some((approval) => approval === undefined)) return false;
+	const baseline = requireBaseline(state);
+	const node = baseline.workflow.nodes.find((item) => item.node_id === nodeId);
+	const output = node?.kind === "execution" ? node.outputs.find((item) => item.output_id === outputId) : undefined;
+	if (!output) return false;
+	const semanticCriteria = output.criterion_refs.filter(
+		(criterionId) =>
+			baseline.workflow.criteria.find((item) => item.criterion_id === criterionId)?.kind === "semantic",
+	);
+	const approvedCriteria = new Set(approvals.flatMap((approval) => approval?.criterionIds ?? []));
+	return semanticCriteria.length > 0 && semanticCriteria.every((criterionId) => approvedCriteria.has(criterionId));
 }
 
 function submissionSatisfiesInput(input: NodeOutputInput, submission: SubmissionRecord, state: RunState): boolean {
@@ -60,8 +80,12 @@ function submissionSatisfiesInput(input: NodeOutputInput, submission: Submission
 		return false;
 	return (
 		input.availability === "submitted" ||
-		input.approval_review_node_ids.every((reviewId) =>
-			hasApproval(state, reviewId, submission.submissionId, input.source.output_id),
+		outputIsFullyApproved(
+			state,
+			input.source.node_id,
+			submission.submissionId,
+			input.source.output_id,
+			input.approval_review_node_ids,
 		)
 	);
 }
@@ -308,10 +332,7 @@ export function refreshSubmissionStatus(state: RunState, submissionId: string): 
 	const baseline = requireBaseline(state);
 	const fullyApproved = submission.outputs.every((output) => {
 		const reviewers = baseline.graph.reviewsByOutput[graphOutputKey(submission.nodeId, output.outputId)] ?? [];
-		return (
-			reviewers.length > 0 &&
-			reviewers.every((reviewer) => hasApproval(state, reviewer, submission.submissionId, output.outputId))
-		);
+		return outputIsFullyApproved(state, submission.nodeId, submission.submissionId, output.outputId, reviewers);
 	});
 	submission.status = fullyApproved ? "approved" : "candidate";
 	const producer = state.nodes.find((item) => item.nodeId === submission.nodeId);
@@ -332,8 +353,7 @@ export function approvedSubmissionForOutput(
 			submission.nodeId === ref.node_id &&
 			["candidate", "approved"].includes(submission.status) &&
 			submissionHasOutput(submission, ref.output_id) &&
-			reviewers.length > 0 &&
-			reviewers.every((reviewer) => hasApproval(state, reviewer, submission.submissionId, ref.output_id)),
+			outputIsFullyApproved(state, ref.node_id, submission.submissionId, ref.output_id, reviewers),
 	);
 }
 

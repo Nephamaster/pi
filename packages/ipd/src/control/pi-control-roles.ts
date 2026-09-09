@@ -13,10 +13,14 @@ import type { JsonValue } from "../contracts/primitives.ts";
 import { type ProcessSelection, ProcessSelectionDecisionSchema, type ProcessSpec } from "../contracts/process-spec.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
-import { canonicalJson, hashJson } from "../ir/hash.ts";
+import { hashJson } from "../ir/hash.ts";
 import { createAgentCardCatalogTools, createProcessSpecCatalogTools } from "./asset-catalog-tools.ts";
 import { ProcessSelectionBlockedError, type ProcessSelector, type WorkflowDesigner } from "./control-plane.ts";
-import { buildInitialWorkflowDesignPrompt, buildWorkflowDesignRevisionPrompt } from "./control-role-prompts.ts";
+import {
+	buildInitialWorkflowDesignPrompt,
+	buildProcessSelectionPrompt,
+	buildWorkflowDesignRevisionPrompt,
+} from "./control-role-prompts.ts";
 import type { WorkflowDraftManager } from "./workflow-draft.ts";
 import { createWorkflowDraftTools, type WorkflowDraftToolset } from "./workflow-draft-tools.ts";
 
@@ -97,8 +101,13 @@ class PiStructuredRole<TSchemaValue extends TSchema> {
 
 export class PiProcessSelector implements ProcessSelector {
 	private readonly options: PiControlRoleOptions;
-	constructor(options: PiControlRoleOptions) {
-		this.options = options;
+	private readonly selectionSkill: LockedSkill;
+	constructor(options: PiControlRoleOptions, selectionSkill: LockedSkill) {
+		this.options = {
+			...options,
+			skills: [...(options.skills ?? []).filter((skill) => skill.id !== selectionSkill.id), selectionSkill],
+		};
+		this.selectionSkill = selectionSkill;
 	}
 	async select(runId: string, task: TaskInput, specs: readonly ProcessSpec[]): Promise<ProcessSelection> {
 		const role = new PiStructuredRole(
@@ -114,7 +123,7 @@ export class PiProcessSelector implements ProcessSelector {
 			"process-selector",
 			"selection-1",
 			`${loadPrompt("common")}\n\n${renderAgentRuntimeProfile(this.options.agentCard)}\n\n${loadPrompt("process-selector")}`,
-			`TaskInput:\n${canonicalJson(task)}\n\nSearch the registered ProcessSpec catalog, inspect serious candidates, then submit one selection decision.`,
+			buildProcessSelectionPrompt(this.selectionSkill.id, task),
 		);
 		if (decision.status === "blocked")
 			throw new ProcessSelectionBlockedError(

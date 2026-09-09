@@ -94,9 +94,10 @@ async function createDefaultService(
 	const assets = toCompilerAssetCatalog(assembled, checks);
 	const selectorCard = assembled.agentCards.find((card) => card.id === "ipd-process-selector");
 	const designerCard = assembled.agentCards.find((card) => card.id === "agency-project-management-project-shepherd");
+	const selectionSkill = assembled.skills.find((skill) => skill.id === "process-selection");
 	const designSkill = assembled.skills.find((skill) => skill.id === "workflow-design");
 	const readTool = assembled.tools.find((tool) => tool.id === "read");
-	if (!selectorCard || !designerCard || !designSkill || !readTool)
+	if (!selectorCard || !designerCard || !selectionSkill || !designSkill || !readTool)
 		throw new Error("Default IPD control assets are incomplete");
 	const store = new FileRunStore();
 	const workflowAssets = new FileWorkflowAssetStore({ directory: join(context.cwd, ".pi", "ipd", "workflow") });
@@ -135,7 +136,7 @@ async function createDefaultService(
 		createControlPlane: (runId, runSkill) => {
 			return new IpdControlPlane(
 				store,
-				new PiProcessSelector(roleOptions(runId, selectorCard)),
+				new PiProcessSelector(roleOptions(runId, selectorCard), selectionSkill),
 				new PiWorkflowDesigner({
 					optionsForRun: () => roleOptions(runId, designerCard),
 					managerForRun: (_currentRunId, task, selection, spec) => {

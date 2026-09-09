@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { loadSkillsFromDir, type Skill, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { parse as parseYaml } from "yaml";
 import type { CompilerAssetCatalog } from "../compiler/types.ts";
+import { validateProcessSpecSemantics } from "../compiler/validate-process-spec.ts";
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { LockedSkill, LockedTool } from "../contracts/baseline.ts";
 import type { LockedAssetRef } from "../contracts/primitives.ts";
@@ -100,7 +101,6 @@ export class AssetAssembler {
 				...input.skills,
 			],
 			tools: input.tools,
-			builtinToolNames: ["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"],
 			hasModel: input.hasModel,
 		});
 	}
@@ -183,6 +183,9 @@ export class AssetAssembler {
 			);
 			if (!parsed.ok)
 				throw new Error(parsed.diagnostics.map((item) => `${path}${item.path}: ${item.message}`).join("\n"));
+			const semanticDiagnostics = validateProcessSpecSemantics(parsed.value);
+			if (semanticDiagnostics.length > 0)
+				throw new Error(semanticDiagnostics.map((item) => `${path}${item.path}: ${item.message}`).join("\n"));
 			if (
 				processSpecs.some(
 					(spec) => spec.process_spec_id === parsed.value.process_spec_id && spec.version === parsed.value.version,

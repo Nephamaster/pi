@@ -66,6 +66,7 @@ export function createProcessSpecCatalogTools(specs: readonly ProcessSpec[]): To
 						id: spec.process_spec_id,
 						version: spec.version,
 						name: spec.name,
+						default_executable: spec.default_executable,
 						applicable_when: spec.applicable_when,
 						not_applicable_when: spec.not_applicable_when,
 						required_activity_count: spec.required_activities.length,
