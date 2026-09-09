@@ -41,7 +41,14 @@ describe("WorkflowRuntime", () => {
 					join(directory.workspace, "outputs", "produce", "result.txt"),
 					executionRounds === 1 ? "draft" : "revised",
 				);
-				if (executionRounds === 2) expect(work.feedback).toContain("Replace the draft");
+				if (executionRounds === 2)
+					expect(work.feedback).toContainEqual(
+						expect.objectContaining({
+							type: "quality_rework",
+							criterionId: "quality",
+							issue: "Replace the draft",
+						}),
+					);
 				return {
 					summary: "Produced content",
 					outputs: [

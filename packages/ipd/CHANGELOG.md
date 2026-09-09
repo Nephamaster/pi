@@ -25,6 +25,7 @@
 
 ### Changed
 
+- Reorganized IPD prompts into single-owner task scope, node contract, professional role, role protocol, and current-round projections; added on-demand ProcessSpec and AgentCard catalog tools.
 - Changed IPD Runs to default to an explicit unbounded budget policy; bounded Token and time controls now require `ifBudget=true`, `tokenBudget`, and `timeBudgetMs`, while Usage remains observable in both modes.
 - Changed the default Workflow Node Attempt limit to 10 and the structured-submission failure guard to 10 consecutive Assistant turns.
 - Simplified Execution Artifact submissions to one or more unique `{path, mimeType}` files; file purpose and mechanical/semantic acceptance now belong exclusively to Staff-authored Gate criteria.

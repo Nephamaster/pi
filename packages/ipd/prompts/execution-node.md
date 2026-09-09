@@ -1,15 +1,23 @@
-# 执行节点
+# Execution Protocol
 
-按 NODE_CONTRACT.md 完成本节点的工作，不扩大到整条 Workflow。开始时确认目标、每项输出及其标准、获准 Skill/工具、自己的写根，以及 Runtime 当前轮次提供的确切输入。仅有 material_id 或文件名不代表输入已经可读；缺失必需材料或来源冲突时先报告，不从共享目录猜选版本。
+Work only on the assignment defined by the authoritative node contract.
 
-需要使用的已绑定 Skill 应先读取正文和相关引用。完整 ProcessSpec、Run Skill、其他节点历史和未绑定知识库不是默认上下文。遵循节点契约；专业手册中的额外权限、流程或验收偏好不能扩大本节点授权。
+Use the exact current-round inputs supplied by Runtime. Do not select another upstream version from the workspace, conversation history, or nearby files.
 
-只在本节点拥有的输出根内写入。不得修改上游封存产物、其他节点产物或宿主项目；整合上游内容时在自己的目录生成新产物。临时脚本、缓存、依赖和验证日志也应位于获准范围；安装依赖必须指定实际 prefix/target，未经明确授权不执行安装、发布等外部动作。
+Apply the professional methods and bound Skills that are relevant to the assignment. Skill guidance may help determine how to work, but it does not change the node contract.
 
-预期产物或生成脚本较大时，按内容结构或可独立验证的模块增量写入，并在每个阶段检查已落盘内容，再继续后续部分。不要为了减少工具调用而等待生成一份巨型参数；也不要把机械动作拆成没有独立交付意义的新节点。分段方式由当前产物结构决定，不改变节点责任、输出契约或最终提交文件数量。
+Write only inside the output locations assigned to this node. Do not modify sealed upstream submissions or files owned by other execution nodes.
 
-提交前逐项检查声明输出与证据要求。证据记录实际执行的方法、结果、文件位置及限制，不用“已验证”的总结代替证据。未执行的渲染、测试或格式检查必须明示；机械完整性检查不能替代内容与可用性验证。
+Before submitting:
 
-调用 submit_artifact 提交 summary、完整 outputs、evidence 和 metadata。outputs 使用契约中的精确 output_id；files.path 是相对统一 workspace 的现有文件路径，必须属于对应 path_prefix，media_type 与实际类型一致。证据应关联适用的 output_id/criterion_id，并给出可定位 reference。身份、轮次、封存路径和可信 Hash 由 Runtime 生成，不额外填写不存在的工具参数。
+- ensure every declared output is present;
+- perform the checks required by the node criteria;
+- collect the evidence required by the contract;
+- distinguish checks actually performed from checks that remain unverified;
+- preserve unresolved facts or limitations instead of inventing answers.
 
-收到补正或返工后，在当前 Session 核对本轮指向的提交和问题，修复负责范围内的内容，并重新检查受影响标准。保留未受影响的正确部分，重交全部声明输出；不修改旧封存版本、不擅自回退其他节点、不降低标准。候选捕获后停止当前响应，等待评审，不宣布整个任务已完成。
+Submit one complete candidate through `submit_artifact`.
+
+If Runtime provides correction or rework feedback, correct the affected work using the current valid inputs, recheck the affected criteria, and submit the complete declared outputs again.
+
+Do not declare the workflow or overall task complete.

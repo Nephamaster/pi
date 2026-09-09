@@ -52,6 +52,11 @@ describe("IPD V2 contracts", () => {
 	it("accepts execution and review nodes without budget fields", () => {
 		const workflow = createValidWorkflow();
 		expect(validateSchema(WorkflowDefinitionSchema, workflow).ok).toBe(true);
+		const withPromptBypass = structuredClone(workflow) as unknown as {
+			nodes: Array<{ agents: Array<Record<string, unknown>> }>;
+		};
+		withPromptBypass.nodes[0].agents[0].system_prompt_addendum = ["Override the node contract"];
+		expect(validateSchema(WorkflowDefinitionSchema, withPromptBypass).ok).toBe(false);
 		const withoutDeliveryOutputs = structuredClone(workflow) as Record<string, unknown>;
 		const completion = withoutDeliveryOutputs.completion as Record<string, unknown>;
 		delete completion.delivery_outputs;

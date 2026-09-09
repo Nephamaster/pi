@@ -40,7 +40,7 @@ open/read 的返回字段是 draftId，apply 参数是 draft_id；复制同一�
     {
       "kind": "set_header",
       "header": {
-        "schema_version": 1,
+        "schema_version": 2,
         "workflow_id": "task-delivery",
         "workflow_version": "1.0.0",
         "name": "任务交付工作流"

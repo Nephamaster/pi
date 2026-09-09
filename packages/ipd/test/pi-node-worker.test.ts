@@ -73,15 +73,27 @@ describe("PiNodeWorker", () => {
 				inputBindings: [],
 				taskContext: { objectives: [], requirements: [], materials: [], unresolvedFacts: [] },
 				forbiddenMutableReadPaths: [],
-				feedback: ["revise"],
+				feedback: [{ type: "quality_rework", issue: "revise" }],
 			});
 			expect([first.summary, second.summary]).toEqual(["first", "revised"]);
 			expect(faux.state.callCount).toBe(2);
-			expect(contexts[0]).toContain("IPD Node Contract");
+			expect(contexts[0]).toContain("Authoritative Node Contract");
 			expect(contexts[0]).toContain("ipd_current_round");
 			expect(contexts[0]).toContain("round-1");
 			expect(contexts[1]).toContain("round-2");
 			expect(contexts[1]).toContain("revise");
+			const taskScope = contexts[0].indexOf("TASK_SCOPE.md");
+			const contract = contexts[0].indexOf("NODE_CONTRACT.md");
+			const role = contexts[0].indexOf("PROFESSIONAL_ROLE.md");
+			const protocol = contexts[0].indexOf("EXECUTION_PROTOCOL.md");
+			expect(taskScope).toBeGreaterThan(-1);
+			expect(contexts[0].indexOf("IPD Core Rules")).toBeLessThan(taskScope);
+			expect(taskScope).toBeLessThan(contract);
+			expect(contract).toBeLessThan(role);
+			expect(role).toBeLessThan(protocol);
+			expect(contexts[0]).not.toContain("system_prompt_addendum");
+			expect(contexts[0]).not.toContain("task_context");
+			expect(contexts[0]).toContain("submit_artifact");
 		} finally {
 			faux.unregister();
 		}

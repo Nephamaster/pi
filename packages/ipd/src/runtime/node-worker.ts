@@ -11,6 +11,16 @@ export interface NodeTaskContext {
 	unresolvedFacts: TaskInput["unresolved_facts"];
 }
 
+export interface RoundFeedback {
+	type: "submission_correction" | "quality_rework" | "mechanical_failure" | "technical_retry";
+	sourceId?: string;
+	criterionId?: string;
+	outputId?: string;
+	issue: string;
+	evidenceRef?: string;
+	expectedCorrection?: string;
+}
+
 export interface NodeRoundWork {
 	runId: string;
 	roundId: string;
@@ -19,7 +29,7 @@ export interface NodeRoundWork {
 	inputBindings: RoundInputBindingRecord[];
 	taskContext: NodeTaskContext;
 	forbiddenMutableReadPaths: string[];
-	feedback: string[];
+	feedback: RoundFeedback[];
 }
 
 export interface NodeWorker {
@@ -95,7 +105,10 @@ export class RetryingNodeWorker implements NodeWorker {
 				if (!(error instanceof NodeWorkerError) || !error.retryable || attempt === this.maxAttempts) throw error;
 				if (this.stoppedRounds.has(key))
 					throw new NodeWorkerError("configuration", `Round is no longer active: ${work.roundId}`, false);
-				current = { ...current, feedback: [...current.feedback, error.message] };
+				current = {
+					...current,
+					feedback: [...current.feedback, { type: "technical_retry", issue: error.message }],
+				};
 				await this.delay(250 * 2 ** (attempt - 1));
 			}
 		}

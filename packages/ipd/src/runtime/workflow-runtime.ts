@@ -251,7 +251,11 @@ export class WorkflowRuntime {
 					...work,
 					feedback: [
 						...correctionWork.feedback,
-						`Submission correction: ${error instanceof Error ? error.message : String(error)}`,
+						{
+							type: "submission_correction",
+							issue: error instanceof Error ? error.message : String(error),
+							expectedCorrection: "Submit a candidate that satisfies the declared submission contract.",
+						},
 					],
 				};
 			}
@@ -341,7 +345,11 @@ export class WorkflowRuntime {
 					...work,
 					feedback: [
 						...correctionWork.feedback,
-						`Review correction: ${error instanceof Error ? error.message : String(error)}`,
+						{
+							type: "submission_correction",
+							issue: error instanceof Error ? error.message : String(error),
+							expectedCorrection: "Submit a review report that satisfies the review submission contract.",
+						},
 					],
 				};
 			}

@@ -99,7 +99,14 @@ describe("WorkflowRuntime failure classification", () => {
 		const worker: NodeWorker = {
 			async runExecution(work) {
 				executionRounds++;
-				if (executionRounds === 2) expect(work.feedback).toContain("integrity: checksum mismatch");
+				if (executionRounds === 2)
+					expect(work.feedback).toContainEqual(
+						expect.objectContaining({
+							type: "mechanical_failure",
+							criterionId: "integrity",
+							issue: "checksum mismatch",
+						}),
+					);
 				await mkdir(join(directory.workspace, "outputs", "produce"), { recursive: true });
 				await writeFile(join(directory.workspace, "outputs", "produce", "result.txt"), `round-${executionRounds}`);
 				return {

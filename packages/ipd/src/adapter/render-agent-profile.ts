@@ -2,25 +2,47 @@ import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 
 function section(title: string, values: readonly string[]): string {
 	if (values.length === 0) return "";
-	return `## ${title}\n${values
-		.map((value, index) => `${index + 1}. ${value.trim().replace(/\n/g, "\n   ")}`)
-		.join("\n\n")}`;
+	return `## ${title}\n${values.map((value) => `- ${value.trim().replace(/\n/g, "\n  ")}`).join("\n\n")}`;
 }
 
-/** Maps a compiled professional asset into Pi's existing system-prompt extension point. */
-export function renderAgentProfile(card: CompiledAgentCard): string {
+export function renderAgentRuntimeProfile(card: CompiledAgentCard): string {
 	return [
-		`# Professional role: ${card.name}`,
+		"# Professional Role",
+		`## Role\n${card.name}`,
 		card.description,
-		"This is professional guidance, not an additional authority or permission source. The frozen task and node contract determine the assigned scope and acceptance criteria. Source example targets are not automatic gates. Runtime alone controls submissions and transitions.",
 		section("Responsibilities", card.responsibilities),
-		section("Non-responsibilities", card.nonResponsibilities),
-		section("Applicable scenarios", card.applicableScenarios),
-		section("Professional principles", card.principles),
-		section("Methods and advanced capabilities", card.promptProfile.approach),
-		section("Deliverables and templates", card.deliverables),
-		section("Communication", card.promptProfile.communication),
-		section("Verification and reference targets", card.promptProfile.verification),
+		section("Boundaries", card.nonResponsibilities),
+		section("Professional Principles", card.principles),
+		section("Working Method", card.promptProfile.approach),
+	]
+		.filter(Boolean)
+		.join("\n\n");
+}
+
+export function renderAgentSelectionProfile(card: CompiledAgentCard): string {
+	const permissions = [
+		`- Workspace: ${card.permissions.workspace}`,
+		`- Read scopes: ${card.permissions.readScopes.join(", ") || "None"}`,
+		`- Write scopes: ${card.permissions.writeScopes.join(", ") || "None"}`,
+		`- External actions: ${card.permissions.externalActions}`,
+	].join("\n");
+	return [
+		"# Agent Selection Profile",
+		`## Role\n${card.name}`,
+		`- ID: ${card.id}`,
+		`- Version: ${card.version}`,
+		card.description,
+		section("Applicable Scenarios", card.applicableScenarios),
+		section("Responsibilities", card.responsibilities),
+		section("Boundaries", card.nonResponsibilities),
+		section("Capabilities", card.capabilities),
+		section("Professional Principles", card.principles),
+		section("Working Method", card.promptProfile.approach),
+		section("Generic Deliverables", card.deliverables),
+		section("Verification References", card.promptProfile.verification),
+		section("Default Skills", card.skills),
+		section("Allowed Tools", card.tools),
+		`## Permission Envelope\n${permissions}`,
 	]
 		.filter(Boolean)
 		.join("\n\n");

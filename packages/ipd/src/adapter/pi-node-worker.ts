@@ -4,7 +4,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { buildNodeRoundPrompt, buildNodeSystemPrompt } from "../runtime/node-prompts.ts";
 import { type NodeRoundWork, type NodeWorker, NodeWorkerError } from "../runtime/node-worker.ts";
-import { renderCurrentRoundContext, renderNodeContractFile } from "./node-context.ts";
+import { renderCurrentRoundContext, renderNodeContextFiles } from "./node-context.ts";
 import { NodeSessionAdapter } from "./node-session-adapter.ts";
 import { type PiNodeSessionCreateInput, PiNodeSessionFactory } from "./pi-node-session-factory.ts";
 import type { SubmitArtifact, SubmitReview } from "./structured-submissions.ts";
@@ -93,14 +93,16 @@ export class PiNodeWorker implements NodeWorker {
 				? createSubmissionTool({
 						name: "submit_artifact",
 						label: "Submit Artifact",
-						description: "Submit this round's declared outputs and evidence.",
+						description:
+							"Submit one complete candidate result for the current execution round. Include every output declared by the node contract and the evidence actually produced for those outputs. Successful invocation captures the candidate for Runtime validation; it does not mean the Artifact passed checks, review, or approval.",
 						parameters: SubmitArtifactSchema,
 						capture: capture as SubmissionCapture<SubmitArtifact>,
 					})
 				: createSubmissionTool({
 						name: "submit_review",
 						label: "Submit Review",
-						description: "Submit criterion-level review results.",
+						description:
+							"Submit the criterion-level review result for the exact sealed targets assigned to this review round. Every assigned criterion must have exactly one result. The tool captures a review candidate; Runtime validates it and controls approval, rework, and downstream release.",
 						parameters: SubmitReviewSchema,
 						capture: capture as SubmissionCapture<SubmitReview>,
 					});
@@ -145,8 +147,8 @@ export class PiNodeWorker implements NodeWorker {
 				createInput: {
 					workspace: this.options.workspace,
 					sessionDirectory: this.options.sessionDirectory,
-					systemPrompt: buildNodeSystemPrompt(work),
-					contextFiles: [renderNodeContractFile(work.node)],
+					systemPrompt: buildNodeSystemPrompt(),
+					contextFiles: renderNodeContextFiles(work),
 					getCurrentContext: () => binding.currentContext,
 					getAdditionalReadRoots: () => binding.additionalReadRoots,
 					getDeniedReadRoots: () => binding.deniedReadRoots,

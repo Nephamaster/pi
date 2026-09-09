@@ -1,53 +1,125 @@
 # WorkflowDefinition 契约检查表
 
-这是配置填写参考，不是新的 Schema。实际字段以草稿工具暴露的当前 Schema 为准。不要将此文档直接整段复制为节点提示词。
+这份文件只负责说明“具体配置应该怎样填写”。IPD、ProcessSpec、节点、依赖、并行和返工等概念先阅读 [设计概念与判断原则](design-concepts.md)。实际字段以草稿工具暴露的当前 Schema 为准；不要将本文整段复制进节点提示词。
 
 ## 1. Header、身份和资源
 
-Header 仅包含 schema_version=1、workflow_id、workflow_version、name。最终配置的 task_input_ref、process_selection_ref 由草稿管理器填入。自定义节点、标准、输出、参与者 ID 应稳定且以字母开头，仅含字母、数字、点、下划线、连字符；引用既有任务/规范 ID 时原样复制。
+Header 仅包含 `schema_version=2`、`workflow_id`、`workflow_version`、`name`。最终配置的 `task_input_ref`、`process_selection_ref` 由草稿管理器填入，不由设计师计算可信 Hash。
 
-每节点的 agents 恰好一个对象：participant_id、agent_ref（id/version）、required_capabilities、system_prompt_addendum、skills、tools、knowledge_bases、permissions。Skill/Tool 引用为 `{ "id": "目录中的名称" }`，AgentCard/知识库引用还需确定 version；不自填 Hash，不加入 Schema 中没有的 model 字段，模型由所选员工资产及 Run 配置解析。
+自定义 node、criterion、output、participant ID 应稳定且以字母开头，只使用字母、数字、点、下划线和连字符；引用 TaskInput、ProcessSpec、AgentCard 等既有 ID 时原样复制。
 
-Skill 必须在目录中存在，且由设计师按节点工作需要显式绑定；AgentCard.skills 是员工资产自带的默认专业 Skill，不是授权白名单。工具和 knowledge_bases 仍不得突破员工声明。普通节点不继承 Run Skill；需要它的方法时，明确绑定该 Skill，并配齐实际必要的工具。权限不足时选择另一位符合职责的员工或报告资源缺口，不假装名称匹配就可执行。
+每个节点当前只绑定一个员工。参与者对象包含：`participant_id`、`agent_ref(id/version)`、`required_capabilities`、`skills`、`tools`、`knowledge_bases`、`permissions`。
+
+Skill/Tool 引用使用目录中的真实 ID；AgentCard/Knowledge Base 使用确定版本。不要填写 Schema 中不存在的 model、Hash 或自由文本提示词旁路字段。模型由员工资产和 Run 配置解析。
+
+AgentCard 中的默认专业 Skill 不等于节点自动加载全部 Skill。节点实际需要的方法仍应显式绑定；Tool 和 Knowledge Base 也必须存在，并且不突破员工资产声明的边界。
 
 ## 2. 节点工作契约
 
-| 字段 | 应写什么 |
+| 字段 | 应表达的内容 |
 |---|---|
-| objective | 一个可判断是否完成的节点目标。 |
-| responsibilities | 本节点负责的具体工作。 |
-| non_responsibilities | 容易越界、但明确不由本节点承担的工作。 |
-| work_requirements | 对输入处理、执行方法、交付和自检的具体要求；不用复制完整 Skill。 |
-| constraints | 从任务和规范落实的范围、内容、权限、证据等约束。 |
+| objective | 这个工作包最终要达到什么结果，能够判断完成与否。 |
+| responsibilities | 该节点必须承担的具体责任。 |
+| non_responsibilities | 与它相邻但明确不由它承担的工作，防止职责漂移。 |
+| work_requirements | 对输入处理、作业方式、交付、自检的任务特有要求。 |
+| constraints | 来源于任务和规范的范围、事实、权限、证据等硬约束。 |
 
-system_prompt_addendum 只补本节点确有必要的稳定限制，不复制所有契约、全局规范或上游历史。数字员工专业原则不能擅自变成节点验收门槛。
+节点特有要求只进入 `contract.work_requirements` 或 `contract.constraints`，不要另建自由文本 Prompt 旁路。员工通用专业原则也不能自动变成节点验收标准。
 
 ## 3. 输入、输出与目录
 
-任务材料输入：kind=task_material、input_id、material_id、required。material_id 必须来自 TaskInput.materials；只有登记 ID 而无可用来源不能视为材料已就绪。
+### Task material
 
-上游输入：kind=node_output、input_id、source（node_id/output_id）、required、availability、approval_review_node_ids。execution 使用 approved，批准列表非空并精确对应评审该输出的节点；review 的每个 target 必须有对应 submitted 输入，通常批准列表为空，不能要求自己先批准再启动。真正必需的输入保持 required=true，不因阻塞或编译问题改为可选。
+使用 `kind=task_material`，填写 `input_id`、`material_id`、`required`。`material_id` 必须来自 TaskInput.materials。只有 ID 而没有可读取来源的必需材料不能视为已经满足。
 
-execution.outputs 每项填写 output_id、artifact_type、description、business_purpose、path_prefix、evidence_requirements、criterion_refs。path_prefix 是共享 workspace 内的相对路径，不是封存目录。使用无尾斜杠、无 `..` 的规范路径；建议每节点拥有 outputs/<node_id>，多个输出可用其不同子目录。
+### Node output input
 
-参与者 permissions.read_paths/write_paths 不超出员工授权。不同 execution 的 write_paths 不得相等或互为父子；默认不要把整个 outputs 授给单个节点。review.write_paths=[]、external_actions=false。需写代码、测试、临时依赖、缓存或审查衍生物时，由有写权限的 execution 在自己拥有的根目录完成，不能写宿主仓库或别的节点目录。
+使用 `kind=node_output`，填写：
 
-## 4. 标准、评审和正常返工
+- `input_id`；
+- `source.node_id / source.output_id`；
+- `required`；
+- `availability`；
+- `approval_review_node_ids`。
 
-mechanical：criterion_id、description、check_id、parameters、evidence_requirements。check_id 与参数 Schema 只能来自实际机械检查目录；例如目录明确包含 artifact-integrity 且参数为空对象时才可用 `{}`。不把格式、内容和视觉正确性写成此检查器已经能够证明的能力。
+execution 消费正式受控上游成果时使用 `approved`，并精确列出负责该输出准出的 review；review 读取自己的评审对象时使用 `submitted`，不能要求自己先批准才能启动。
 
-semantic：criterion_id、description、非空 evidence_requirements。定义“针对哪个对象、什么条件为合格、怎样核验、证据在哪里”，复用固定 ID，避免输出标准和评审标准出现两套措辞。
+不要为了避免阻塞把真正必需的输入改成 `required=false`。
 
-review.targets 精确引用 node_id/output_id 与该输出所需的 semantic criterion_refs；每项语义标准都有对应 Reviewer。allowed_rework_node_ids 只包含与缺陷修复有责任关系的 execution 节点，至少包含被评交付的责任生产者。不要用新建员工、投票、动态仲裁或预算阈值作为首版路由。
+### Execution outputs
 
-Fan-in 是多个精确输入共同就绪，不是额外的管理 Agent；局部返工只重做受影响产物，未修改的输入版本仍需可追溯。配置应明确这些关系；是否正确调度和撤销批准由 Runtime 执行，提示词不能替代机制。
+每项输出填写：
 
-## 5. 覆盖和最终完成
+- `output_id`；
+- `artifact_type`；
+- `description`；
+- `business_purpose`；
+- `path_prefix`；
+- `evidence_requirements`；
+- `process_evidence_requirement_refs`；
+- `criterion_refs`。
 
-requirement_coverage 每项写 source、requirement_id、responsible_node_ids、output_refs、criterion_refs。source 只能是 task_requirement、process_activity、process_deliverable、process_review、process_rule。相关数组应真实关联责任和验证，不为了填满引用而挂到无关节点。
+`process_evidence_requirement_refs` 只引用该输出实际承接的 ProcessSpec `evidence_requirement_id`。ProcessSpec 要求的证据不能只改写成另一段自然语言而失去映射。
 
-规范的 required_activity 应由具有所需能力的 execution 承担；required_deliverable 应有实际匹配输出；required_review 应有符合能力及独立性要求的 review。规范中的自然语言标准也必须被具体化，而不是只有 ID 出现在 coverage 中。
+`path_prefix` 是共享 Run workspace 下的相对路径，不是 Submission 封存目录。使用规范相对路径，无 `..`、无尾 `/`。建议 execution 节点拥有独立 `outputs/<node_id>` 根，不同 execution 的写根不得相同或互为父子。
 
-completion 包含 required_node_ids、final_outputs、delivery_outputs、required_review_node_ids，四个数组都非空。final_outputs 列出工作流完成必须批准的内部终局输出；delivery_outputs 必须是其子集，只列真正交给用户的输出。列明所有必要执行/评审节点及其必经 Gate；只填最后一个节点、仅凭某个输出获批或让 Agent 自报完成，都不足以表达端到端完成条件。
+review `write_paths=[]`、`external_actions=false`。需要生成测试、渲染、缓存或审查衍生物时，由具备写权限的 execution 负责，而不是临时扩权 Reviewer。
 
-Run 内部支撑资产不等于用户可见最终交付。用户限制最终文件数量或类型时，delivery_outputs 只引用文件组成与该限制一致的输出；不要同时交付某个成品及包含其副本的下游交付包。流程规范要求保留的来源、证据、版本与限制信息可以作为非交付输出、提交证据或最终文件内信息保存，不能借“完整交付包”扩大用户明确限定的文件集合。
+## 4. Criterion、Review 与返工
+
+### Mechanical criterion
+
+字段包括 `criterion_id`、`description`、`check_id`、`parameters`、`evidence_requirements`。`check_id` 和参数 Schema 必须来自实际机械检查目录。
+
+机械检查只承担它真实实现的验证范围。例如 `artifact-integrity` 不能被写成“证明内容正确、视觉合理或业务完成”。
+
+### Semantic criterion
+
+字段包括 `criterion_id`、`description`、非空 `evidence_requirements` 和 `process_criterion_refs`。标准应明确：
+
+- 判断对象；
+- 合格条件；
+- 必要的核验方式；
+- 所需证据。
+
+标准只定义一次，再由 output、review 和 coverage 引用，避免出现多个措辞略有不同的“同一标准”。
+
+`process_criterion_refs` 显式说明该标准细化了哪些 ProcessSpec `process_criterion_id`。任务特有且不源自规范的 semantic criterion 可以使用空数组；规范的每项标准则必须被对应 Review target 实际覆盖。
+
+### Review
+
+`review.targets` 精确引用 `node_id/output_id` 及该输出需要判断的 semantic criteria。每项 semantic criterion 都必须有实际 Reviewer 覆盖。
+
+`allowed_rework_node_ids` 只包含真正有责任修复被评缺陷的 execution 节点。不要添加投票、动态 Reviewer 替换、预算阈值或任意脚本路由作为首版流程控制。
+
+## 5. Requirement coverage
+
+`requirement_coverage` 的 `source` 只能是：
+
+- `task_requirement`；
+- `process_activity`；
+- `process_deliverable`；
+- `process_review`；
+- `process_rule`。
+
+每条 coverage 应真实填写：
+
+- `requirement_id`；
+- `responsible_node_ids`；
+- `output_refs`；
+- `criterion_refs`。
+
+ProcessSpec 的 required activity 应由能力符合的 execution 承担；required deliverable 应对应真实输出；required review 应有符合专业能力和独立性要求的 review。自然语言质量要求必须被任务化为实际 criterion，不能只让规范 ID 出现在 coverage 中。
+
+## 6. Completion 与用户交付
+
+`completion` 包含四类非空引用：
+
+- `required_node_ids`：Run 成功必须完成的必要节点；
+- `final_outputs`：工作流内部必须形成并达到要求的终局成果；
+- `delivery_outputs`：真正交给用户的输出，必须是 final_outputs 的子集；
+- `required_review_node_ids`：最终成功必须取得的评审；对每个 final output，这组 Gate 必须完整覆盖它的全部 semantic criteria。
+
+内部证据、来源记录、设计规范、检查报告可以是必要 final output，但只有用户实际要求收到的文件才进入 delivery outputs。
+
+用户限制最终文件数量或类型时，严格遵守该限制。不要同时交付某个成品以及另一个包含该成品副本的“完整交付包”，也不要以“流程要求留痕”为理由扩大用户最终文件集合。

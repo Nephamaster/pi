@@ -113,15 +113,6 @@ async function createDefaultService(
 		tools: [readTool],
 	});
 	const assetSummary = toJsonValue({
-		agentCards: assembled.agentCards.map((card) => ({
-			id: card.id,
-			version: card.version,
-			description: card.description,
-			capabilities: card.capabilities,
-			skills: card.skills,
-			tools: card.tools,
-			permissions: card.permissions,
-		})),
 		skills: assembled.skills.map((skill) => ({
 			id: skill.id,
 			description: skill.description,
@@ -180,6 +171,7 @@ async function createDefaultService(
 					designSkill,
 					runSkill,
 					assetSummary,
+					agentCards: assembled.agentCards,
 				}),
 				workflowAssets,
 			);

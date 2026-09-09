@@ -5,7 +5,7 @@ import { createCompilerFixture } from "./fixtures.ts";
 describe("M7 failure boundaries", () => {
 	it("retries transient failures in the same work round", async () => {
 		let calls = 0;
-		const feedback: string[][] = [];
+		const feedback: Array<Array<{ type: string; issue: string }>> = [];
 		const delegate: NodeWorker = {
 			async runExecution(work) {
 				feedback.push([...work.feedback]);
@@ -35,8 +35,11 @@ describe("M7 failure boundaries", () => {
 		expect(calls).toBe(3);
 		expect(feedback).toEqual([
 			[],
-			["temporary provider failure"],
-			["temporary provider failure", "temporary provider failure"],
+			[{ type: "technical_retry", issue: "temporary provider failure" }],
+			[
+				{ type: "technical_retry", issue: "temporary provider failure" },
+				{ type: "technical_retry", issue: "temporary provider failure" },
+			],
 		]);
 	});
 

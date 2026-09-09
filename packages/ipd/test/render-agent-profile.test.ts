@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { compileAgentCard, renderAgentProfile } from "../src/index.ts";
+import { compileAgentCard, renderAgentRuntimeProfile, renderAgentSelectionProfile } from "../src/index.ts";
 
-describe("renderAgentProfile", () => {
-	it("renders the full professional profile without granting authority", () => {
+describe("AgentCard prompt projections", () => {
+	it("keeps the runtime profile focused on professional identity and method", () => {
 		const card = compileAgentCard(
 			{
 				id: "project-shepherd",
@@ -27,12 +27,18 @@ describe("renderAgentProfile", () => {
 				hasModel: () => true,
 			},
 		).value!;
-		const rendered = renderAgentProfile(card);
-		expect(rendered).toContain("Complex delivery");
+		const rendered = renderAgentRuntimeProfile(card);
 		expect(rendered).toContain("Decompose by deliverable");
-		expect(rendered).toContain("Decision package");
-		expect(rendered).toContain("State risks directly");
-		expect(rendered).toContain("Verify source lineage");
-		expect(rendered).toContain("not an additional authority or permission source");
+		expect(rendered).toContain("Coordinate delivery");
+		expect(rendered).toContain("Approve own work");
+		expect(rendered).not.toContain("Complex delivery");
+		expect(rendered).not.toContain("Decision package");
+		expect(rendered).not.toContain("Verify source lineage");
+		expect(rendered).not.toContain("State risks directly");
+
+		const selection = renderAgentSelectionProfile(card);
+		expect(selection).toContain("Complex delivery");
+		expect(selection).toContain("Decision package");
+		expect(selection).toContain("Verify source lineage");
 	});
 });

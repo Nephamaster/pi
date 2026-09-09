@@ -1,11 +1,11 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Static, TSchema } from "typebox";
 import { NodeSessionAdapter } from "../adapter/node-session-adapter.ts";
 import { PiNodeSessionFactory } from "../adapter/pi-node-session-factory.ts";
 import { loadPrompt } from "../adapter/prompt-loader.ts";
-import { renderAgentProfile } from "../adapter/render-agent-profile.ts";
+import { renderAgentRuntimeProfile } from "../adapter/render-agent-profile.ts";
 import { createSubmissionTool, SubmissionCapture } from "../adapter/structured-submissions.ts";
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { LockedSkill, LockedTool } from "../contracts/baseline.ts";
@@ -14,7 +14,9 @@ import { type ProcessSelection, ProcessSelectionDecisionSchema, type ProcessSpec
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
 import { canonicalJson, hashJson } from "../ir/hash.ts";
+import { createAgentCardCatalogTools, createProcessSpecCatalogTools } from "./asset-catalog-tools.ts";
 import { ProcessSelectionBlockedError, type ProcessSelector, type WorkflowDesigner } from "./control-plane.ts";
+import { buildInitialWorkflowDesignPrompt, buildWorkflowDesignRevisionPrompt } from "./control-role-prompts.ts";
 import type { WorkflowDraftManager } from "./workflow-draft.ts";
 import { createWorkflowDraftTools, type WorkflowDraftToolset } from "./workflow-draft-tools.ts";
 
@@ -35,19 +37,23 @@ class PiStructuredRole<TSchemaValue extends TSchema> {
 	private readonly adapter: NodeSessionAdapter<Parameters<PiNodeSessionFactory["create"]>[0]>;
 	private readonly options: PiControlRoleOptions;
 	private readonly tool;
+	private readonly additionalTools: readonly ToolDefinition[];
 
 	constructor(
 		options: PiControlRoleOptions,
 		schema: TSchemaValue,
 		name: string,
+		description: string,
 		validate?: (value: Static<TSchemaValue>) => readonly string[],
+		additionalTools: readonly ToolDefinition[] = [],
 	) {
 		this.options = options;
+		this.additionalTools = additionalTools;
 		this.adapter = new NodeSessionAdapter(new PiNodeSessionFactory(options));
 		this.tool = createSubmissionTool({
 			name,
 			label: name,
-			description: "Submit the structured control-role result for Runtime validation.",
+			description,
 			parameters: schema,
 			capture: this.capture,
 			validate,
@@ -79,7 +85,7 @@ class PiStructuredRole<TSchemaValue extends TSchema> {
 				},
 				runDefaultModel: this.options.model,
 				runDefaultThinkingLevel: this.options.thinkingLevel,
-				controlTools: [this.tool],
+				controlTools: [...this.additionalTools, this.tool],
 			},
 		});
 		await this.adapter.dispatch(runId, roleId, roleId, roundId, prompt);
@@ -99,14 +105,16 @@ export class PiProcessSelector implements ProcessSelector {
 			this.options,
 			ProcessSelectionDecisionSchema,
 			"submit_process_selection",
+			"Submit the selected ProcessSpec or a blocked selection result. Use exact registered IDs, versions, and requirement references. Runtime validates and records the candidate decision.",
 			(decision) => validateProcessSelectionDecision(decision, task, specs),
+			createProcessSpecCatalogTools(specs),
 		);
 		const decision = await role.run(
 			runId,
 			"process-selector",
 			"selection-1",
-			`${loadPrompt("common")}\n\n${renderAgentProfile(this.options.agentCard)}\n\n${loadPrompt("process-selector")}`,
-			`TaskInput:\n${canonicalJson(task)}\n\nAvailable ProcessSpecs:\n${canonicalJson(specs)}`,
+			`${loadPrompt("common")}\n\n${renderAgentRuntimeProfile(this.options.agentCard)}\n\n${loadPrompt("process-selector")}`,
+			`TaskInput:\n${canonicalJson(task)}\n\nSearch the registered ProcessSpec catalog, inspect serious candidates, then submit one selection decision.`,
 		);
 		if (decision.status === "blocked")
 			throw new ProcessSelectionBlockedError(
@@ -192,9 +200,14 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 	private readonly designSkill: LockedSkill;
 	private readonly runSkill: LockedSkill;
 	private readonly assetSummary: JsonValue;
+	private readonly agentCards: readonly CompiledAgentCard[];
 	private readonly active = new Map<
 		string,
-		{ adapter: NodeSessionAdapter<Parameters<PiNodeSessionFactory["create"]>[0]>; tools: WorkflowDraftToolset }
+		{
+			adapter: NodeSessionAdapter<Parameters<PiNodeSessionFactory["create"]>[0]>;
+			tools: WorkflowDraftToolset;
+			initialized: boolean;
+		}
 	>();
 
 	constructor(options: {
@@ -208,12 +221,14 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 		designSkill: LockedSkill;
 		runSkill: LockedSkill;
 		assetSummary: JsonValue;
+		agentCards: readonly CompiledAgentCard[];
 	}) {
 		this.optionsForRun = options.optionsForRun;
 		this.managerForRun = options.managerForRun;
 		this.designSkill = options.designSkill;
 		this.runSkill = options.runSkill;
 		this.assetSummary = options.assetSummary;
+		this.agentCards = options.agentCards;
 	}
 	async design(
 		runId: string,
@@ -231,6 +246,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 			active = {
 				adapter: new NodeSessionAdapter(new PiNodeSessionFactory(options)),
 				tools,
+				initialized: false,
 			};
 			await active.adapter.create({
 				runId,
@@ -239,7 +255,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				createInput: {
 					workspace: options.workspace,
 					sessionDirectory: options.sessionDirectory,
-					systemPrompt: `${loadPrompt("common")}\n\n${renderAgentProfile(options.agentCard)}\n\n${loadPrompt("workflow-designer")}`,
+					systemPrompt: `${loadPrompt("common")}\n\n${renderAgentRuntimeProfile(options.agentCard)}\n\n${loadPrompt("workflow-designer")}`,
 					participant: {
 						participantId: "workflow-designer",
 						agentCard: options.agentCard,
@@ -249,7 +265,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 					},
 					runDefaultModel: options.model,
 					runDefaultThinkingLevel: options.thinkingLevel,
-					controlTools: tools.tools,
+					controlTools: [...tools.tools, ...createAgentCardCatalogTools(this.agentCards)],
 				},
 			});
 			await active.adapter.dispatch(
@@ -257,18 +273,29 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				"workflow-designer",
 				"workflow-designer",
 				"design-method",
-				`/skill:${this.designSkill.id} Load the workflow design method for this Run. Do not submit a Workflow yet; acknowledge readiness for the task-specific Run Skill.`,
+				`/skill:${this.designSkill.id} Load the workflow design method. Do not submit a Workflow yet.`,
 			);
 			this.active.set(runId, active);
 		}
 		active.tools.resetSubmitted();
+		const prompt = active.initialized
+			? buildWorkflowDesignRevisionPrompt(draft.revision, compilerDiagnostics)
+			: buildInitialWorkflowDesignPrompt(
+					this.runSkill.id,
+					task,
+					selection,
+					spec,
+					this.assetSummary,
+					compilerDiagnostics,
+				);
 		await active.adapter.dispatch(
 			runId,
 			"workflow-designer",
 			"workflow-designer",
 			`design-${draft.revision + 1}`,
-			`/skill:${this.runSkill.id} TaskInput:\n${canonicalJson(task)}\n\nProcessSelection (frozen; its trusted Workflow reference is managed by Runtime):\n${canonicalJson(selection)}\n\nProcessSpec:\n${canonicalJson(spec)}\n\nAvailable assets:\n${canonicalJson(this.assetSummary)}\n\nCompiler diagnostics:\n${compilerDiagnostics.length > 0 ? compilerDiagnostics.join("\n") : "None"}`,
+			prompt,
 		);
+		active.initialized = true;
 		const submitted = active.tools.getSubmitted();
 		if (!submitted) throw new Error("Workflow Designer did not submit a valid Draft");
 		return submitted;

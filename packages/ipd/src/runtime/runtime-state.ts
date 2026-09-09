@@ -7,7 +7,7 @@ import type {
 	SubmissionRecord,
 } from "../contracts/runtime.ts";
 import type { NodeInput, NodeOutputRef } from "../contracts/workflow.ts";
-import type { NodeTaskContext } from "./node-worker.ts";
+import type { NodeTaskContext, RoundFeedback } from "./node-worker.ts";
 
 type NodeOutputInput = Extract<NodeInput, { kind: "node_output" }>;
 const graphOutputKey = (nodeId: string, outputId: string) => `${nodeId}/${outputId}`;
@@ -180,27 +180,51 @@ export function roundInputsAreValid(node: EffectiveNode, round: RoundRecord, sta
 	return true;
 }
 
-export function reworkFeedback(node: EffectiveNode, state: RunState): string[] {
-	let latestReviewFeedback: string[] = [];
+export function reworkFeedback(node: EffectiveNode, state: RunState): RoundFeedback[] {
+	let latestReviewFeedback: RoundFeedback[] = [];
 	for (let index = state.reviews.length - 1; index >= 0; index--) {
 		const review = state.reviews[index];
 		if (review?.decision === "REWORK" && review.reworkNodeIds.includes(node.definition.node_id)) {
-			latestReviewFeedback = review.criteria.flatMap((item) => item.requiredRework);
+			latestReviewFeedback = review.criteria.flatMap((criterion) =>
+				criterion.requiredRework.map((issue) => ({
+					type: "quality_rework" as const,
+					sourceId: review.reviewId,
+					criterionId: criterion.criterionId,
+					issue,
+					evidenceRef: `review:${review.reviewId}:${criterion.criterionId}`,
+					expectedCorrection: issue,
+				})),
+			);
 			break;
 		}
 	}
 	let latestMechanicalRound: string | undefined;
 	for (let index = state.mechanicalChecks.length - 1; index >= 0; index--) {
 		const check = state.mechanicalChecks[index];
-		if (check?.nodeId === node.definition.node_id && check.result === "FAIL") {
+		if (check?.nodeId === node.definition.node_id) {
 			latestMechanicalRound = check.roundId;
 			break;
 		}
 	}
 	const mechanicalFeedback = latestMechanicalRound
 		? state.mechanicalChecks
-				.filter((check) => check.roundId === latestMechanicalRound)
-				.flatMap((check) => check.feedback)
+				.filter((check) => check.roundId === latestMechanicalRound && check.result === "FAIL")
+				.flatMap((check) =>
+					check.feedback.map((feedback) => {
+						const separator = feedback.indexOf(": ");
+						const criterionId = separator < 0 ? undefined : feedback.slice(0, separator);
+						const issue = separator < 0 ? feedback : feedback.slice(separator + 2);
+						return {
+							type: "mechanical_failure" as const,
+							sourceId: check.submissionId,
+							criterionId,
+							outputId: check.outputId,
+							issue,
+							evidenceRef: `mechanical:${check.roundId}:${check.outputId}${criterionId ? `:${criterionId}` : ""}`,
+							expectedCorrection: "Correct the output and rerun the required mechanical check.",
+						};
+					}),
+				)
 		: [];
 	return [...latestReviewFeedback, ...mechanicalFeedback];
 }

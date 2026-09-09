@@ -61,7 +61,6 @@ export const NodeAgentConfigSchema = Type.Object(
 		participant_id: IdentifierSchema,
 		agent_ref: VersionedAssetRefSchema,
 		required_capabilities: Type.Array(IdentifierSchema, { uniqueItems: true }),
-		system_prompt_addendum: Type.Array(NonEmptyStringSchema),
 		skills: Type.Array(ResourceRefSchema, { uniqueItems: true }),
 		tools: Type.Array(ResourceRefSchema, { uniqueItems: true }),
 		knowledge_bases: Type.Array(VersionedAssetRefSchema, { uniqueItems: true }),
