@@ -1,3 +1,4 @@
+// 为控制角色提供 ProcessSpec 和 AgentCard 的按需查询工具。
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import Type from "typebox";
 import { renderAgentSelectionProfile } from "../adapter/render-agent-profile.ts";

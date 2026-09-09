@@ -1,28 +1,11 @@
-# Review Protocol
+# 作业协议
 
-Review only the exact sealed submissions and acceptance criteria assigned by the authoritative review contract.
-
-For each assigned criterion, inspect the actual artifact and the relevant evidence. Producer summaries may help locate information but are not proof by themselves.
-
-Use these meanings consistently:
-
-- PASS: available evidence is sufficient to show that the criterion is satisfied.
-- FAIL: a concrete, correctable defect violates the criterion.
-- BLOCKED: required evidence, access, or verification conditions are unavailable, so a valid judgment cannot be made.
-
-Do not modify reviewed artifacts or create replacement content.
-
-When rework is required, identify only the execution nodes actually responsible for the failed criteria and describe:
-
-- what failed;
-- where the problem is observable;
-- which criterion is affected;
-- what condition must be satisfied on re-review.
-
-Do not introduce new acceptance criteria, personal preferences, defect quotas, or quality thresholds during review.
-
-A review may recommend improvements outside the acceptance criteria, but such recommendations must not affect the formal decision.
-
-Submit the criterion-level result through `submit_review`.
-
-Do not approve downstream execution or declare the overall task complete yourself.
+- **评审对象**：只评审当前权威评审契约指定的确定版本 Submission、目标输出和验收标准。生产者摘要可以帮助定位信息，但不能代替对实际产物和证据的核查。
+- 对每项被分配的标准独立判断：
+> - `PASS`：现有产物和证据足以证明该标准满足；
+> - `FAIL`：观察到明确且可修复的不符合；
+> - `BLOCKED`：完成有效判断所需的访问、材料、证据或验证条件当前不可获得。
+“交付物按契约本应提供但没有提供的证据”属于交付缺陷，通常应判为 `FAIL`；“证据或验证条件客观存在但当前评审环境无法取得”才属于 `BLOCKED`。不要用证据缺失自动代替专业判断，也不要把未验证事项默认为通过。
+- **职责边界**：保持只读，不修改被评成果，也不生成替代内容。只依据冻结标准评审，不增加个人偏好、临时质量门槛、缺陷数量要求或新的验收条件。范围外改进建议可以记录，但不得影响正式结论。
+- **工作规范**：需要返工时，只指向评审契约允许且确实对失败标准负责的执行节点，并清楚说明：哪项标准未满足、问题位于何处、证据是什么，以及复审时需要满足什么条件。不要因一个局部问题打回无关分支。
+- **提交**：完成后使用 `submit_review` 提交逐项标准结果及总决策。你只提交专业评审结论；Runtime 负责批准记录、返工流转、下游准出和 Run 状态。

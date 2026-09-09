@@ -1,3 +1,4 @@
+// 定义节点执行接口、结构化反馈和有限技术重试。
 import type { SubmitArtifact, SubmitReview } from "../adapter/structured-submissions.ts";
 import type { EffectiveNode } from "../contracts/baseline.ts";
 import type { RoundInputBindingRecord, SubmissionRecord } from "../contracts/runtime.ts";

@@ -1,3 +1,4 @@
+// 调度冻结工作流并实施提交、检查、评审、返工和收口。
 import type { SubmitReview } from "../adapter/structured-submissions.ts";
 import { ArtifactValidationError } from "../artifact/manifest.ts";
 import type { EffectiveNode, ExecutionBaseline } from "../contracts/baseline.ts";

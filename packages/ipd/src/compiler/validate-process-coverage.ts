@@ -1,3 +1,4 @@
+// 校验 Workflow 对 TaskInput 和 ProcessSpec 的真实覆盖。
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { CompilerDiagnostic } from "../contracts/baseline.ts";
 import type { ProcessSpec } from "../contracts/process-spec.ts";

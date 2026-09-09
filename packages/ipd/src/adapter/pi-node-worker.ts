@@ -1,3 +1,4 @@
+// 使用持续 Pi Session 执行节点轮次并捕获结构化提交。
 import { isAbsolute } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";

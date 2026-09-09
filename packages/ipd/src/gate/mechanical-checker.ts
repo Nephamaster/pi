@@ -1,3 +1,4 @@
+// 执行可注册的确定性质量检查并汇总逐项结果。
 import Type from "typebox";
 import { validateArtifactManifest } from "../artifact/manifest.ts";
 import type { JsonValue } from "../contracts/primitives.ts";

@@ -1,3 +1,4 @@
+// 定义可编译的 execution/review 工作流与完成条件。
 import Type, { type Static } from "typebox";
 import {
 	ContentRecordRefSchema,

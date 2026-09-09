@@ -1,3 +1,4 @@
+// 从共享工作区校验并封存不可混淆的提交版本。
 import { copyFile, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { SubmitArtifact } from "../adapter/structured-submissions.ts";

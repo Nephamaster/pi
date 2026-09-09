@@ -1,3 +1,4 @@
+// 将 TypeBox Schema 校验错误转换为 IPD 诊断。
 import type { TSchema } from "typebox";
 import { Compile } from "typebox/compile";
 import type { IpdDiagnostic } from "./types.ts";

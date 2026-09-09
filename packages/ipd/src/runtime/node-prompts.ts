@@ -1,3 +1,4 @@
+// 提供节点稳定系统规则和最小轮次启动消息。
 import { loadPrompt } from "../adapter/prompt-loader.ts";
 import type { NodeRoundWork } from "./node-worker.ts";
 

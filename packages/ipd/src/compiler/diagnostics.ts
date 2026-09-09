@@ -1,3 +1,4 @@
+// 提供 Compiler 诊断和稳定对象键的基础辅助函数。
 import type { CompilerDiagnostic } from "../contracts/baseline.ts";
 import type { NodeOutputRef } from "../contracts/workflow.ts";
 

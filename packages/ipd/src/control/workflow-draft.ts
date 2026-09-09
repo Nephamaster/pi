@@ -1,3 +1,4 @@
+// 持久化并校验带修订号和幂等操作的工作流草稿。
 import { open, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Static } from "typebox";

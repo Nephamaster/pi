@@ -1,3 +1,4 @@
+// 创建并校验带路径、类型、大小和哈希的产物清单。
 import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import Type, { type Static } from "typebox";

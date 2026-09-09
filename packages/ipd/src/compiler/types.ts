@@ -1,3 +1,4 @@
+// 定义 Compiler 资产目录和校验结果的内部类型。
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { CompilerDiagnostic, ExecutionGraphIndex, LockedSkill, LockedTool } from "../contracts/baseline.ts";
 import type { LockedAssetRef } from "../contracts/primitives.ts";

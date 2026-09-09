@@ -1,3 +1,4 @@
+// 校验评审提交的标准覆盖、证据和返工一致性。
 import type { SubmitReview } from "../adapter/structured-submissions.ts";
 import type { EffectiveNode } from "../contracts/baseline.ts";
 

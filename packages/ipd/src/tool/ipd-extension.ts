@@ -1,3 +1,4 @@
+// 定义外部 Pi 可调用的 IPD 创建和只读查询工具。
 import { defineTool, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import Type, { type Static } from "typebox";
 import { NonEmptyStringSchema } from "../contracts/primitives.ts";

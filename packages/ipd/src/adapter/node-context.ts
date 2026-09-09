@@ -1,3 +1,4 @@
+// 将冻结任务、节点契约、专业角色和当前轮次投影为模型上下文。
 import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";

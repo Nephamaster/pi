@@ -1,3 +1,4 @@
+// 计算节点就绪、完整批准、返工失效和 Run 完成状态。
 import type { EffectiveNode, ExecutionBaseline } from "../contracts/baseline.ts";
 import type {
 	ApprovalRecord,

@@ -1,3 +1,4 @@
+// 定义 AgentCard 资产、引用和编译后员工契约。
 import Type, { type Static } from "typebox";
 import {
 	IdentifierSchema,

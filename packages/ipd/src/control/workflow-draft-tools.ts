@@ -1,3 +1,4 @@
+// 向工作流设计师暴露受控的草稿增量编辑工具。
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import Type from "typebox";
 import { IdentifierSchema, NonEmptyStringSchema, VersionSchema } from "../contracts/primitives.ts";

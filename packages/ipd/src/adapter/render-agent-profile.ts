@@ -1,3 +1,4 @@
+// 将 AgentCard 分别投影为运行画像和选人画像。
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 
 function section(title: string, values: readonly string[]): string {

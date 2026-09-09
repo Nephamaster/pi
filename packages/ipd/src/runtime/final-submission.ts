@@ -1,3 +1,4 @@
+// 把已完整批准的交付输出投影到最终交付目录。
 import { copyFile, mkdir, rename, rm } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { hashFile } from "../artifact/hash-file.ts";

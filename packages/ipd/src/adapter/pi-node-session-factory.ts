@@ -1,3 +1,4 @@
+// 根据冻结参与者配置创建受限的 Pi AgentSession。
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {

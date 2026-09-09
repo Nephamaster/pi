@@ -1,3 +1,4 @@
+// 按 ID、版本和哈希登记及查询编译后的 AgentCard。
 import type { AgentCardRef, CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { VersionedAssetRef } from "../contracts/primitives.ts";
 import type { IpdDiagnostic } from "../ir/types.ts";

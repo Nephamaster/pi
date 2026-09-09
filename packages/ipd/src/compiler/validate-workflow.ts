@@ -1,3 +1,4 @@
+// 校验工作流结构、依赖、Gate、输出所有权和完成条件。
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { CompilerDiagnostic } from "../contracts/baseline.ts";
 import type { ProcessSpec } from "../contracts/process-spec.ts";

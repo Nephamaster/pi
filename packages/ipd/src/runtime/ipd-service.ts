@@ -1,3 +1,4 @@
+// 提供 Run 创建、后台执行、查询、事件和结果服务。
 import { randomUUID } from "node:crypto";
 import type { CompilerAssetCatalog } from "../compiler/types.ts";
 import type { LockedSkill } from "../contracts/baseline.ts";

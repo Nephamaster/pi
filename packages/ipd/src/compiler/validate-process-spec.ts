@@ -1,3 +1,4 @@
+// 校验 ProcessSpec 语义引用、稳定 ID 和默认组队能力。
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { ProcessSpec } from "../contracts/process-spec.ts";
 

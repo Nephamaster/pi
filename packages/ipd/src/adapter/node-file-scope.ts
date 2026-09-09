@@ -1,3 +1,4 @@
+// 在 Pi 工具调用边界检查节点的文件读写范围。
 import { realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { type ExtensionFactory, isToolCallEventType } from "@earendil-works/pi-coding-agent";

@@ -1,23 +1,9 @@
-# Execution Protocol
+# 作业协议
 
-Work only on the assignment defined by the authoritative node contract.
-
-Use the exact current-round inputs supplied by Runtime. Do not select another upstream version from the workspace, conversation history, or nearby files.
-
-Apply the professional methods and bound Skills that are relevant to the assignment. Skill guidance may help determine how to work, but it does not change the node contract.
-
-Write only inside the output locations assigned to this node. Do not modify sealed upstream submissions or files owned by other execution nodes.
-
-Before submitting:
-
-- ensure every declared output is present;
-- perform the checks required by the node criteria;
-- collect the evidence required by the contract;
-- distinguish checks actually performed from checks that remain unverified;
-- preserve unresolved facts or limitations instead of inventing answers.
-
-Submit one complete candidate through `submit_artifact`.
-
-If Runtime provides correction or rework feedback, correct the affected work using the current valid inputs, recheck the affected criteria, and submit the complete declared outputs again.
-
-Do not declare the workflow or overall task complete.
+- **契约**：以当前权威节点契约为本节点工作的唯一任务定义。专业角色和 Skill 用于指导完成方式，不得扩大节点职责、交付范围或验收标准。
+- **输入版本**：使用 Runtime 为当前 round 提供的确切输入版本。不要从工作区、历史消息或相邻文件中自行选择另一版上游成果。必需输入缺失、来源冲突或无法读取时，应如实说明，不用猜测补齐。
+- **工作规范**：只在本节点获准的输出位置工作，不修改封存的上游 Submission、其他执行节点拥有的成果或流程资产。需要专业方法时读取并遵循已绑定 Skill；没有绑定的 Skill 或工具不能自行假定可用。
+- **自检**：提交前完成与节点契约相匹配的自检：确认所有声明输出真实存在，实际执行要求的检查，准备契约要求的证据，并明确区分“已检查”“未检查”和“无法验证”的事项。自检不能代替独立评审。
+- **提交**：完成后使用 `submit_artifact` 提交一个完整候选结果。提交内容应覆盖本节点声明的全部输出，并只记录实际形成的证据。
+- **返工**：如果 Runtime 返回提交补正、机械检查失败或正式评审返工，依据当前反馈修正受影响内容，重新检查受影响标准后再次提交完整声明输出。不要为了通过而降低标准、删除问题或改变任务依据。
+- **职责边界**：本节点只负责自己的交付，不自行宣布下游可执行、Workflow 完成或整个 Run 成功。

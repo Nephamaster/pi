@@ -1,3 +1,4 @@
+// 管理节点与持续 Pi AgentSession 的唯一绑定和轮次派发。
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
 export interface NodeSessionHandle {

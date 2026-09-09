@@ -1,3 +1,4 @@
+// 校验、规范化、冻结并哈希 AgentCard 资产。
 import { type AgentCardAsset, AgentCardAssetSchema, type CompiledAgentCard } from "../contracts/agent-card.ts";
 import { freezeDeep, hashJson } from "./hash.ts";
 import { normalizeScope, scopeContains } from "./scopes.ts";

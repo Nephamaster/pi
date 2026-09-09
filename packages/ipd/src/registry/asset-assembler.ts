@@ -1,3 +1,4 @@
+// 从包、用户和项目来源装配可执行的 IPD 资产目录。
 import type { Dirent } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { extname, join } from "node:path";

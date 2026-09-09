@@ -1,3 +1,4 @@
+// 登记和校验仅包含定义的机械检查目录。
 import { Compile } from "typebox/compile";
 import type { CheckDefinition, IpdDiagnostic } from "../ir/types.ts";
 

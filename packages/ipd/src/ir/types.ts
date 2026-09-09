@@ -1,3 +1,4 @@
+// 定义资产解析、检查器和 IR 诊断的共享类型。
 import type { TSchema } from "typebox";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
 

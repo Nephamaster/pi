@@ -1,3 +1,4 @@
+// 创建并返回单个 Run 的标准目录布局。
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 

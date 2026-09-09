@@ -1,3 +1,4 @@
+// 提供测试和最小启动场景使用的固定选规与设计角色。
 import type { VersionedAssetRef } from "../contracts/primitives.ts";
 import type { ProcessSelection, ProcessSpec } from "../contracts/process-spec.ts";
 import type { TaskInput } from "../contracts/task-input.ts";

@@ -1,3 +1,4 @@
+// 定义 Compiler 报告、有效参与者和冻结执行基线。
 import type { CompiledAgentCard } from "./agent-card.ts";
 import type { LockedAssetRef } from "./primitives.ts";
 import type { CriterionDefinition, WorkflowDefinition, WorkflowNode } from "./workflow.ts";

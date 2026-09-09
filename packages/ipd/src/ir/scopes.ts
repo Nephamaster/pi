@@ -1,3 +1,4 @@
+// 规范化相对路径并判断文件作用域包含或重叠关系。
 import { isAbsolute, posix } from "node:path";
 
 export function normalizeScope(scope: string): string | undefined {

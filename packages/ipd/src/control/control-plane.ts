@@ -1,3 +1,4 @@
+// 编排任务接入、规范选择、工作流设计和编译冻结。
 import { compileWorkflow } from "../compiler/compiler.ts";
 import type { CompilerAssetCatalog } from "../compiler/types.ts";
 import type { ExecutionBaseline, LockedSkill } from "../contracts/baseline.ts";

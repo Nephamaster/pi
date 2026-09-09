@@ -1,3 +1,4 @@
+// 定义 IPD 契约共享的标识、版本、引用和 JSON 原语。
 import Type, { type Static } from "typebox";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };

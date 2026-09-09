@@ -1,3 +1,4 @@
+// 以文件事务保存 Run 状态、幂等操作和顺序事件。
 import { open, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { JsonValue } from "../contracts/primitives.ts";

@@ -1,3 +1,4 @@
+// 定义流程规范、规范选择和稳定质量要求契约。
 import Type, { type Static } from "typebox";
 import {
 	ContentRecordRefSchema,

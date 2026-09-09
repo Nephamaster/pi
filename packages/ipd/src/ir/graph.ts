@@ -1,3 +1,4 @@
+// 提供依赖图拓扑排序、未知引用和精确环检测。
 export interface DirectedNode {
 	id: string;
 	dependsOn: readonly string[];

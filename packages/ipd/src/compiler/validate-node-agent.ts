@@ -1,3 +1,4 @@
+// 校验节点员工能力、资源引用和权限边界。
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { CompilerDiagnostic } from "../contracts/baseline.ts";
 import type { WorkflowNode } from "../contracts/workflow.ts";

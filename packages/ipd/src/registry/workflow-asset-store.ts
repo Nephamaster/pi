@@ -1,3 +1,4 @@
+// 原子保存不可覆盖的版本化 Workflow 资产。
 import { link, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";

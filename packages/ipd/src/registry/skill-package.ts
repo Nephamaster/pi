@@ -1,3 +1,4 @@
+// 计算完整 Skill 包内容哈希并拒绝符号链接。
 import { createHash } from "node:crypto";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";

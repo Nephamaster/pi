@@ -1,3 +1,4 @@
+// 定义并捕获执行、评审和控制角色的结构化提交。
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import Type, { type Static, type TSchema } from "typebox";
 import { IdentifierSchema, JsonValueSchema, NonEmptyStringSchema } from "../contracts/primitives.ts";

@@ -1,3 +1,4 @@
+// 导出 IPD 包的公共类型、组件和扩展入口。
 export * from "./adapter/node-context.ts";
 export * from "./adapter/node-file-scope.ts";
 export * from "./adapter/node-session-adapter.ts";

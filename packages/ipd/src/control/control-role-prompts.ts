@@ -1,3 +1,4 @@
+// 构造流程选择和工作流设计各轮的控制消息。
 import type { JsonValue } from "../contracts/primitives.ts";
 import type { ProcessSelection, ProcessSpec } from "../contracts/process-spec.ts";
 import type { TaskInput } from "../contracts/task-input.ts";

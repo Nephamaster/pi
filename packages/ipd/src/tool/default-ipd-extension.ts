@@ -1,3 +1,4 @@
+// 装配默认资产、控制面和 Runtime 并注册 IPD 扩展。
 import { join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {

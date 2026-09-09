@@ -1,3 +1,4 @@
+// 登记带参数 Schema 和执行实现的机械检查器。
 import type { Static, TSchema } from "typebox";
 import { Compile } from "typebox/compile";
 import type { ArtifactContract, ArtifactManifest } from "../artifact/manifest.ts";

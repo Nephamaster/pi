@@ -1,3 +1,4 @@
+// 定义 Run、节点、轮次、提交、评审和批准的运行记录。
 import type { ArtifactManifest } from "../artifact/manifest.ts";
 import type { ExecutionBaseline, LockedSkill } from "./baseline.ts";
 import type { JsonValue } from "./primitives.ts";

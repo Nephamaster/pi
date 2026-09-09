@@ -1,3 +1,4 @@
+// 提供稳定 JSON 规范化、哈希和深冻结能力。
 import { createHash } from "node:crypto";
 import type { JsonValue } from "../contracts/primitives.ts";
 

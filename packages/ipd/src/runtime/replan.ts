@@ -1,3 +1,4 @@
+// 校验候选 replan 不改变冻结任务、标准和责任绑定。
 import type { ExecutionBaseline } from "../contracts/baseline.ts";
 import type { RunState } from "../contracts/runtime.ts";
 import { canonicalJson } from "../ir/hash.ts";

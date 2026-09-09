@@ -1,3 +1,4 @@
+// 计算产物文件的 SHA-256 内容摘要。
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 

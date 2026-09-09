@@ -1,3 +1,4 @@
+// 定义保留来源的任务、要求、材料和未决事实契约。
 import Type, { type Static } from "typebox";
 import { IdentifierSchema, NonEmptyStringSchema, OpaqueIdSchema } from "./primitives.ts";
 

@@ -1,3 +1,4 @@
+// 在内存中按 ID 和版本登记 Workflow 资产。
 import type { IpdDiagnostic, WorkflowAssetRecord } from "../ir/types.ts";
 
 export interface WorkflowAssetRegistry {

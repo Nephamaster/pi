@@ -1,3 +1,4 @@
+// 校验完整工作流输入并生成冻结的执行基线。
 import type {
 	CompilerDiagnostic,
 	CompilerReport,
