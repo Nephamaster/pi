@@ -1,4 +1,4 @@
-import { open, readFile, realpath, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import Type, { type Static } from "typebox";
 import type { ArtifactContract } from "../contracts/artifact.ts";
@@ -103,52 +103,27 @@ async function validateFileContent(path: string, mimeType: string, diagnosticPat
 		}
 	}
 	if (mimeType.startsWith("text/")) {
-		const file = await open(path, "r");
-		try {
-			const buffer = Buffer.alloc(65_536);
-			const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
-			const content = buffer.subarray(0, bytesRead);
-			if (content.includes(0)) {
-				return [
-					{
-						code: "artifact_content_invalid",
-						path: diagnosticPath,
-						message: `File declared as ${mimeType} contains binary NUL bytes`,
-					},
-				];
-			}
-			try {
-				new TextDecoder("utf-8", { fatal: true }).decode(content);
-				return [];
-			} catch {
-				return [
-					{
-						code: "artifact_content_invalid",
-						path: diagnosticPath,
-						message: `File declared as ${mimeType} is not valid UTF-8 text`,
-					},
-				];
-			}
-		} finally {
-			await file.close();
+		const content = await readFile(path);
+		if (content.includes(0)) {
+			return [
+				{
+					code: "artifact_content_invalid",
+					path: diagnosticPath,
+					message: `File declared as ${mimeType} contains binary NUL bytes`,
+				},
+			];
 		}
-	}
-	if (mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation") {
-		const file = await open(path, "r");
 		try {
-			const header = Buffer.alloc(4);
-			const { bytesRead } = await file.read(header, 0, header.length, 0);
-			return bytesRead === 4 && header[0] === 0x50 && header[1] === 0x4b
-				? []
-				: [
-						{
-							code: "artifact_content_invalid",
-							path: diagnosticPath,
-							message: "File declared as PPTX is not an OOXML ZIP package",
-						},
-					];
-		} finally {
-			await file.close();
+			new TextDecoder("utf-8", { fatal: true }).decode(content);
+			return [];
+		} catch {
+			return [
+				{
+					code: "artifact_content_invalid",
+					path: diagnosticPath,
+					message: `File declared as ${mimeType} is not valid UTF-8 text`,
+				},
+			];
 		}
 	}
 	return [];

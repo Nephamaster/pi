@@ -10,4 +10,8 @@ describe("canonical JSON", () => {
 		expect(hashJson({ b: 2, a: 1 })).toBe(hashJson({ a: 1, b: 2 }));
 		expect(hashJson({ a: 1 })).toMatch(/^[a-f0-9]{64}$/);
 	});
+
+	it("uses locale-independent key ordering", () => {
+		expect(canonicalJson({ ı: 1, I: 2, i: 3, İ: 4 })).toBe('{"I":2,"i":3,"İ":4,"ı":1}');
+	});
 });

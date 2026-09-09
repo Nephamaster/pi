@@ -1,7 +1,7 @@
-import { link, mkdir, open, readdir, readFile, unlink } from "node:fs/promises";
+import { link, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { type WorkflowAsset, WorkflowAssetSchema } from "../contracts/workflow-asset.ts";
+import { type WorkflowDefinition, WorkflowDefinitionSchema } from "../contracts/workflow.ts";
 import { hashJson } from "../ir/hash.ts";
 import type { WorkflowAssetRecord } from "../ir/types.ts";
 import { validateSchema } from "../ir/validation.ts";
@@ -24,7 +24,7 @@ export class WorkflowAssetWriteError extends Error {
 }
 
 export interface WorkflowAssetStore {
-	save(workflow: WorkflowAsset, hash: string): Promise<WorkflowAssetWriteResult>;
+	save(workflow: WorkflowDefinition, hash: string): Promise<WorkflowAssetWriteResult>;
 }
 
 export interface FileWorkflowAssetStoreOptions {
@@ -41,7 +41,7 @@ export class FileWorkflowAssetStore implements WorkflowAssetStore {
 		this.format = options.format ?? "json";
 	}
 
-	async save(workflow: WorkflowAsset, hash: string): Promise<WorkflowAssetWriteResult> {
+	async save(workflow: WorkflowDefinition, hash: string): Promise<WorkflowAssetWriteResult> {
 		const actualHash = hashJson(workflow);
 		if (actualHash !== hash) {
 			throw new WorkflowAssetWriteError(
@@ -49,19 +49,10 @@ export class FileWorkflowAssetStore implements WorkflowAssetStore {
 				`Workflow Hash mismatch: expected ${hash}, calculated ${actualHash}`,
 			);
 		}
-		const directory = join(this.directory, workflow.id, workflow.version);
+		const directory = join(this.directory, workflow.workflow_id);
 		await mkdir(directory, { recursive: true });
 		const extension = this.format === "json" ? "json" : "yaml";
-		const path = join(directory, `${hash}.${extension}`);
-		const existingVersions = (await readdir(directory)).filter(
-			(name) => !name.startsWith(".") && (name.endsWith(".json") || name.endsWith(".yaml") || name.endsWith(".yml")),
-		);
-		if (!existingVersions.includes(`${hash}.${extension}`) && existingVersions.length > 0) {
-			throw new WorkflowAssetWriteError(
-				"version_conflict",
-				`Workflow ${workflow.id}@${workflow.version} already has different content; increment its version before saving`,
-			);
-		}
+		const path = join(directory, `${workflow.workflow_version}.${extension}`);
 		const content =
 			this.format === "json"
 				? `${JSON.stringify(workflow, null, "\t")}\n`
@@ -91,16 +82,17 @@ export class FileWorkflowAssetStore implements WorkflowAssetStore {
 		}
 
 		const existing = await this.read(path);
-		if (hashJson(existing) !== hash) {
+		const existingHash = hashJson(existing);
+		if (existingHash !== hash) {
 			throw new WorkflowAssetWriteError(
-				"write_failed",
-				`Existing Workflow Asset content does not match its file Hash: ${path}`,
+				"version_conflict",
+				`Workflow version already contains ${existingHash}; increment its version before saving ${hash}`,
 			);
 		}
 		return { record: { workflow: existing, hash, source: path }, reused };
 	}
 
-	private async read(path: string): Promise<WorkflowAsset> {
+	private async read(path: string): Promise<WorkflowDefinition> {
 		let value: unknown;
 		try {
 			const content = await readFile(path, "utf8");
@@ -108,7 +100,7 @@ export class FileWorkflowAssetStore implements WorkflowAssetStore {
 		} catch (error) {
 			throw new WorkflowAssetWriteError("write_failed", `Failed to read Workflow Asset: ${path}`, { cause: error });
 		}
-		const parsed = validateSchema<WorkflowAsset>(WorkflowAssetSchema, value, path);
+		const parsed = validateSchema<WorkflowDefinition>(WorkflowDefinitionSchema, value, path);
 		if (!parsed.ok) {
 			throw new WorkflowAssetWriteError(
 				"write_failed",

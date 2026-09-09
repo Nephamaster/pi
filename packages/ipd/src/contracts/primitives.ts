@@ -38,6 +38,42 @@ export const VersionSchema = Type.String({
 
 export const NonEmptyStringSchema = Type.String({ minLength: 1 });
 
+export const Sha256Schema = Type.String({ minLength: 64, maxLength: 64, pattern: "^[a-f0-9]{64}$" });
+
+export const VersionedAssetRefSchema = Type.Object(
+	{
+		id: IdentifierSchema,
+		version: VersionSchema,
+	},
+	{ additionalProperties: false },
+);
+
+export type VersionedAssetRef = Static<typeof VersionedAssetRefSchema>;
+
+export const LockedAssetRefSchema = Type.Object(
+	{
+		id: IdentifierSchema,
+		version: VersionSchema,
+		hash: Sha256Schema,
+	},
+	{ additionalProperties: false },
+);
+
+export type LockedAssetRef = Static<typeof LockedAssetRefSchema>;
+
+export const ContentRecordRefSchema = Type.Object(
+	{
+		id: OpaqueIdSchema,
+		hash: Sha256Schema,
+	},
+	{ additionalProperties: false },
+);
+
+export type ContentRecordRef = Static<typeof ContentRecordRefSchema>;
+
+export const ResourceRefSchema = Type.Object({ id: IdentifierSchema }, { additionalProperties: false });
+export type ResourceRef = Static<typeof ResourceRefSchema>;
+
 export const ThinkingLevelSchema = Type.Union([
 	Type.Literal("off"),
 	Type.Literal("minimal"),

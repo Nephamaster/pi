@@ -74,18 +74,20 @@ describe("MechanicalChecker", () => {
 		const result = await checker.evaluate(
 			[
 				{
-					id: "integrity",
+					kind: "mechanical",
+					criterion_id: "integrity",
 					description: "Validate file integrity",
-					checkId: "artifact-integrity",
+					check_id: "artifact-integrity",
 					parameters: {},
-					requiredEvidence: ["Manifest"],
+					evidence_requirements: ["Manifest"],
 				},
 				{
-					id: "metadata",
+					kind: "mechanical",
+					criterion_id: "metadata",
 					description: "Validate metadata",
-					checkId: "metadata-check",
+					check_id: "metadata-check",
 					parameters: { expected: "ok" },
-					requiredEvidence: ["Check output"],
+					evidence_requirements: ["Check output"],
 				},
 			],
 			fixture,
@@ -104,11 +106,12 @@ describe("MechanicalChecker", () => {
 		const result = await checker.evaluate(
 			[
 				{
-					id: "integrity",
+					kind: "mechanical",
+					criterion_id: "integrity",
 					description: "Validate file integrity",
-					checkId: "artifact-integrity",
+					check_id: "artifact-integrity",
 					parameters: {},
-					requiredEvidence: ["Manifest"],
+					evidence_requirements: ["Manifest"],
 				},
 			],
 			fixture,
@@ -123,11 +126,12 @@ describe("MechanicalChecker", () => {
 			checker.evaluate(
 				[
 					{
-						id: "missing",
+						kind: "mechanical",
+						criterion_id: "missing",
 						description: "Missing Check",
-						checkId: "missing",
+						check_id: "missing",
 						parameters: {},
-						requiredEvidence: ["Evidence"],
+						evidence_requirements: ["Evidence"],
 					},
 				],
 				fixture,

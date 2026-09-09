@@ -1,0 +1,1265 @@
+{
+  "schema_version": 1,
+  "source_commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+  "roles": [
+    {
+      "id": "agency-engineering-software-architect",
+      "version": "1.0.0",
+      "category": "engineering",
+      "name": "Software Architect｜软件架构师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "engineering/engineering-software-architect.md",
+        "blob_sha1": "1a69148c99b2c170e36e035a0c7a341e98e634e9",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/engineering/engineering-software-architect.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留 DDD、架构模式、ADR、C4 和演进方法；将原型代码表达为职责与验证契约，不作为已验证框架发布。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/engineering-software-architect.yaml",
+      "generated_sha256": "8dad0ded4cc7a04ad7b5557425f4d225b3584a32093524dad903794d7a962025"
+    },
+    {
+      "id": "agency-engineering-backend-architect",
+      "version": "1.0.0",
+      "category": "engineering",
+      "name": "Backend Architect｜后端架构师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "engineering/engineering-backend-architect.md",
+        "blob_sha1": "7c3125d61e53694ef1bb876e81040ffb84d57956",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/engineering/engineering-backend-architect.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/engineering-backend-architect.yaml",
+      "generated_sha256": "e7bf0907d19360b98eb53fe5aacd9e04eb2564ceeabce4e6c09528af3a75369c"
+    },
+    {
+      "id": "agency-engineering-frontend-developer",
+      "version": "1.0.0",
+      "category": "engineering",
+      "name": "Frontend Developer｜前端开发工程师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "engineering/engineering-frontend-developer.md",
+        "blob_sha1": "68cf7fe861d8af600b619d62c9cde1625e6e4578",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/engineering/engineering-frontend-developer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留原编辑器专长作为条件性能力，而非所有前端任务必做功能。",
+        "上游 FID 指标保留在历史参考说明；本次执行采用目标基线认可的指标版本。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/engineering-frontend-developer.yaml",
+      "generated_sha256": "9c3c9b7e993f66457fc6bd32e3294f252c027f07f59a3a2cecc1ae6be1af3cd9"
+    },
+    {
+      "id": "agency-engineering-ai-engineer",
+      "version": "1.0.0",
+      "category": "engineering",
+      "name": "AI Engineer｜人工智能工程师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "engineering/engineering-ai-engineer.md",
+        "blob_sha1": "a4a8f6d548894bafaf1dfe651f44f3e7179bf569",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/engineering/engineering-ai-engineer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "删除固定 ai/memory-bank 等环境路径，改用节点明确输入与获准存储。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/engineering-ai-engineer.yaml",
+      "generated_sha256": "519b7ba7652edbab43526e2ecdd57d96046a363216cdfdc92488716bb2d6eab5"
+    },
+    {
+      "id": "agency-engineering-devops-automator",
+      "version": "1.0.0",
+      "category": "engineering",
+      "name": "DevOps Automator｜DevOps 自动化工程师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "engineering/engineering-devops-automator.md",
+        "blob_sha1": "a9e7cac04c8e78e812d230aae9f9f676b20413ac",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/engineering/engineering-devops-automator.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/engineering-devops-automator.yaml",
+      "generated_sha256": "59a483ebe8decdde74e2cd2e36c972d4c52b9e4780bfeee663445fbb26e376e4"
+    },
+    {
+      "id": "agency-engineering-code-reviewer",
+      "version": "1.0.0",
+      "category": "engineering",
+      "name": "Code Reviewer｜代码审查工程师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "engineering/engineering-code-reviewer.md",
+        "blob_sha1": "fb93291f4b94a8d5687aa1cc0d05741c3352dd22",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/engineering/engineering-code-reviewer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/engineering-code-reviewer.yaml",
+      "generated_sha256": "8535e798fc85c460da99dbcb93ee229ec27dce51ef7ae180c45427be9aa5aeaa"
+    },
+    {
+      "id": "agency-academic-statistician",
+      "version": "1.0.0",
+      "category": "academic",
+      "name": "Statistician｜统计学家",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "academic/academic-statistician.md",
+        "blob_sha1": "f06e3a98781339b15daa525f43fa9e28f983e621",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/academic/academic-statistician.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/academic-statistician.yaml",
+      "generated_sha256": "c42bb78772f9cac3a60105d401d9508c8cbcce6bb87201558fbd8c6d3d2e759e"
+    },
+    {
+      "id": "agency-academic-historian",
+      "version": "1.0.0",
+      "category": "academic",
+      "name": "Historian｜历史学家",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "academic/academic-historian.md",
+        "blob_sha1": "b67f5a5fcd6fb1b439a3044fcbc21e39fca2247a",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/academic/academic-historian.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/academic-historian.yaml",
+      "generated_sha256": "3f98cb49e34fcba2c45ad2a5fe7db72789cc858c2e9b5252a8e14c6a212dbacc"
+    },
+    {
+      "id": "agency-design-ui-designer",
+      "version": "1.0.0",
+      "category": "design",
+      "name": "UI Designer｜用户界面设计师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "design/design-ui-designer.md",
+        "blob_sha1": "ca8886161000d62dd4429d1462b3fd473c031312",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/design/design-ui-designer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/design-ui-designer.yaml",
+      "generated_sha256": "154a1e925e222ff774254310abbef182a0c36af3172ddd5a61b892433d39b025"
+    },
+    {
+      "id": "agency-design-ux-researcher",
+      "version": "1.0.0",
+      "category": "design",
+      "name": "UX Researcher｜用户体验研究员",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "design/design-ux-researcher.md",
+        "blob_sha1": "0e8a2480dc9bb11a47c19621a9013bdc3466865a",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/design/design-ux-researcher.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "将原协议中的固定时长、人数和活动节奏保留为设计参考，不作为每次任务必须实际举办的活动。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/design-ux-researcher.yaml",
+      "generated_sha256": "122f5eaf2358b3468c9e236368d658a7cb8f82c03068a90913db1415e2f591a4"
+    },
+    {
+      "id": "agency-finance-financial-analyst",
+      "version": "1.0.0",
+      "category": "finance",
+      "name": "Financial Analyst｜财务分析师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "finance/finance-financial-analyst.md",
+        "blob_sha1": "8ec0dbcbcc77eda73e6ed680dc88762aad02b609",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/finance/finance-financial-analyst.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "去除虚构个人姓名、从业年限与历史管理金额；保留建模方法和业务专业性。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/finance-financial-analyst.yaml",
+      "generated_sha256": "2e53857807431387e301ea459df4880fecf70f6a883502861a1316304a785fe7"
+    },
+    {
+      "id": "agency-finance-bookkeeper-controller",
+      "version": "1.0.0",
+      "category": "finance",
+      "name": "Bookkeeper & Controller｜记账与财务控制专员",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "finance/finance-bookkeeper-controller.md",
+        "blob_sha1": "ed28a7488aa98e5e70e71392368d5a010da7882a",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/finance/finance-bookkeeper-controller.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "去除虚构个人履历；将 ASC 606/842/718/805、SOX 等保留为特定地区专业背景，执行前必须确认适用性。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/finance-bookkeeper-controller.yaml",
+      "generated_sha256": "98116c0e1ccf3e8d044cb96bb6c52cd3d6d62b1dc3b64d3c682b31a5a1d7abdf"
+    },
+    {
+      "id": "agency-game-designer",
+      "version": "1.0.0",
+      "category": "game-development",
+      "name": "Game Designer｜游戏设计师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "game-development/game-designer.md",
+        "blob_sha1": "64f719fac09531dfeea308c258ade32d1d74db3c",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/game-development/game-designer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/game-designer.yaml",
+      "generated_sha256": "d85abd18ac8d7ff1dca05e8012b791f16633b4ff8f77e3dfdb37282be738a7fa"
+    },
+    {
+      "id": "agency-game-development-technical-artist",
+      "version": "1.0.0",
+      "category": "game-development",
+      "name": "Technical Artist｜技术美术",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "game-development/technical-artist.md",
+        "blob_sha1": "293e3fcb55f73d026a6463958180e722a2a3465a",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/game-development/technical-artist.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "原 shader、LOD 验证和预算示例转为可检查规格；缺少上下文的代码不标记为可运行工具。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/game-development-technical-artist.yaml",
+      "generated_sha256": "7f1e0aaf6db11e33f27d9bc840c672da14ebb4d24a246ed6676d4811384966c5"
+    },
+    {
+      "id": "agency-gis-analyst",
+      "version": "1.0.0",
+      "category": "gis",
+      "name": "GIS Analyst｜地理信息分析员",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "gis/gis-analyst.md",
+        "blob_sha1": "9b767f21d39a1e74c442105e6a35655ebc85b97a",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/gis/gis-analyst.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/gis-analyst.yaml",
+      "generated_sha256": "ac87bbe0b5f7888f2911bc4e4124b4ca04cf3e4ebf0aa8f4af4b5272cfca1ade"
+    },
+    {
+      "id": "agency-gis-spatial-data-engineer",
+      "version": "1.0.0",
+      "category": "gis",
+      "name": "Spatial Data Engineer｜空间数据工程师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "gis/gis-spatial-data-engineer.md",
+        "blob_sha1": "4b36b8322447454c44f55b445b040a81a6ee9a92",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/gis/gis-spatial-data-engineer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/gis-spatial-data-engineer.yaml",
+      "generated_sha256": "26361f0303b2bfb0749cc99f10832038af274e86611a6acfb568852c18dc6a0c"
+    },
+    {
+      "id": "agency-healthcare-clinical-evidence-agent",
+      "version": "1.0.0",
+      "category": "healthcare",
+      "name": "Clinical Evidence Agent｜临床证据专员",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "healthcare/healthcare-clinical-evidence-agent.md",
+        "blob_sha1": "bedd73f3b88a25899025494e4d8c54870eaf1877",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/healthcare/healthcare-clinical-evidence-agent.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "上游把若干来源/签字状态归为可直接使用的已验证主张；本版显式改为逐项判断设计、用途与范围，不能由来源类别自动放行。",
+        "原 doctor-only 表述作为品牌语气偏好，不用于歪曲医护职业或限制准确术语。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/healthcare-clinical-evidence-agent.yaml",
+      "generated_sha256": "c72d565a4ff7ba908cda924eff3c9184611dd52a564cb1e6298e271c94e36b17"
+    },
+    {
+      "id": "agency-healthcare-sovereign-health-systems-agent",
+      "version": "1.0.0",
+      "category": "healthcare",
+      "name": "Sovereign Health Systems Agent｜国家卫生系统合作专员",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "healthcare/healthcare-sovereign-health-systems-agent.md",
+        "blob_sha1": "b0efcf89cc98acc8427ef52bffd533a8f1eaf5d8",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/healthcare/healthcare-sovereign-health-systems-agent.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留政策使命与双市场框架，但将时间、团队比例及绝对措辞限定为情景参考。",
+        "明确主权市场同样需要当地监管分析，MOU 不构成临床验证或采购许可。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/healthcare-sovereign-health-systems-agent.yaml",
+      "generated_sha256": "c77e632f6a25374c1257f7b8d542aab51f488acccab7d453feaece3f3cfac7ce"
+    },
+    {
+      "id": "agency-marketing-content-creator",
+      "version": "1.0.0",
+      "category": "marketing",
+      "name": "Content Creator｜内容策划与创作者",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "marketing/marketing-content-creator.md",
+        "blob_sha1": "4beedb05f5e4f8754c63125649ac8a9763609330",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/marketing/marketing-content-creator.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "上游文件较短，主要列能力与指标；这里的作业顺序和交付模板为基于这些能力补充的工程化内容，不宣称逐字来自上游。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/marketing-content-creator.yaml",
+      "generated_sha256": "b2bb5507d2acede971b1f0dd6c9430447b0e5fdb65b2e0cdfe6d59edd12ac06e"
+    },
+    {
+      "id": "agency-marketing-seo-specialist",
+      "version": "1.0.0",
+      "category": "marketing",
+      "name": "SEO Specialist｜搜索引擎优化专家",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "marketing/marketing-seo-specialist.md",
+        "blob_sha1": "35cb5e3c0a7f285d2669176ad03a2ed11252e176",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/marketing/marketing-seo-specialist.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留页面冲突审计和无 GSC 替代方法；将“重复关键词必然竞争”、固定毒链比例和语言标签效果等绝对说法降为需证据验证的假设，明确不作为官方规则。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/marketing-seo-specialist.yaml",
+      "generated_sha256": "f5d9ad58ce478eded3648dafb014660f9dbf488cb57881221ca7d29f0e318c77"
+    },
+    {
+      "id": "agency-paid-media-ppc-strategist",
+      "version": "1.0.0",
+      "category": "paid-media",
+      "name": "PPC Campaign Strategist｜效果广告策略师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "paid-media/paid-media-ppc-strategist.md",
+        "blob_sha1": "b767b0c2a8662a84c6f0420d8de6d2449063bb2c",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/paid-media/paid-media-ppc-strategist.md",
+        "credited_author": "John Williams (@itallstartedwithaidea)"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留 John Williams (@itallstartedwithaidea) 的上游作者归属，见来源元数据。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/paid-media-ppc-strategist.yaml",
+      "generated_sha256": "a75360ff82e47f1cb4112bb15e1eaffea54f4b0dc114390201bcfd4f6b6c7f99"
+    },
+    {
+      "id": "agency-paid-media-tracking-specialist",
+      "version": "1.0.0",
+      "category": "paid-media",
+      "name": "Tracking & Measurement Specialist｜追踪与测量专家",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "paid-media/paid-media-tracking-specialist.md",
+        "blob_sha1": "edbe1ffed0a4f400c6604c1cca3d4f1f7a8cf708",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/paid-media/paid-media-tracking-specialist.md",
+        "credited_author": "John Williams (@itallstartedwithaidea)"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留 John Williams (@itallstartedwithaidea) 作者归属；对追踪数字差异加入不同口径的显式解释，不机械强制归零。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/paid-media-tracking-specialist.yaml",
+      "generated_sha256": "b00b415ea0eb17d9d7741a9902ce396ed8284f8cfa96c40f0232a977ae620596"
+    },
+    {
+      "id": "agency-product-manager",
+      "version": "1.0.0",
+      "category": "product",
+      "name": "Product Manager｜产品经理",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "product/product-manager.md",
+        "blob_sha1": "6a617be2dbf1a1321b23b0b40e693041a1178cbe",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/product/product-manager.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "去除 Alex 和十年履历等拟人化事实；保留完整产品方法和三类核心模板。",
+        "对访谈数量、时间和关键指标按证据与项目范围使用，不伪造业务前提。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/product-manager.yaml",
+      "generated_sha256": "41d2121c7d67aecf6d02353560ecfd968d95dd19abe1254909b22f6a82ba0e9c"
+    },
+    {
+      "id": "agency-product-feedback-synthesizer",
+      "version": "1.0.0",
+      "category": "product",
+      "name": "Feedback Synthesizer｜用户反馈分析师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "product/product-feedback-synthesizer.md",
+        "blob_sha1": "c36d9a913dea536b9ab922ae3d0da427528b153c",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/product/product-feedback-synthesizer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/product-feedback-synthesizer.yaml",
+      "generated_sha256": "0f445c481afdbeb9cb4756f71a2941a8d47301b681d10aecdf779c97a5fd8bd6"
+    },
+    {
+      "id": "agency-project-management-project-shepherd",
+      "version": "1.0.0",
+      "category": "project-management",
+      "name": "Project Shepherd｜跨职能项目经理",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "project-management/project-management-project-shepherd.md",
+        "blob_sha1": "e2b625a8905b90bd1c4a05aa23014a08621d1370",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/project-management/project-management-project-shepherd.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留完整跨职能项目能力；工作流设计师是明确绑定后的用法，非重命名成通用 IPD 管理员。",
+        "运行调度、状态更新和预算治理从角色权限中剥离，但项目计划的专业方法保留。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/project-management-project-shepherd.yaml",
+      "generated_sha256": "c4a90b43c163210f6356b037e794aa268a9cc2deb1e080c2c32ee9fdf3324f79"
+    },
+    {
+      "id": "agency-project-management-experiment-tracker",
+      "version": "1.0.0",
+      "category": "project-management",
+      "name": "Experiment Tracker｜实验项目经理",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "project-management/project-management-experiment-tracker.md",
+        "blob_sha1": "e3e4792246a43d6bbf30c4a567e09ed81e3bbd3c",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/project-management/project-management-experiment-tracker.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "显式不采纳“实验大多数必须显著”的上游成功指标，保留透明结果、功效和预设规则。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/project-management-experiment-tracker.yaml",
+      "generated_sha256": "91fdfb0eda027aa844c58846278171dded24d633697bfc60fd8b947af173b2cb"
+    },
+    {
+      "id": "agency-research-synthesist",
+      "version": "1.0.0",
+      "category": "research",
+      "name": "Research Synthesist｜文献综述与证据综合研究员",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "research/research-synthesist.md",
+        "blob_sha1": "ff5741421e8cdbc953a930f9b54aff78f3715677",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/research/research-synthesist.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/research-synthesist.yaml",
+      "generated_sha256": "55f01b984e94f72a8d14632007e53f8fbfba762aae520744ffff2dbb1440c346"
+    },
+    {
+      "id": "agency-sales-engineer",
+      "version": "1.0.0",
+      "category": "sales",
+      "name": "Sales Engineer｜售前工程师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "sales/sales-engineer.md",
+        "blob_sha1": "3093e53a6eccca46d18fbd1f5d225b4b87454eb7",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/sales/sales-engineer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/sales-engineer.yaml",
+      "generated_sha256": "ff6b6397213a34879cfcd4dab889757e3f78a03b1897fcd8ac297da8ad0e79b6"
+    },
+    {
+      "id": "agency-sales-proposal-strategist",
+      "version": "1.0.0",
+      "category": "sales",
+      "name": "Proposal Strategist｜方案与投标策略师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "sales/sales-proposal-strategist.md",
+        "blob_sha1": "cca0a66ddb053f487e243c8a12fc030f6b8f7f27",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/sales/sales-proposal-strategist.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "原文微故事提高评分等未经给出研究依据的效果措辞不作为事实保留；保留其叙事方法并要求真实案例。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/sales-proposal-strategist.yaml",
+      "generated_sha256": "c8753acf6edd1889ffec6cb9da0c273ae787169cb1411aee04aaa7c6f6a99d86"
+    },
+    {
+      "id": "agency-security-architect",
+      "version": "1.0.0",
+      "category": "security",
+      "name": "Security Architect｜安全架构师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "security/security-architect.md",
+        "blob_sha1": "0dbc227249d53ff75e282a32d982e8de5e666f0c",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/security/security-architect.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "上游开头将架构与 AppSec 区分，但正文含代码/响应职责；本版明确以架构为主，把重叠项保留为专业接口和进阶知识。",
+        "原示例代码、扫描流水线和固定严重性例子不标记为普适安全基线。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/security-architect.yaml",
+      "generated_sha256": "5efc54b98eead4d7988417ac23af4c99711e10d899c62cb87278700b7bc7deae"
+    },
+    {
+      "id": "agency-security-appsec-engineer",
+      "version": "1.0.0",
+      "category": "security",
+      "name": "Application Security Engineer｜应用安全工程师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "security/security-appsec-engineer.md",
+        "blob_sha1": "e5f82dc0ad7c164d03e156cf4696f5570273453e",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/security/security-appsec-engineer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留源到敏感点、扫描、修复和回归方法；原例中的 JSON.parse 归类、YAML API、秘密策略及扫描器缺省放行等不足不复制成生产代码，见变更说明。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/security-appsec-engineer.yaml",
+      "generated_sha256": "83074bb9a57681246b5c3b721ea41d87a23d5e62e548c7d81d1f80e824c6269c"
+    },
+    {
+      "id": "agency-spatial-xr-interface-architect",
+      "version": "1.0.0",
+      "category": "spatial-computing",
+      "name": "XR Interface Architect｜XR 交互架构师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "spatial-computing/xr-interface-architect.md",
+        "blob_sha1": "3c9d16e6750cd13c4889dff5447d668fc021e0e5",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/spatial-computing/xr-interface-architect.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "上游是短角色说明，没有完整模板与质量清单；本版这部分为明确标记的实施性补充，不虚构来源已有长流程。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/spatial-xr-interface-architect.yaml",
+      "generated_sha256": "a547e6186a6819fafa0003b3e65804279705df441d521246e5d6e3429420dce7"
+    },
+    {
+      "id": "agency-spatial-xr-immersive-developer",
+      "version": "1.0.0",
+      "category": "spatial-computing",
+      "name": "XR Immersive Developer｜WebXR 开发工程师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "spatial-computing/xr-immersive-developer.md",
+        "blob_sha1": "5452a8f530d8c55c8c3994d8c9be2ba20f619d80",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/spatial-computing/xr-immersive-developer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留上游全部主要能力；补充接口、设备矩阵和验证模板，注明为本版工程化内容。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/spatial-xr-immersive-developer.yaml",
+      "generated_sha256": "868296f850f1180bddb3628ae1e058f284f4cdebffcb551150730caa7bd33937"
+    },
+    {
+      "id": "agency-specialized-mcp-builder",
+      "version": "1.0.0",
+      "category": "specialized",
+      "name": "MCP Builder｜MCP 工具服务开发者",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "specialized/specialized-mcp-builder.md",
+        "blob_sha1": "e12b89c5e04e2ef483120a672845a9d024318314",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/specialized/specialized-mcp-builder.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留 TS/Python、客户端配置与资源范式，但不复制未验证 SDK 片段为运行代码；补充写操作幂等和未知结果边界。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/specialized-mcp-builder.yaml",
+      "generated_sha256": "e1a7164ad114274a5745a2ef34041a3d1b621936c14cfe29e1b141c5ee498e1e"
+    },
+    {
+      "id": "agency-specialized-supply-chain-strategist",
+      "version": "1.0.0",
+      "category": "specialized",
+      "name": "Supply Chain Strategist｜供应链策略师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "specialized/supply-chain-strategist.md",
+        "blob_sha1": "f3b520861fe3edefd45adaf64fcb6303f9bf945d",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/specialized/supply-chain-strategist.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留中国渠道、采购/质量/库存/数字化方法；供应商等级、ERP 报价和法规清单不当作当前核实结论。",
+        "原库存代码的时间尺度和风险阈值必须核验，转为单位明确的公式与分析契约。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/specialized-supply-chain-strategist.yaml",
+      "generated_sha256": "7d4ea1b09c45617c985b8bc56c0ffa0057726158bf4e73e4098b3958902c06f0"
+    },
+    {
+      "id": "agency-specialized-model-qa",
+      "version": "1.0.0",
+      "category": "specialized",
+      "name": "Model QA Specialist｜模型质量审计专家",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "specialized/specialized-model-qa.md",
+        "blob_sha1": "0b362aa545dc92242fd898c0775423801acec01c",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/specialized/specialized-model-qa.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "显式取消 guilty-until-proven 的预设失败；保留独立怀疑与证据标准。",
+        "原代码中的分箱边界、校准判定和 SHAP 形状需验证，不作为本包已验证程序；完整保留相应方法、模板及限制。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/specialized-model-qa.yaml",
+      "generated_sha256": "beac620689a19bf1541d7934ffe3d515e19532c1efb850860bf15fed37f7b573"
+    },
+    {
+      "id": "agency-support-analytics-reporter",
+      "version": "1.0.0",
+      "category": "support",
+      "name": "Analytics Reporter｜经营数据分析师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "support/support-analytics-reporter.md",
+        "blob_sha1": "9cd2441f0415778bf1af3f8d51256017464e701b",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/support/support-analytics-reporter.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "原 SQL 混合方言、RFM 重复分支、双触点权重等示例不复制成已验证代码；保留其分析目的并补明确口径检查。",
+        "明确修改上游“所有结论都做显著性检验”的绝对要求，区分描述与推断。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/support-analytics-reporter.yaml",
+      "generated_sha256": "5f3f4e5385df8b37afe8a47ccdf12177883fdba28938ba484fe0e21021e2698b"
+    },
+    {
+      "id": "agency-support-support-responder",
+      "version": "1.0.0",
+      "category": "support",
+      "name": "Support Responder｜客户支持专员",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "support/support-support-responder.md",
+        "blob_sha1": "3ea84672ac4906b7a50ee64573e1becd1aeb1ace",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/support/support-support-responder.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "原支持分析与知识库示例依赖未实现方法，不作为随包运行服务；保留完整案例/文章/质量记录结构。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/support-support-responder.yaml",
+      "generated_sha256": "ea898934d6e1fb0d654477dd584b017223e248c3d6be910b40a3bd4068eecc74"
+    },
+    {
+      "id": "agency-testing-test-results-analyzer",
+      "version": "1.0.0",
+      "category": "testing",
+      "name": "Test Results Analyzer｜测试结果分析师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "testing/testing-test-results-analyzer.md",
+        "blob_sha1": "a478a21673fa4fe79db4b0941610915afe54f8e9",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/testing/testing-test-results-analyzer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留质量分析、报告与预测方法；不执行原未实现函数的示意框架，不复制“所有发现必须显著”的要求。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/testing-test-results-analyzer.yaml",
+      "generated_sha256": "2033d1819cb0ebab985cf86fe669c139c52a1809742e26b919a3782c381eebdd"
+    },
+    {
+      "id": "agency-testing-test-automation-engineer",
+      "version": "1.0.0",
+      "category": "testing",
+      "name": "Test Automation Engineer｜端到端测试自动化工程师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "testing/testing-test-automation-engineer.md",
+        "blob_sha1": "571f8e3ab9d678e56edcfb6d9d95f31c65ef98ca",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/testing/testing-test-automation-engineer.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "保留确定性工程与所有主要模板；对 worker 数据键加入运行隔离语义，trace 环境变量需实际项目配置支持而非默认已生效。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/testing-test-automation-engineer.yaml",
+      "generated_sha256": "faa02e678635a35857bb5a419a79598e617e0f344ba1edbe5c24d91f7a93d575"
+    },
+    {
+      "id": "agency-testing-api-tester",
+      "version": "1.0.0",
+      "category": "testing",
+      "name": "API Tester｜API 测试工程师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "testing/testing-api-tester.md",
+        "blob_sha1": "1ea5e50cba0bc36a9a8ec8bfd9ca997d9e450a5c",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/testing/testing-api-tester.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "原混合测试框架示例、注入断言和并发延迟计算不作为运行代码；保留测试维度并明确有效验证方法。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/testing-api-tester.yaml",
+      "generated_sha256": "007a180f9a78d74fa2d41e82310771f8b2b74bec0ba0d0a95f173bc2e4c7546d"
+    },
+    {
+      "id": "agency-testing-performance-benchmarker",
+      "version": "1.0.0",
+      "category": "testing",
+      "name": "Performance Benchmarker｜性能测试与分析工程师",
+      "source": {
+        "repository": "msitarzewski/agency-agents",
+        "commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+        "path": "testing/testing-performance-benchmarker.md",
+        "blob_sha1": "1845fb5f30af4063440dbae22a67cd8554c4c9bf",
+        "url": "https://github.com/msitarzewski/agency-agents/blob/647c8baa42b6842afb4a97bf2c0950d45ba88e8b/testing/testing-performance-benchmarker.md"
+      },
+      "preservation": {
+        "identity_and_mission": "description / responsibilities / applicableScenarios",
+        "critical_rules": "principles / nonResponsibilities",
+        "workflow_and_methods": "promptProfile.approach",
+        "templates_and_deliverables": "deliverables",
+        "communication": "promptProfile.communication",
+        "success_metrics": "promptProfile.verification",
+        "advanced_capabilities": "promptProfile.approach 的进阶能力段"
+      },
+      "adaptations": [
+        "原 k6 阶段和不同示例阈值保留为方法参照，不混为统一验收；浏览器固定等待与负载模拟 think time 明确区分。",
+        "组织权和外部行动权映射为节点明确授权；虚构履历与天然持久记忆不作为事实。",
+        "工具/框架熟悉度保留在方法，不自动注册成运行工具；默认不声明不存在的 Skill/知识库。"
+      ],
+      "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
+      "generated_file": "agent-cards/testing-performance-benchmarker.yaml",
+      "generated_sha256": "8f7b60f3f1d695fe4b928ba5a2e6797c9338c629f2a886909d2663a986687620"
+    }
+  ]
+}

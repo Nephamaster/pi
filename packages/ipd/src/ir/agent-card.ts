@@ -27,10 +27,6 @@ export const AGENT_CARD_DEFAULTS = {
 		writeScopes: [] as string[],
 		externalActions: false,
 	},
-	defaultBudget: {
-		tokens: 12_000,
-		timeoutMs: 900_000,
-	},
 } as const;
 
 function unique(values: readonly string[]): string[] {
@@ -210,10 +206,6 @@ export function compileAgentCard(
 			readScopes,
 			writeScopes,
 			externalActions: asset.permissions?.externalActions ?? AGENT_CARD_DEFAULTS.permissions.externalActions,
-		},
-		defaultBudget: {
-			tokens: asset.defaultBudget?.tokens ?? AGENT_CARD_DEFAULTS.defaultBudget.tokens,
-			timeoutMs: asset.defaultBudget?.timeoutMs ?? AGENT_CARD_DEFAULTS.defaultBudget.timeoutMs,
 		},
 	};
 	const card: CompiledAgentCard = freezeDeep({ ...normalized, hash: hashJson(normalized), source });

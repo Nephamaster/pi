@@ -1,0 +1,429 @@
+# 公开流程工程化映射；不是华为内部正式模板。
+# 含本次员工池尚未覆盖的产品/硬件验证能力，勿未经匹配自动激活。
+schema_version: 1
+process_spec_id: huawei-public-ipd-ptm-product
+version: 1.0.0
+name: 公开 IPD-PTM 产品测试管理：全范围语义映射
+description: |-
+  “全范围”仅指五页公开资料的活动和验证类型集合，不表示完整内部 PTM 手册。
+  规范性质：基于 H1—H5 的公开 IPD-PTM 实践映射；不是华为内部下发模板。保留十六类活动与 SDV/SIT/SVT、物理可靠性含义。活动详细操作、产物格式、独立 Gate 和机器绑定是本项目转译。
+  组织：测试经理负责测试专业组织；测试分析人员负责可测试需求；测试工程师负责方案/执行；自动化测试工程师负责工具/脚本/调试；PDT 的现实组织权不自动授予任何 Agent。需要相应产品/硬件可靠性专业，而非用 API Tester 代替全部测试岗位。
+  设计顺序：总体要求 P01 支撑 P02；P02 支撑 P03/P04；P04 支撑 P05；P02/P05 支撑 P06。P05/P07 支撑工具、用例与脚本实现，满足接口条件后即可 P11 调试；P12/P13 的真实结果经 P14 汇聚至 P15/P16。具体数据依赖由设计师表达，不把这段说明当引擎已经支持的隐式路由。
+  阶段关系：前期开始测试设计，开发中可以逐特性实现和调试；各类执行可在对象、环境及策略满足后并行。发布前质量汇聚不意味着前面所有工作都必须串行。
+  工作流要求：每个执行/review 节点一个专业员工；每份受控产物绑定确定版本；按下列 RequiredReview 配置准出；返工回原 Session。P16 专业意见与 Runtime Gate 决策不同；严禁以报告产物通过冒充产品获准发布。
+  适配限制：本次 42 张 Agency 卡不覆盖该全范围的物理产品测试、可靠性和制造验证能力。缺少相应员工/工具/数据时不可用本规范启动并声称跑通；应选下面另行发布的软件衍生规范，而不是由 ST 删除 P13 或把 SVT 改名。
+source: |-
+  华为云 CodeArts TestPlan 官方 IPD测试流程与实践 H1—H5；URL 见本字段后附。活动来源真实；细化契约及 Gate 为项目转译。
+  H1 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1502.html
+  H2 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1503.html
+  H3 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1504.html
+  H4 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1505.html
+  H5 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1506.html
+applicable_when:
+- 任务是包含原型、系统集成、制造验证和物理可靠性要求的产品测试管理。
+- 能够提供确定版本的需求/规格、产品或测试数据、授权环境及具备对应产品测试能力的员工和工具。
+- 用户需要产品测试与质量评价材料；不将该任务完成解释为现实中的企业投资或发布批准。
+not_applicable_when:
+- 纯软件任务，不能提供正式产线硬件或物理可靠性试验条件。
+- 期望 ST 在 Run 中删除、合并或修改本规范强制活动。
+- 缺少真实测试渠道而打算用模拟结果声称物理产品验证完成。
+required_activities:
+- activity_id: P01
+  description: |-
+    测试需求分析。来源定位 H2；原责任：测试经理组织分析人员。
+    作业细化（项目转译）：核对产品与设计材料的版本、范围和来源，把功能、非功能、边界与约束转换成可检查条目；保留 requirement 到 test requirement 的映射。未知规格单列，不由分析者补造。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P01。不得自行调度下游或改标准。
+  required_capabilities:
+  - product-test-analysis
+- activity_id: P02
+  description: |-
+    产品总体测试策略制定。来源定位 H2；原责任：测试经理。
+    作业细化（项目转译）：明确验证层次、风险优先级、测试类型、自动化、环境、数据和专业分工；用一份总体策略约束后续特性与阶段方案。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P02。不得自行调度下游或改标准。
+  required_capabilities:
+  - product-test-strategy
+- activity_id: P03
+  description: |-
+    制定测试与验证计划。来源定位 H2；原责任：测试经理组织测试工程师。
+    作业细化（项目转译）：将总体策略转为带交付、责任和依赖的 WBS；估计来自任务输入或明确分析，不能引入运行时预算上限。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P03。不得自行调度下游或改标准。
+  required_capabilities:
+  - product-test-planning
+- activity_id: P04
+  description: |-
+    特性测试需求分析。来源定位 H2；原责任：测试经理及所分配小组。
+    作业细化（项目转译）：对分配特性分析正常、边缘、异常和交互；从总体要求细化但不改变原验收含义。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P04。不得自行调度下游或改标准。
+  required_capabilities:
+  - feature-test-analysis
+- activity_id: P05
+  description: |-
+    特性测试方案设计。来源定位 H2；原责任：测试经理组织成员。
+    作业细化（项目转译）：明确每个验证点的测试方法、观察量、数据、环境及通过/失败解释；需要物理设备时明列资质和可用性。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P05。不得自行调度下游或改标准。
+  required_capabilities:
+  - feature-test-design
+- activity_id: P06
+  description: |-
+    SDV/SIT/SVT测试策略设计。来源定位 H2；原责任：测试经理组织团队。
+    作业细化（项目转译）：基于总体和特性方案制定实际阶段策略；明确各阶段对象、环境、用例集合及证据汇聚。SVT 需正式产线硬件，纯软件任务不适用本全范围版本。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P06。不得自行调度下游或改标准。
+  required_capabilities:
+  - product-verification-strategy
+- activity_id: P07
+  description: |-
+    自动化测试分析。来源定位 H3；原责任：自动化测试工程师。
+    作业细化（项目转译）：分析可重复性、稳定接口、数据可得、观测和维护成本，选择自动化部分、工具复用/改造及不能自动化的事项。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P07。不得自行调度下游或改标准。
+  required_capabilities:
+  - test-automation-feasibility
+- activity_id: P08
+  description: |-
+    自动化测试工具开发/二次开发。来源定位 H3；原责任：自动化测试工程师。
+    作业细化（项目转译）：复用、适配或开发所需工具；验证输入、执行、结果采集、错误、权限和重跑。无需改造时交付现有工具的适配验证，不伪造开发工作。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P08。不得自行调度下游或改标准。
+  required_capabilities:
+  - test-automation-tooling
+- activity_id: P09
+  description: |-
+    测试用例实现。来源定位 H3；原责任：测试经理组织成员。
+    作业细化（项目转译）：将特性和专项方案转为确定用例；标明前置、步骤、输入、预期、清理与判定依据。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P09。不得自行调度下游或改标准。
+  required_capabilities:
+  - product-test-case-design
+- activity_id: P10
+  description: |-
+    测试脚本/代码/数据准备。来源定位 H3；原责任：测试经理组织小组。
+    作业细化（项目转译）：准备脚本、测试代码、设备控制或数据；保护原始输入，处理独立性、重复运行与秘密管理。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P10。不得自行调度下游或改标准。
+  required_capabilities:
+  - test-automation-implementation
+- activity_id: P11
+  description: |-
+    自动化用例调试。来源定位 H3；原责任：自动化与测试工程师协作。
+    作业细化（项目转译）：当版本满足调试条件时尽早验证脚本、工具和被测接口；分别记录工具错误、用例错误和产品问题，不能为调试变绿修改预期。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P11。不得自行调度下游或改标准。
+  required_capabilities:
+  - test-automation-debugging
+- activity_id: P12
+  description: |-
+    测试执行。来源定位 H4；原责任：测试工程师。
+    作业细化（项目转译）：按获准的版本、环境和策略执行阶段用例，记录观察与缺陷；正式 SVT 验证必须有匹配产品与设备的真实测量渠道。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P12。不得自行调度下游或改标准。
+  required_capabilities:
+  - product-system-testing
+- activity_id: P13
+  description: |-
+    可靠性试验。来源定位 H4；原责任：该行原文未指定独立岗位名。
+    作业细化（项目转译）：依据产品设计/工艺/材料相关的可靠性要求，在授权设备和方案下执行并分析，记录样品、条件、校准、方法与测量。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P13。不得自行调度下游或改标准。
+  required_capabilities:
+  - physical-reliability-testing
+- activity_id: P14
+  description: |-
+    缺陷分析。来源定位 H4；原责任：测试经理组织测试工程师。
+    作业细化（项目转译）：整合缺陷并区分症状、已证根因、影响和重复关系；记录修复版本与复测需要，不能由分析者自动修改产品或关闭缺陷。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P14。不得自行调度下游或改标准。
+  required_capabilities:
+  - product-defect-analysis
+- activity_id: P15
+  description: |-
+    准备测试报告。来源定位 H5；原责任：测试经理。
+    作业细化（项目转译）：汇总测量与缺陷，重点表达被测产品质量，不把过程总结混成产品合格证明；锁定报告所对应版本和范围。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P15。不得自行调度下游或改标准。
+  required_capabilities:
+  - product-quality-reporting
+- activity_id: P16
+  description: |-
+    测试评估。来源定位 H5；原责任：测试经理组织成员。
+    作业细化（项目转译）：据测量和缺陷评价发布要求的满足程度，并整理后续过程改进。原表未给正式输出格式，本项目新增结构化评价及独立的过程回顾记录。
+    输入责任：确认并引用本次有效材料与已准出的上游版本。产物：D-P16。不得自行调度下游或改标准。
+  required_capabilities:
+  - product-test-evaluation
+required_deliverables:
+- deliverable_id: D-P01
+  activity_id: P01
+  artifact_type: product-test-artifact
+  description: 测试规格、需求分析、来源和覆盖表；字段至少包含要求 ID、对象、条件、观察结果、来源定位、风险和未确认项。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P02
+  activity_id: P02
+  artifact_type: product-test-artifact
+  description: 总体策略及风险—方法映射；说明 SDV/SIT/SVT 在实际产品中的范围、前提与材料，不把成熟度名称当成已经通过。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P03
+  activity_id: P03
+  artifact_type: product-test-artifact
+  description: 验证计划与 WBS，注明活动、专业、输入、产物、准入、依赖、并行、汇聚及待取得条件。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P04
+  activity_id: P04
+  artifact_type: product-test-artifact
+  description: 特性分析表：特性/需求、路径、约束、状态、风险、验证点和来源。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P05
+  activity_id: P05
+  artifact_type: product-test-artifact
+  description: 特性方案：目标、前置、方法、步骤、预期、证据和复测条件。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P06
+  activity_id: P06
+  artifact_type: product-test-artifact
+  description: SDV/SIT/SVT 阶段执行策略及所需硬件/环境说明。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P07
+  activity_id: P07
+  artifact_type: product-test-artifact
+  description: 自动化可行性、工具选择、成本收益前提和限制报告。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P08
+  activity_id: P08
+  artifact_type: product-test-artifact
+  description: 工具/配置/依赖版本、使用说明及适配验证。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P09
+  activity_id: P09
+  artifact_type: product-test-artifact
+  description: 版本化用例集与要求覆盖关系。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P10
+  activity_id: P10
+  artifact_type: product-test-artifact
+  description: 脚本、代码、数据生成或索引、依赖配置及复现说明。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P11
+  activity_id: P11
+  artifact_type: product-test-artifact
+  description: 调试记录、工具和用例版本、环境、实际日志和未解决项。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P12
+  activity_id: P12
+  artifact_type: product-test-artifact
+  description: 执行台账、原始观察、环境/产品标识和缺陷记录。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P13
+  activity_id: P13
+  artifact_type: product-test-artifact
+  description: 物理可靠性试验报告、原始结果和薄弱环节；所需现实试验渠道缺失时阻塞。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P14
+  activity_id: P14
+  artifact_type: product-test-artifact
+  description: 缺陷分析、证据链、严重性依据、修复/复测建议与残余风险。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P15
+  activity_id: P15
+  artifact_type: product-test-artifact
+  description: 产品质量报告，附需求/用例/结果/缺陷/证据关联及限制。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+- deliverable_id: D-P16
+  activity_id: P16
+  artifact_type: product-test-artifact
+  description: 项目补充：发布准备评价（READY/NOT_READY/UNDETERMINED 仅为报告语义）及测试过程回顾。不是企业 DCP 决策或真实发布授权。
+  evidence_requirements:
+  - 任务/产品/数据和方法版本、来源定位、执行范围与未验证项。
+  - 结论关联实际观察或可复现记录；方案类产物明确尚未执行。
+required_reviews:
+- review_id: G-P01
+  deliverable_id: D-P01
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P01 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - domain-test-review
+  independent_agent: true
+  criteria:
+  - 每项测试要求有来源且可验证；无法验证者说明原因。
+  - 功能和质量属性覆盖完整，未添加未经批准的业务前提。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P02
+  deliverable_id: D-P02
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P02 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - domain-test-review
+  independent_agent: true
+  criteria:
+  - 方法与风险相匹配，环境及真实能力缺口可见。
+  - 验证阶段没有互相替代或混淆。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P03
+  deliverable_id: D-P03
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 project-planning 的非生产者检查 D-P03 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - project-planning
+  independent_agent: true
+  criteria:
+  - 各关键交付有责任和必要前置，计划未隐去跨专业依赖。
+  - 项目估计与 IPD 运行预算分开。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P04
+  deliverable_id: D-P04
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P04 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - domain-test-review
+  independent_agent: true
+  criteria:
+  - 特性分析覆盖边界和相互作用。
+  - 分解没有丢失总体要求或改变阈值。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P05
+  deliverable_id: D-P05
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P05 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - domain-test-review
+  independent_agent: true
+  criteria:
+  - 方案能被实施人员据此执行，无需猜测预期。
+  - 测量和观察能够真正证明要求。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P06
+  deliverable_id: D-P06
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P06 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - domain-test-review
+  independent_agent: true
+  criteria:
+  - SDV/SIT/SVT 的对象与证明目的正确。
+  - 缺少正式硬件不得以模拟数据或软件测试替代 SVT。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P07
+  deliverable_id: D-P07
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P07 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - domain-test-review
+  independent_agent: true
+  criteria:
+  - 自动化选择有可行性依据，不为了完整而强制重写工具。
+  - 不自动化的工作仍有责任与证据方案。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P08
+  deliverable_id: D-P08
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 automation-tool-review 的非生产者检查 D-P08 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - automation-tool-review
+  independent_agent: true
+  criteria:
+  - 工具能承载既定用例并返回有效结果。
+  - 运行错误与被测失败可以区分。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P09
+  deliverable_id: D-P09
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P09 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - domain-test-review
+  independent_agent: true
+  criteria:
+  - 用例预期来自固定要求，包含必要负向和边界。
+  - 未执行用例不附虚构运行结果。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P10
+  deliverable_id: D-P10
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 automation-tool-review 的非生产者检查 D-P10 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - automation-tool-review
+  independent_agent: true
+  criteria:
+  - 脚本断言与用例一致，数据和环境可追溯。
+  - 并行或重跑不造成隐含污染。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P11
+  deliverable_id: D-P11
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P11 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - domain-test-review
+  independent_agent: true
+  criteria:
+  - “可执行”不等于产品所有要求均满足。
+  - 实际调试与模拟验证范围清楚。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P12
+  deliverable_id: D-P12
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P12 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - domain-test-review
+  independent_agent: true
+  criteria:
+  - 执行、失败、阻塞、跳过与未运行完整登记。
+  - 缺陷有复现和影响证据，不以摘要替代原始结果。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P13
+  deliverable_id: D-P13
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 physical-reliability-review 的非生产者检查 D-P13 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - physical-reliability-review
+  independent_agent: true
+  criteria:
+  - 对象、设备、条件和方法符合本产品试验范围。
+  - 软件长稳压测不能冒充材料/制造可靠性试验。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P14
+  deliverable_id: D-P14
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P14 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - domain-test-review
+  independent_agent: true
+  criteria:
+  - 缺陷归因有证据，未证实者显式保留为假设。
+  - 去重没有丢失受影响用例。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P15
+  deliverable_id: D-P15
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 domain-test-review 的非生产者检查 D-P15 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - domain-test-review
+  independent_agent: true
+  criteria:
+  - 产品状态与现有结果一致，未测项和已知问题透明。
+  - 报告完整不等于产品满足发布条件。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+- review_id: G-P16
+  deliverable_id: D-P16
+  description: 项目新增独立质量评审，非声称华为原文命名的 Gate。由具备 pdt-technical-review 的非生产者检查 D-P16 的质量；不是自动审批产品发布。
+  reviewer_capabilities:
+  - pdt-technical-review
+  independent_agent: true
+  criteria:
+  - 判定逐项关联固定标准与产品证据，不能强制通过。
+  - 过程建议只影响后续规范版本，不改本 Run 标准。
+  - 材料版本、范围和证据可核对；缺失必要事实如实阻塞或记录未验证，不伪造。
+workflow_rules:
+- rule_id: R-FULL-SOURCE-SCOPE
+  description: 保留全部必需活动；公开资料中的物理验证不得通过改名替换。Workflow 设计阶段按 required_activities/deliverables/reviews 逐项覆盖。
+  enforced_by: review
+- rule_id: R-FULL-HANDOFF
+  description: 交接包含确切版本、上游准出依据、证据索引和缺口。设计师显式填写输入与审批绑定，不能依赖目录猜测。
+  enforced_by: review
+- rule_id: R-FULL-NO-AUTHORITY
+  description: 技术评价与企业 DCP/GA 权限分开。没有真实授权渠道不能声称已发货、发布或批准投资。
+  enforced_by: review
+- rule_id: R-FULL-REWORK
+  description: 质量返工是正常闭环，维持原 Session 和固定标准；对失效输入的下游产物必须重新取得有效准出。
+  enforced_by: review

@@ -1,0 +1,105 @@
+{
+  "role_schema_checks": 42,
+  "category_count": 18,
+  "categories": {
+    "academic": 2,
+    "design": 2,
+    "engineering": 6,
+    "finance": 2,
+    "game-development": 2,
+    "gis": 2,
+    "healthcare": 2,
+    "marketing": 2,
+    "paid-media": 2,
+    "product": 2,
+    "project-management": 2,
+    "research": 1,
+    "sales": 2,
+    "security": 2,
+    "spatial-computing": 2,
+    "specialized": 3,
+    "support": 2,
+    "testing": 4
+  },
+  "source_provenance_checks": 42,
+  "source_commit": "647c8baa42b6842afb4a97bf2c0950d45ba88e8b",
+  "role_bytes": {
+    "min": 4046,
+    "max": 6729,
+    "total": 229915
+  },
+  "role_lines": {
+    "min": 75,
+    "max": 96
+  },
+  "validation_scope": "Python strict JSON Schema mirror plus local consistency checks; not original TypeBox/Workflow Compiler or real Pi execution",
+  "processes": [
+    {
+      "id": "huawei-ptm-derived-api-release-assessment",
+      "activities": 14,
+      "deliverables": 14,
+      "reviews": 14,
+      "semantic_rules": 10,
+      "unmatched_capabilities": []
+    },
+    {
+      "id": "huawei-public-ipd-ptm-product",
+      "activities": 16,
+      "deliverables": 16,
+      "reviews": 16,
+      "semantic_rules": 4,
+      "unmatched_capabilities": [
+        "automation-tool-review",
+        "domain-test-review",
+        "feature-test-analysis",
+        "feature-test-design",
+        "pdt-technical-review",
+        "physical-reliability-review",
+        "physical-reliability-testing",
+        "product-defect-analysis",
+        "product-quality-reporting",
+        "product-system-testing",
+        "product-test-analysis",
+        "product-test-case-design",
+        "product-test-evaluation",
+        "product-test-planning",
+        "product-test-strategy",
+        "product-verification-strategy",
+        "test-automation-debugging",
+        "test-automation-feasibility",
+        "test-automation-implementation",
+        "test-automation-tooling"
+      ]
+    }
+  ],
+  "software_producer_reviewer_pairs_checked": 14,
+  "reference_activity_source_checks": 16,
+  "advisory_dependency_graph_acyclic": true,
+  "standalone_renderer": {
+    "profiles": 42,
+    "checkedLines": 1749,
+    "deterministic": true,
+    "mutationFree": true,
+    "minimalProfile": true
+  },
+  "standalone_typescript_check": {
+    "passed": true,
+    "typescript": "5.8.3",
+    "target": "es2022",
+    "mode": "strict NodeNext",
+    "scope": "render-agent-profile.ts only"
+  },
+  "patch_check": {
+    "passed": true,
+    "command": "git apply --check integration/agent-profile-context.patch",
+    "scope": "supplied IPD snapshot; files not modified"
+  },
+  "node_version": "22.16.0",
+  "not_executed": [
+    "Original TypeBox schema runtime",
+    "Full IPD monorepo typecheck and test suite",
+    "Generated Workflow compilation",
+    "Real Pi model task",
+    "External API, hardware, medical or financial task validation"
+  ]
+}

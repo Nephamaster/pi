@@ -1,0 +1,8 @@
+{
+  "input_schema_sha256": {
+    "agent-card.ts": "0752e1130a57835ead9586ec667ab4e10dcd479267fae18f0650cb977d176247",
+    "process-spec.ts": "d98e84659dcc3bdfabab4019cb2aa5ae133493eca58bb3135616629af60cc98c",
+    "primitives.ts": "78ee5ef4a52cb6d2b5dabc6a7385922aff68274966dcb80227b04be014e635c4"
+  },
+  "validation_method": "Hand-written JSON Schema mirror, not TypeBox runtime"
+}

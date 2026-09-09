@@ -120,6 +120,20 @@ describe("Artifact Manifest", () => {
 		});
 	});
 
+	it("validates complete UTF-8 text instead of a fixed prefix", async () => {
+		const workspace = await createWorkspace();
+		await writeFile(join(workspace, "outputs", "boundary.txt"), `${"a".repeat(65_535)}你`);
+		const manifest = await createArtifactManifest({
+			workspace,
+			contract,
+			submission: submission([{ path: "outputs/boundary.txt", mimeType: "text/plain" }]),
+		});
+		expect(manifest.files).toHaveLength(1);
+
+		await writeFile(join(workspace, "outputs", "boundary.txt"), `${"a".repeat(65_536)}\0`);
+		await expect(validateArtifactManifest({ workspace, contract, manifest })).resolves.toMatchObject({ ok: false });
+	});
+
 	it("rejects missing files, duplicate paths, and workspace escapes", async () => {
 		const workspace = await createWorkspace();
 		await writeFile(join(workspace, "outputs", "primary.txt"), "primary");

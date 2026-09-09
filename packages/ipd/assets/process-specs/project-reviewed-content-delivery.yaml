@@ -1,0 +1,299 @@
+schema_version: 1
+process_spec_id: project-reviewed-content-delivery
+version: 1.2.0
+name: Reviewed Content Development and Delivery
+description: >-
+  面向报告、方案、说明资料、演示材料及其他正式内容成果的开发与交付流程。
+  流程以明确需求和使用场景为起点，依次完成开发计划、交付件设计、内容开发、成品制作、
+  检查验证和正式交付；各阶段均形成可检查成果，并通过相应评审确认质量后进入下一阶段。
+  重点保证需求覆盖、事实和数据正确、内容结构完整、表达一致、成品可用以及最终交付版本清晰可追溯。
+source: >-
+  项目衍生规范。流程骨架参考历史华为资料开发流程中“需求分析—制定资料开发计划—设计交付件—
+  开发资料—检查与验证—发布资料”的阶段划分，并结合通用内容生产实践细化活动、交付物、角色能力、
+  证据要求和评审标准。本规范用于正式内容开发场景，不是华为现行正式 IPD 模板。
+
+applicable_when:
+  - 任务需要形成正式、可交付且可独立检查的内容成果，例如报告、方案、说明资料、演示材料或成套内容包。
+  - 成果质量同时依赖需求覆盖、事实或数据正确性、内容组织、表达效果以及最终文件可用性。
+  - 任务包含多个相互依赖的内容生产环节，阶段性确认能够降低后期整体返工风险。
+  - 存在明确的接收对象、使用场景或交付要求，可以据此判断成果是否达到交付条件。
+
+not_applicable_when:
+  - 仅需要即时问答、简单改写、短文本生成、单次信息摘录或其他无需正式交付管理的轻量任务。
+  - 任务缺少可识别的交付对象和使用目的，且无法形成稳定的检查依据。
+  - 核心任务属于软件研发、产品测试、生产制造、实验研究等其他专业流程，内容成果仅是附属产物。
+  - 任务要求在关键事实、范围或验收目标尚未明确时直接发布最终成果。
+
+required_activities:
+  - activity_id: requirements-analysis
+    description: >-
+      需求与范围分析。明确交付目标、目标受众、使用场景、交付形式、内容范围、输入材料、事实和数据来源、
+      时间与格式约束以及质量要求；识别互相冲突、缺失或尚未确认的条件，并确定哪些内容属于本次交付范围。
+      主要责任通常由内容负责人、需求分析或内容策略角色承担，必要时吸收领域专业人员提供的事实边界。
+    required_capabilities:
+      - requirements-analysis
+
+  - activity_id: development-planning
+    description: >-
+      内容开发计划。根据需求基线确定主要工作项、专业分工、资料准备、关键依赖、阶段成果、评审安排和交付顺序；
+      对需要研究、数据处理、视觉设计、格式制作或领域核验的工作提前明确责任和输入条件。
+      计划应反映真实依赖，不把尚未取得的重要材料默认视为已经具备。
+    required_capabilities:
+      - project-planning
+
+  - activity_id: deliverable-design
+    description: >-
+      交付件设计。确定内容成果的信息架构、主要内容单元、叙事或阅读顺序、重点信息层级、数据和视觉表达原则、
+      章节或页面之间的关系以及必要的格式规则。设计结果应能够直接指导后续内容开发和成品制作，
+      同时保留对不同内容类型进行合理变化的空间，而不是要求所有部分采用机械一致的表现形式。
+    required_capabilities:
+      - proposal-architecture
+
+  - activity_id: content-development
+    description: >-
+      内容开发。依据需求基线和交付件设计完成研究、写作、数据处理、图表与视觉内容准备以及各部分内容整合。
+      开发过程中保持事实、数字、术语、口径和引用一致，明确区分已确认事实、推断和待确认事项；
+      不以表达优化改变原始业务含义，也不以缺少依据的内容填补信息空缺。
+    required_capabilities:
+      - content-creation
+
+  - activity_id: artifact-production
+    description: >-
+      成品制作与集成。将已形成的内容按照目标媒介和交付规格制作成完整成品，完成排版、图形整合、格式处理、
+      文件组织以及必要的可编辑来源整理。成品制作应保持内容与源材料一致，避免在格式转换和视觉加工过程中
+      引入数据错误、遗漏、版本混用或不可维护的手工修改。
+    required_capabilities:
+      - ui-implementation
+
+  - activity_id: inspection-validation
+    description: >-
+      检查与验证。针对确定版本的内容和成品检查需求覆盖、事实与数据正确性、引用与证据、结构完整性、
+      跨部分一致性、语言和视觉表达、格式完整性以及目标使用场景下的可用性。发现问题后完成必要修订并复验，
+      明确记录尚未完成或无法完成的检查，不将未验证事项默认为通过。
+    required_capabilities:
+      - test-results-analysis
+
+  - activity_id: release-delivery
+    description: >-
+      发布与交付。整理完成验证后的确定版本，确认正式文件、可编辑来源、附件、引用、版本说明和必要使用说明
+      相互对应，清理过期或易造成混淆的中间版本，并形成面向接收方的完整交付包。
+      任何已知限制、未解决事项或使用前提必须随交付明确披露。
+    required_capabilities:
+      - release-engineering
+
+required_deliverables:
+  - deliverable_id: requirements-baseline
+    activity_id: requirements-analysis
+    artifact_type: content-requirements
+    description: >-
+      内容需求基线。至少包括交付目标、目标受众、使用场景、交付范围、输入材料、事实和数据来源、
+      明确约束、格式与质量要求，以及仍待确认但会影响后续工作的事项。
+    evidence_requirements:
+      - 每项关键要求能够追溯到用户要求、正式材料或明确的业务来源。
+      - 目标、受众、使用场景和交付范围彼此一致，不存在尚未处理的实质冲突。
+      - 缺失信息和待确认事项单独记录，并说明其对后续内容开发或交付的影响。
+      - 明确说明不在本次交付范围内的内容，防止范围在开发过程中无控制扩大。
+
+  - deliverable_id: development-plan
+    activity_id: development-planning
+    artifact_type: content-development-plan
+    description: >-
+      内容开发计划。说明主要工作项、责任专业、所需输入、关键依赖、阶段成果、评审安排和交付顺序，
+      并列出需要提前准备的研究资料、数据、视觉资源、模板或专业核验条件。
+    evidence_requirements:
+      - 计划覆盖需求基线中的全部主要交付要求，没有关键工作无人承担。
+      - 关键依赖、外部输入和前置条件已识别，未将尚未取得的条件写成已具备。
+      - 阶段成果、责任和评审安排之间关系明确，可据此判断各项工作何时完成。
+      - 对需要跨专业协作的内容说明交接对象和所需输入，而不是依赖口头约定。
+
+  - deliverable_id: deliverable-design-spec
+    activity_id: deliverable-design
+    artifact_type: content-design-specification
+    description: >-
+      交付件设计说明。定义信息结构、主要内容单元、阅读或呈现顺序、重点信息层级、数据和视觉表达原则、
+      章节或页面关系以及必要的格式规则。
+    evidence_requirements:
+      - 主要内容单元与需求基线中的实际交付要求具有明确对应关系。
+      - 信息层级、阅读路径和内容关系清楚，不存在明显遗漏、重复或逻辑断裂。
+      - 对数据、视觉、图形或媒介的要求具有可实施描述，不以“专业、高级、简洁”等抽象词替代具体规则。
+      - 设计没有为了形式统一而破坏不同内容本身需要的表达方式。
+
+  - deliverable_id: content-draft-package
+    activity_id: content-development
+    artifact_type: content-draft-package
+    description: >-
+      完整内容稿及其来源材料索引，包括正文、关键结论、数据和图表内容、引用、视觉素材说明以及必要的编辑信息。
+      内容稿应已经形成完整表达，不应依赖成品制作阶段补写核心事实或关键论证。
+    evidence_requirements:
+      - 需求基线中的主要内容要求均已落实到具体位置，并可定位检查。
+      - 关键事实、数字、引用和结论能够追溯到相应来源或计算依据。
+      - 不同部分使用的术语、时间范围、数据口径和结论保持一致；存在差异时有明确解释。
+      - 待确认、争议信息和无法验证内容被显式标记，没有包装为确定事实。
+      - 内容压缩、改写或叙事组织未丢失重要限定条件和风险信息。
+
+  - deliverable_id: production-package
+    activity_id: artifact-production
+    artifact_type: production-package
+    description: >-
+      按目标媒介完成的成品文件，以及必要的可编辑来源、数据文件、图形素材和重建或修改所需的辅助文件。
+      具体文件类型和数量由交付要求决定。
+    evidence_requirements:
+      - 成品完整呈现经确认的内容，没有在制作阶段遗漏、替换或改变关键事实与数据。
+      - 可编辑来源、素材和最终成品之间关系明确，必要时能够继续修改或重新生成。
+      - 格式、图表、视觉元素和引用在成品中显示正常，不存在明显缺失、错位、截断或版本混用。
+      - 所有文件来自同一有效内容版本，过期草稿没有混入正式成品。
+
+  - deliverable_id: validation-record
+    activity_id: inspection-validation
+    artifact_type: validation-record
+    description: >-
+      检查与验证记录。包含检查对象和版本、检查依据、实际执行的检查、发现的问题、修订情况、复验结果、
+      未执行检查及仍然存在的限制。
+    evidence_requirements:
+      - 检查范围覆盖需求符合性、内容正确性、结构和跨部分一致性、表达质量、格式完整性及实际可用性中适用的部分。
+      - 每个会影响正式交付的问题具有可定位证据，并记录对应修订或处置结果。
+      - 修订后对受影响内容完成复验，不仅记录“已修改”。
+      - 已执行、未执行和无法执行的检查明确区分，未验证事项没有被写成已通过。
+      - 仍存在的限制和非阻塞问题被保留，不因准备交付而从记录中删除。
+
+  - deliverable_id: release-package
+    activity_id: release-delivery
+    artifact_type: release-package
+    description: >-
+      正式交付包。包含最终文件、必要的可编辑来源和附件、版本说明、使用说明，以及接收方需要了解的已知限制、
+      前置条件或未解决事项。
+    evidence_requirements:
+      - 交付清单与实际文件逐项对应，文件名称、版本和用途明确。
+      - 最终文件确为完成检查、修订和复验后的确定版本。
+      - 正式交付包中不存在过期、重复或容易被误用的候选版本。
+      - 接收方能够依据现有文件和说明正确使用、查看或继续维护交付成果。
+      - 已知限制和未解决事项已经明确披露，没有通过遗漏方式制造“全部完成”的假象。
+
+required_reviews:
+  - review_id: requirements-review
+    deliverable_id: requirements-baseline
+    description: >-
+      需求基线评审。确认内容开发目标、受众、使用场景、交付范围和质量要求已经正确理解，
+      关键材料和约束得到记录，不存在足以使后续工作方向失真的重大遗漏或未经确认的假设。
+    reviewer_capabilities:
+      - proposal-review
+    independent_agent: true
+    criteria:
+      - 目标、受众、使用场景和交付范围表达明确且相互一致。
+      - 用户明确要求、输入材料和重要约束均已覆盖并可追溯。
+      - 范围边界明确，没有将未要求内容默认为必需交付。
+      - 待确认事项已经记录，没有用未经确认的假设替代真实信息。
+
+  - review_id: plan-review
+    deliverable_id: development-plan
+    description: >-
+      开发计划评审。确认主要工作、专业责任、依赖输入、阶段成果和评审安排完整合理，
+      能够支持后续内容设计、生产和验证有序开展。
+    reviewer_capabilities:
+      - product-review
+    independent_agent: true
+    criteria:
+      - 主要工作项覆盖全部交付要求，关键责任不存在空缺。
+      - 依赖、前置条件和阶段关系真实且无明显矛盾。
+      - 需要研究、数据、视觉、制作或专业核验的工作已提前识别。
+      - 计划没有把尚未获得的关键输入或资源默认为已经具备。
+
+  - review_id: design-review
+    deliverable_id: deliverable-design-spec
+    description: >-
+      交付件设计评审。确认信息结构和表达方案能够承载完整需求，形成清晰的信息层级和阅读路径，
+      并为后续内容生产和成品制作提供充分、可实施的设计依据。
+    reviewer_capabilities:
+      - design-review
+    independent_agent: true
+    criteria:
+      - 信息结构覆盖主要需求并形成明确的阅读或呈现路径。
+      - 主要内容单元之间没有明显逻辑断裂、重复或职责不清。
+      - 数据、视觉和媒介规则具体且能够实际执行。
+      - 设计既保持整体一致性，也允许不同内容采用符合其信息特点的表达方式。
+
+  - review_id: content-review
+    deliverable_id: content-draft-package
+    description: >-
+      内容质量评审。独立检查完整内容稿的要求覆盖、事实和数据正确性、论证合理性、来源可追溯性、
+      术语与口径一致性以及重要限定条件是否得到保留。
+    reviewer_capabilities:
+      - citation-analysis
+    independent_agent: true
+    criteria:
+      - 明确要求已经落实到实际内容，没有以摘要、占位符或完成声明替代缺失部分。
+      - 关键事实、数字、引用和结论与已确认来源一致并具有可定位依据。
+      - 不同部分的术语、数据口径、时间范围和结论保持一致。
+      - 重要结论的强度与证据相匹配，没有把未知、推断或争议信息写成确定事实。
+      - 内容完整到足以进入成品制作，不需要在制作阶段临时补写核心业务内容。
+
+  - review_id: production-review
+    deliverable_id: production-package
+    description: >-
+      成品质量评审。检查最终媒介中的内容完整性、格式和视觉表现、文件结构、版本一致性以及实际使用可用性，
+      确认成品制作没有改变已确认内容的含义或造成新的交付缺陷。
+    reviewer_capabilities:
+      - design-review
+    independent_agent: true
+    criteria:
+      - 成品内容与已通过内容稿一致，关键事实、数据和引用没有在制作中发生变化。
+      - 文件能够正常打开和使用，主要版式、图形、表格、图片和文本没有明显显示缺陷。
+      - 不同页面、章节或文件之间的格式、术语和视觉规则保持合理一致。
+      - 可编辑来源和最终成品对应明确，没有候选版本混入正式成果。
+      - 目标媒介或使用场景提出的特定质量要求已得到实际检查。
+
+  - review_id: validation-review
+    deliverable_id: validation-record
+    description: >-
+      验证结果评审。确认检查范围与交付风险匹配，已发现问题得到真实修订和复验，
+      未执行检查和已知限制没有被隐藏，并判断是否仍存在阻碍正式交付的问题。
+    reviewer_capabilities:
+      - product-review
+    independent_agent: true
+    criteria:
+      - 适用的关键质量维度已经实际检查，并有对应记录。
+      - 发现的问题、修改内容和复验结果能够一一对应。
+      - 未执行或无法执行的检查被明确说明，没有默认为通过。
+      - 不存在仍未处理且会直接影响正式交付的阻塞性缺陷。
+      - 非阻塞限制和残余风险被保留并准备随交付披露。
+
+  - review_id: release-readiness-review
+    deliverable_id: release-package
+    description: >-
+      交付就绪评审。确认正式交付包完整、版本一致、文件可用、说明充分，且与已经完成验证的确定版本一致；
+      只有满足交付条件的内容才能作为正式成果提供给接收方。
+    reviewer_capabilities:
+      - product-review
+    independent_agent: true
+    criteria:
+      - 交付清单、最终文件、可编辑来源和附件完整对应，没有版本混淆。
+      - 正式文件与完成检查和复验的确定版本一致。
+      - 接收方能够依据现有文件和必要说明正确使用或继续维护成果。
+      - 已知限制、使用前提和未解决事项均已披露。
+      - 不存在仍应作为候选稿、草稿或未验证版本却被包装为正式交付的文件。
+
+workflow_rules:
+  - rule_id: requirement-traceability
+    description: >-
+      从需求基线到内容、成品和最终交付的关键要求必须保持可追溯关系；任何阶段不得通过删减或重新表述需求来规避未完成项。
+    enforced_by: review
+
+  - rule_id: source-integrity
+    description: >-
+      事实、数据、引用和重要结论必须保留来源和口径；无法确认的信息应标记为待确认、争议或未验证，不得为了内容完整性编造依据。
+    enforced_by: review
+
+  - rule_id: version-consistency
+    description: >-
+      进入评审和正式交付的内容必须对应确定版本；后续修订应重新检查受影响内容，不能沿用旧版本的检查结论作为新版本依据。
+    enforced_by: review
+
+  - rule_id: independent-quality-review
+    description: >-
+      对需求、内容、成品和最终交付的关键评审应由不同于该成果主要生产者的角色完成，避免用生产者自检代替独立质量判断。
+    enforced_by: review
+
+  - rule_id: release-completeness
+    description: >-
+      正式交付必须以完整交付包为单位确认文件、来源、说明、版本和已知限制；不得仅凭某一主文件完成就视为整体交付完成。
+    enforced_by: review

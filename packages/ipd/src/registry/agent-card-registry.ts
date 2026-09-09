@@ -1,9 +1,11 @@
 import type { AgentCardRef, CompiledAgentCard } from "../contracts/agent-card.ts";
+import type { VersionedAssetRef } from "../contracts/primitives.ts";
 import type { IpdDiagnostic } from "../ir/types.ts";
 
 export interface AgentCardRegistry {
 	list(): readonly CompiledAgentCard[];
 	get(ref: AgentCardRef): CompiledAgentCard | undefined;
+	getVersion(ref: VersionedAssetRef): CompiledAgentCard | undefined;
 	getById(id: string): readonly CompiledAgentCard[];
 }
 
@@ -34,6 +36,10 @@ export class InMemoryAgentCardRegistry implements AgentCardRegistry {
 	get(ref: AgentCardRef): CompiledAgentCard | undefined {
 		const card = this.cards.get(`${ref.id}@${ref.version}`);
 		return card?.hash === ref.hash ? card : undefined;
+	}
+
+	getVersion(ref: VersionedAssetRef): CompiledAgentCard | undefined {
+		return this.cards.get(`${ref.id}@${ref.version}`);
 	}
 
 	getById(id: string): readonly CompiledAgentCard[] {

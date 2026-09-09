@@ -1,0 +1,102 @@
+--- /dev/null
++++ b/src/adapter/render-agent-profile.ts
+@@ -0,0 +1,43 @@
++/** Render published professional content into Pi's existing prompt assembly.
++ * No histories, tools, permissions or model calls are implemented here.
++ */
++export interface ProfessionalProfile {
++  name: string;
++  description: string;
++  responsibilities: readonly string[];
++  nonResponsibilities: readonly string[];
++  applicableScenarios?: readonly string[];
++  principles?: readonly string[];
++  deliverables?: readonly string[];
++  promptProfile?: {
++    approach: readonly string[];
++    communication: readonly string[];
++    verification: readonly string[];
++  };
++}
++
++function section(title: string, values: readonly string[] | undefined): string {
++  if (!values?.length) return "";
++  return `## ${title}\n${values.map((value, index) =>
++    `${index + 1}. ${value.trim().replace(/\n/g, "\n   ")}`
++  ).join("\n\n")}`;
++}
++
++export function renderAgentProfile(card: ProfessionalProfile): string {
++  const profile = card.promptProfile;
++  return [
++    `# Professional role: ${card.name}`,
++    card.description,
++    "This is professional guidance, not an additional authority or permission source. " +
++      "The frozen task and node contract determine the assigned scope and acceptance criteria. " +
++      "Source example targets are not automatic gates. Runtime alone controls submissions and transitions.",
++    section("Responsibilities", card.responsibilities),
++    section("Non-responsibilities", card.nonResponsibilities),
++    section("Applicable scenarios", card.applicableScenarios),
++    section("Professional principles", card.principles),
++    section("Methods and advanced capabilities", profile?.approach),
++    section("Deliverables and templates", card.deliverables),
++    section("Communication", profile?.communication),
++    section("Verification and reference targets", profile?.verification),
++  ].filter(Boolean).join("\n\n");
++}
+--- a/src/runtime/node-prompts.ts
++++ b/src/runtime/node-prompts.ts
+@@ -1,4 +1,5 @@
+ import { loadPrompt } from "../adapter/prompt-loader.ts";
++import { renderAgentProfile } from "../adapter/render-agent-profile.ts";
+ import type { NodeRoundWork } from "./node-worker.ts";
+ 
+ const common = loadPrompt("common");
+@@ -6,10 +7,15 @@
+ const review = loadPrompt("review-node");
+ 
+ export function buildNodeSystemPrompt(work: NodeRoundWork): string {
+-	const participant = work.node.agents[0];
+-	const card = participant.agentCard;
+-	const configured = work.node.definition.agents[0];
+-	return `${common}\n\nYou are ${card.name}.\nRole: ${card.description}\nResponsibilities:\n${card.responsibilities.map((item) => `- ${item}`).join("\n")}\nNon-responsibilities:\n${card.nonResponsibilities.map((item) => `- ${item}`).join("\n")}\nPrinciples:\n${card.principles.map((item) => `- ${item}`).join("\n") || "- None"}\nNode-specific system constraints:\n${configured.system_prompt_addendum.map((item) => `- ${item}`).join("\n") || "- None"}\n\n${work.node.definition.kind === "execution" ? execution : review}`;
++  const card = work.node.agents[0].agentCard;
++  const configured = work.node.definition.agents[0];
++  return [
++    common,
++    renderAgentProfile(card),
++    "Node-specific system constraints:\n" +
++      (configured.system_prompt_addendum.map((item) => `- ${item}`).join("\n") || "- None"),
++    work.node.definition.kind === "execution" ? execution : review,
++  ].join("\n\n");
+ }
+ 
+ export function buildNodeRoundPrompt(work: NodeRoundWork): string {
+--- a/src/control/pi-control-roles.ts
++++ b/src/control/pi-control-roles.ts
+@@ -5,6 +5,7 @@
+ import { NodeSessionAdapter } from "../adapter/node-session-adapter.ts";
+ import { PiNodeSessionFactory } from "../adapter/pi-node-session-factory.ts";
+ import { loadPrompt } from "../adapter/prompt-loader.ts";
++import { renderAgentProfile } from "../adapter/render-agent-profile.ts";
+ import { createSubmissionTool, SubmissionCapture } from "../adapter/structured-submissions.ts";
+ import type { CompiledAgentCard } from "../contracts/agent-card.ts";
+ import type { LockedSkill, LockedTool } from "../contracts/baseline.ts";
+@@ -104,7 +105,7 @@
+ 			runId,
+ 			"process-selector",
+ 			"selection-1",
+-			`${loadPrompt("common")}\n\n${loadPrompt("process-selector")}`,
++			`${loadPrompt("common")}\n\n${renderAgentProfile(this.options.agentCard)}\n\n${loadPrompt("process-selector")}`,
+ 			`TaskInput:\n${canonicalJson(task)}\n\nAvailable ProcessSpecs:\n${canonicalJson(specs)}`,
+ 		);
+ 		const spec = specs.find(
+@@ -213,7 +214,7 @@
+ 				createInput: {
+ 					workspace: options.workspace,
+ 					sessionDirectory: options.sessionDirectory,
+-					systemPrompt: `${loadPrompt("common")}\n\n${loadPrompt("workflow-designer")}`,
++					systemPrompt: `${loadPrompt("common")}\n\n${renderAgentProfile(options.agentCard)}\n\n${loadPrompt("workflow-designer")}`,
+ 					participant: {
+ 						participantId: "workflow-designer",
+ 						agentCard: options.agentCard,

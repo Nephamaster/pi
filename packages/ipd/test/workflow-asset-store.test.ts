@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { FileWorkflowAssetStore, hashJson, WorkflowAssetWriteError } from "../src/index.ts";
+import { createValidWorkflow } from "./fixtures.ts";
 
 const roots: string[] = [];
 
@@ -17,25 +18,16 @@ async function createRoot(): Promise<string> {
 	return root;
 }
 
-function createWorkflowAsset() {
-	return {
-		id: "example-workflow",
-		version: "1.0.0",
-		name: "Example Workflow",
-		objective: "Exercise immutable Workflow asset storage",
-		nodes: [],
-	};
-}
-
 describe("FileWorkflowAssetStore", () => {
 	it("persists immutable, content-addressed Workflow Assets and reuses equal content", async () => {
 		const root = await createRoot();
-		const workflow = createWorkflowAsset();
+		const workflow = createValidWorkflow();
 		const hash = hashJson(workflow);
 		const store = new FileWorkflowAssetStore({ directory: root });
 
 		const created = await store.save(workflow, hash);
 		expect(created.reused).toBe(false);
+		expect(created.record.source).toBe(join(root, workflow.workflow_id, `${workflow.workflow_version}.json`));
 		expect(existsSync(created.record.source)).toBe(true);
 		expect(JSON.parse(await readFile(created.record.source, "utf8"))).toEqual(workflow);
 
@@ -46,7 +38,7 @@ describe("FileWorkflowAssetStore", () => {
 
 	it("rejects a corrupted existing Asset instead of overwriting it", async () => {
 		const root = await createRoot();
-		const workflow = createWorkflowAsset();
+		const workflow = createValidWorkflow();
 		const hash = hashJson(workflow);
 		const store = new FileWorkflowAssetStore({ directory: root });
 		const created = await store.save(workflow, hash);
@@ -58,15 +50,28 @@ describe("FileWorkflowAssetStore", () => {
 
 	it("requires a version increment when Workflow content changes", async () => {
 		const root = await createRoot();
-		const workflow = createWorkflowAsset();
+		const workflow = createValidWorkflow();
 		const store = new FileWorkflowAssetStore({ directory: root });
 		await store.save(workflow, hashJson(workflow));
 		const changed = structuredClone(workflow);
-		changed.objective = "Changed objective under the same version";
+		changed.name = "Changed name under the same version";
 
 		await expect(store.save(changed, hashJson(changed))).rejects.toMatchObject({
 			code: "version_conflict",
 			message: expect.stringContaining("increment its version"),
 		});
+	});
+
+	it("allows only one content Hash to claim a Workflow version concurrently", async () => {
+		const root = await createRoot();
+		const first = createValidWorkflow();
+		const second = { ...createValidWorkflow(), name: "Conflicting Workflow" };
+		const store = new FileWorkflowAssetStore({ directory: root });
+		const results = await Promise.allSettled([
+			store.save(first, hashJson(first)),
+			store.save(second, hashJson(second)),
+		]);
+		expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+		expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
 	});
 });

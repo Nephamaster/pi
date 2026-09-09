@@ -1,5 +1,5 @@
 import type { TSchema } from "typebox";
-import type { WorkflowAsset } from "../contracts/workflow-asset.ts";
+import type { WorkflowDefinition } from "../contracts/workflow.ts";
 
 export type IpdDiagnosticCode =
 	| "schema_invalid"
@@ -40,7 +40,7 @@ export interface CheckDefinition {
 }
 
 export interface WorkflowAssetRecord {
-	workflow: WorkflowAsset;
+	workflow: WorkflowDefinition;
 	hash: string;
 	source: string;
 }

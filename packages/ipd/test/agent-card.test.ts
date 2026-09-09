@@ -36,10 +36,10 @@ describe("compileAgentCard", () => {
 				writeScopes: [],
 				externalActions: false,
 			},
-			defaultBudget: { tokens: 12_000, timeoutMs: 900_000 },
 		});
 		expect(Object.isFrozen(result.value)).toBe(true);
 		expect(Object.isFrozen(result.value?.permissions)).toBe(true);
+		expect(result.value).not.toHaveProperty("defaultBudget");
 	});
 
 	it("preserves specialized role guidance and permission-bound knowledge bases", () => {

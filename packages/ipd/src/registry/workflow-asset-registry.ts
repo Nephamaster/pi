@@ -9,7 +9,7 @@ export class InMemoryWorkflowAssetRegistry implements WorkflowAssetRegistry {
 	private readonly workflows = new Map<string, WorkflowAssetRecord>();
 
 	add(record: WorkflowAssetRecord): IpdDiagnostic | undefined {
-		const key = `${record.workflow.id}@${record.workflow.version}`;
+		const key = `${record.workflow.workflow_id}@${record.workflow.workflow_version}`;
 		const existing = this.workflows.get(key);
 		if (existing) {
 			return {
@@ -26,8 +26,8 @@ export class InMemoryWorkflowAssetRegistry implements WorkflowAssetRegistry {
 	list(): readonly WorkflowAssetRecord[] {
 		return Array.from(this.workflows.values()).sort(
 			(left, right) =>
-				left.workflow.id.localeCompare(right.workflow.id) ||
-				left.workflow.version.localeCompare(right.workflow.version),
+				left.workflow.workflow_id.localeCompare(right.workflow.workflow_id) ||
+				left.workflow.workflow_version.localeCompare(right.workflow.workflow_version),
 		);
 	}
 

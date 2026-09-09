@@ -1,5 +1,11 @@
 import Type, { type Static } from "typebox";
-import { IdentifierSchema, NonEmptyStringSchema, ThinkingLevelSchema, VersionSchema } from "./primitives.ts";
+import {
+	IdentifierSchema,
+	NonEmptyStringSchema,
+	Sha256Schema,
+	ThinkingLevelSchema,
+	VersionSchema,
+} from "./primitives.ts";
 
 export const AgentCardModelAssetSchema = Type.Object(
 	{
@@ -17,14 +23,6 @@ export const AgentCardPermissionsAssetSchema = Type.Object(
 		readScopes: Type.Optional(Type.Array(NonEmptyStringSchema)),
 		writeScopes: Type.Optional(Type.Array(NonEmptyStringSchema)),
 		externalActions: Type.Optional(Type.Boolean()),
-	},
-	{ additionalProperties: false },
-);
-
-export const AgentCardBudgetAssetSchema = Type.Object(
-	{
-		tokens: Type.Optional(Type.Integer({ minimum: 1 })),
-		timeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
 	},
 	{ additionalProperties: false },
 );
@@ -65,7 +63,6 @@ export const AgentCardAssetSchema = Type.Object(
 		skills: Type.Optional(Type.Array(IdentifierSchema)),
 		tools: Type.Optional(Type.Array(IdentifierSchema)),
 		permissions: Type.Optional(AgentCardPermissionsAssetSchema),
-		defaultBudget: Type.Optional(AgentCardBudgetAssetSchema),
 	},
 	{ additionalProperties: false },
 );
@@ -105,7 +102,6 @@ export interface CompiledAgentCard {
 		writeScopes: string[];
 		externalActions: boolean;
 	};
-	defaultBudget: { tokens: number; timeoutMs: number };
 	hash: string;
 	source: string;
 }
@@ -114,7 +110,7 @@ export const AgentCardRefSchema = Type.Object(
 	{
 		id: IdentifierSchema,
 		version: VersionSchema,
-		hash: Type.String({ minLength: 64, maxLength: 64, pattern: "^[a-f0-9]{64}$" }),
+		hash: Sha256Schema,
 	},
 	{ additionalProperties: false },
 );

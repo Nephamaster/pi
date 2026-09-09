@@ -9,10 +9,14 @@ export function normalizeScope(scope: string): string | undefined {
 	if (normalized === ".." || normalized.startsWith("../") || normalized.includes("/../")) {
 		return undefined;
 	}
-	return normalized === "" ? "." : normalized;
+	return normalized === "." ? "." : normalized.replace(/\/+$/, "");
 }
 
 export function scopeContains(parent: string, child: string): boolean {
 	if (parent === ".") return true;
 	return child === parent || child.startsWith(`${parent}/`);
+}
+
+export function scopesOverlap(left: string, right: string): boolean {
+	return scopeContains(left, right) || scopeContains(right, left);
 }

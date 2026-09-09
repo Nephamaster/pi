@@ -13,7 +13,7 @@ export interface CheckExecutionContext {
 }
 
 export interface CheckExecutorResult {
-	result: "PASS" | "FAIL" | "BLOCKED";
+	result: "PASS" | "FAIL";
 	evidence: JsonValue;
 	message: string;
 }

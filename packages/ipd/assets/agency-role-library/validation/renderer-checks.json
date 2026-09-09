@@ -1,0 +1,7 @@
+{
+  "profiles": 42,
+  "checkedLines": 1749,
+  "deterministic": true,
+  "mutationFree": true,
+  "minimalProfile": true
+}

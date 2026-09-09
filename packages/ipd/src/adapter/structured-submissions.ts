@@ -1,20 +1,39 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import Type, { type Static, type TSchema } from "typebox";
-import { JsonValueSchema, NonEmptyStringSchema } from "../contracts/primitives.ts";
+import { IdentifierSchema, JsonValueSchema, NonEmptyStringSchema } from "../contracts/primitives.ts";
+import { hashJson } from "../ir/hash.ts";
+
+const SubmittedFileSchema = Type.Object(
+	{
+		path: NonEmptyStringSchema,
+		media_type: NonEmptyStringSchema,
+	},
+	{ additionalProperties: false },
+);
+
+const SubmittedOutputSchema = Type.Object(
+	{
+		output_id: IdentifierSchema,
+		files: Type.Array(SubmittedFileSchema, { minItems: 1 }),
+	},
+	{ additionalProperties: false },
+);
+
+const SubmittedEvidenceSchema = Type.Object(
+	{
+		description: NonEmptyStringSchema,
+		reference: NonEmptyStringSchema,
+		output_id: Type.Optional(IdentifierSchema),
+		criterion_id: Type.Optional(IdentifierSchema),
+	},
+	{ additionalProperties: false },
+);
 
 export const SubmitArtifactSchema = Type.Object(
 	{
 		summary: NonEmptyStringSchema,
-		files: Type.Array(
-			Type.Object(
-				{
-					path: NonEmptyStringSchema,
-					mimeType: NonEmptyStringSchema,
-				},
-				{ additionalProperties: false },
-			),
-			{ minItems: 1 },
-		),
+		outputs: Type.Array(SubmittedOutputSchema, { minItems: 1 }),
+		evidence: Type.Array(SubmittedEvidenceSchema),
 		metadata: JsonValueSchema,
 	},
 	{ additionalProperties: false },
@@ -22,30 +41,27 @@ export const SubmitArtifactSchema = Type.Object(
 
 export type SubmitArtifact = Static<typeof SubmitArtifactSchema>;
 
-const CriterionDecisionSchema = Type.Union([
-	Type.Literal("PASS"),
-	Type.Literal("FAIL"),
-	Type.Literal("INCONCLUSIVE"),
-	Type.Literal("BLOCKED"),
-]);
+const ReviewDecisionSchema = Type.Union([Type.Literal("PASS"), Type.Literal("REWORK"), Type.Literal("BLOCKED")]);
+const CriterionDecisionSchema = Type.Union([Type.Literal("PASS"), Type.Literal("FAIL"), Type.Literal("BLOCKED")]);
 
 export const SubmitReviewSchema = Type.Object(
 	{
-		decision: CriterionDecisionSchema,
+		decision: ReviewDecisionSchema,
 		criteria: Type.Array(
 			Type.Object(
 				{
-					criterionId: NonEmptyStringSchema,
+					criterion_id: IdentifierSchema,
 					result: CriterionDecisionSchema,
-					evidence: JsonValueSchema,
+					evidence: Type.Array(SubmittedEvidenceSchema),
 					rationale: NonEmptyStringSchema,
-					requiredRework: Type.Array(NonEmptyStringSchema),
+					required_rework: Type.Array(NonEmptyStringSchema),
 				},
 				{ additionalProperties: false },
 			),
 			{ minItems: 1 },
 		),
-		unresolvedRisks: Type.Array(NonEmptyStringSchema),
+		rework_node_ids: Type.Array(IdentifierSchema, { uniqueItems: true }),
+		unresolved_issues: Type.Array(NonEmptyStringSchema),
 	},
 	{ additionalProperties: false },
 );
@@ -63,30 +79,41 @@ export const SubmitDecisionSchema = Type.Object(
 
 export type SubmitDecision = Static<typeof SubmitDecisionSchema>;
 
-export class SingleSubmission<T> {
-	private submitted?: T;
-	private submissionAttempts = 0;
+export interface SubmissionReceipt<T> {
+	operationId: string;
+	contentHash: string;
+	value: T;
+	reused: boolean;
+}
 
-	submit(value: T): void {
-		this.submissionAttempts++;
-		if (this.submitted !== undefined) throw new Error("Submission tool may only be called once");
-		this.submitted = structuredClone(value);
+export class SubmissionCapture<T> {
+	private receipt?: Omit<SubmissionReceipt<T>, "reused">;
+
+	beginRound(): void {
+		this.receipt = undefined;
+	}
+
+	capture(operationId: string, value: T): SubmissionReceipt<T> {
+		const contentHash = hashJson(value);
+		if (this.receipt) {
+			if (this.receipt.operationId !== operationId || this.receipt.contentHash !== contentHash) {
+				throw new Error("Submission round already captured a different operation or payload");
+			}
+			return { ...structuredClone(this.receipt), reused: true };
+		}
+		this.receipt = { operationId, contentHash, value: structuredClone(value) };
+		return { ...structuredClone(this.receipt), reused: false };
 	}
 
 	get value(): T | undefined {
-		return this.submitted;
-	}
-
-	get attempts(): number {
-		return this.submissionAttempts;
-	}
-
-	get valid(): boolean {
-		return this.submissionAttempts === 1 && this.submitted !== undefined;
+		return this.receipt ? structuredClone(this.receipt.value) : undefined;
 	}
 }
 
-export type SubmissionTool<TParameters extends TSchema> = ToolDefinition<TParameters, { submitted: true }> &
+export type SubmissionTool<TParameters extends TSchema> = ToolDefinition<
+	TParameters,
+	{ captured: true; operationId: string; reused: boolean } | { captured: false; diagnostics: readonly string[] }
+> &
 	ToolDefinition;
 
 export function createSubmissionTool<TParameters extends TSchema>(options: {
@@ -94,19 +121,35 @@ export function createSubmissionTool<TParameters extends TSchema>(options: {
 	label: string;
 	description: string;
 	parameters: TParameters;
-	capture: SingleSubmission<Static<TParameters>>;
+	capture: SubmissionCapture<Static<TParameters>>;
+	validate?: (value: Static<TParameters>) => readonly string[];
 }): SubmissionTool<TParameters> {
-	return defineTool({
+	return defineTool<
+		TParameters,
+		{ captured: true; operationId: string; reused: boolean } | { captured: false; diagnostics: readonly string[] }
+	>({
 		name: options.name,
 		label: options.label,
 		description: options.description,
 		parameters: options.parameters,
 		executionMode: "sequential",
-		async execute(_toolCallId, params) {
-			options.capture.submit(params);
+		async execute(toolCallId, params) {
+			const diagnostics = options.validate?.(params) ?? [];
+			if (diagnostics.length > 0)
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Submission rejected. Correct these issues and submit again:\n${diagnostics.map((item) => `- ${item}`).join("\n")}`,
+						},
+					],
+					details: { captured: false, diagnostics },
+					isError: true,
+				};
+			const receipt = options.capture.capture(toolCallId, params);
 			return {
-				content: [{ type: "text", text: `${options.label} accepted.` }],
-				details: { submitted: true },
+				content: [{ type: "text", text: `${options.label} captured for Runtime validation.` }],
+				details: { captured: true, operationId: toolCallId, reused: receipt.reused },
 				terminate: true,
 			};
 		},
