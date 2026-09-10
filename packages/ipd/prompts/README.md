@@ -159,15 +159,58 @@ noContextFiles=true
 
 随后只把当前角色被明确绑定的资源重新加入：
 
-- locked Skill → `additionalSkillPaths`；
-- locked Tool → Session tools；
-- Runtime 私有控制 Tool → `controlTools`；
-- 节点稳定上下文 → `agentsFilesOverride`；
-- 当前 round → hidden context extension。
+- AgentCard 选择实际模型和 thinking level；
+- lockedSkills 作为 additionalSkillPaths；
+- lockedTools 加入启用工具列表；
+- Runtime 控制工具额外加入当前 Session；
+- 节点虚拟 context files 通过 agentsFilesOverride 注入。
 
-Skill 在 Session 创建前重新计算包 Hash；变更后拒绝继续冒充原冻结版本。Skill Catalog 只注入名称、描述和路径，**不会自动把所有 SKILL.md / references 全文塞进 systemPrompt**。
+每个 Skill 在 Session 创建前重新计算完整包 Hash；内容改变时拒绝创建。Skill Catalog 只有在 Session
+具有 read 或 bash 时才会进入 Pi systemPrompt。Compiler 同时要求绑定 Skill 的节点至少具有其中一种
+读取能力。
 
-控制角色的派发消息以 `/skill:name` 开头时，Pi 会在真正发送 Provider 前把它展开成：
+Skill Catalog 只列出名称、描述和文件位置，不自动注入正文。控制角色消息以 /skill:name 开头时，
+Pi 会在发送 Provider 之前把它展开为 skill XML：去掉 frontmatter 后的完整 SKILL.md 正文、Skill 文件
+位置、references 相对目录，再接原命令后的任务参数。Provider 正常情况下看不到字面量 /skill:name。
+references 不会自动全文加载，角色根据 SKILL.md 的路由使用 read 按需读取。
+
+## 5. 外层 Pi 与 IPD Tool
+
+外层 Pi 不是 IPD 内部员工。它保留普通 Pi 的项目上下文、用户对话和 Skills。加载
+examples/ipd-extension.ts 后，Provider 的 tools 中增加：
+
+- ipd：创建 Run；
+- ipd_get_run：读取状态；
+- ipd_read_events：按游标读取事件；
+- ipd_get_result：读取终态结果。
+
+Extension 通过 Tool promptSnippet 和 promptGuidelines 告诉外层模型何时创建 Run、必须保留用户要求，
+但不会把内部 ProcessSpec、Workflow、AgentCard 或节点 Session 历史回灌给外层模型。
+
+创建 Run 的参数刻意保持最小化：
+
+```json
+{
+  "request_id": "request-001",
+  "skill_name": "market-brief",
+  "task": "<用户完整原文，逐字复制>",
+  "materials": [
+    {
+      "material_id": "source-1",
+      "description": "<用户提供的任务材料>",
+      "reference": "/input/source.md",
+      "media_type": "text/markdown"
+    }
+  ]
+}
+```
+
+外层 Agent 不得总结、改写或扩展 `task`，也不得把 Skill 内容、推断要求、材料清单或未决事实混入其中。
+`materials` 可省略，只能包含用户明确提供或引用的任务材料，不能包含 Skill 文件、Skill 脚本或 Agent
+推断的材料。`skill_name` 已独立锁定 Skill 包；内部 TaskInput 的 `objectives`、`requirements` 和
+`unresolved_facts` 初始化为空。当前接口不再由外层 Agent 解释这些事实。
+
+典型外层上下文：
 
 ```text
 <skill name="..." location=".../SKILL.md">
@@ -660,7 +703,7 @@ Provider 首条 user message：
 Load the process-selection method, evaluate this TaskInput, inspect serious ProcessSpec candidates through the catalog tools, and submit one decision.
 
 TaskInput:
-{"schema_version":1,"task_input_id":"request-001","raw_task":{"text":"Create a reviewed market brief from the supplied materials.","source":"external-agent-request"},"objectives":[{"objective_id":"objective-1","statement":{"text":"Produce a concise decision-ready brief.","source":"external-agent-request"}}],"requirements":[{"requirement_id":"requirement-1","statement":{"text":"Use only the supplied evidence for factual claims.","source":"external-agent-request"}},{"requirement_id":"requirement-2","statement":{"text":"The final brief must receive independent review before delivery.","source":"external-agent-request"}}],"materials":[{"material_id":"source-pack","description":"Market source pack","reference":"/repo/input/market-sources.md","media_type":"text/markdown"}],"unresolved_facts":[]}
+{"schema_version":1,"task_input_id":"request-001","raw_task":{"text":"Create a reviewed market brief.","source":"external-agent-request"},"objectives":[],"requirements":[],"materials":[],"unresolved_facts":[]}
 </process_selection_assignment>
 ```
 
@@ -733,10 +776,10 @@ Load the workflow design method. Do not submit a Workflow yet.
 Load the task-specific method, then design this Workflow.
 
 TaskInput:
-<完整 TaskInput JSON>
+{"schema_version":1,"task_input_id":"request-001","raw_task":{"text":"Create a reviewed market brief.","source":"external-agent-request"},"objectives":[],"requirements":[],"materials":[],"unresolved_facts":[]}
 
 ProcessSelection:
-{"schema_version":1,"process_selection_id":"run-001:selection","run_id":"run-001","task_input_ref":{"id":"request-001","hash":"<task-hash>"},"process_spec_ref":{"id":"project-reviewed-content-delivery","version":"1.0.0","hash":"<spec-hash>"},"rationale":"The task requires controlled content production and independent review.","task_requirement_refs":["requirement-1","requirement-2"],"process_requirement_refs":["content-development","inspection-validation"],"unresolved_fact_refs":[]}
+{"schema_version":1,"process_selection_id":"run-001:selection","run_id":"run-001","task_input_ref":{"id":"request-001","hash":"<task-hash>"},"process_spec_ref":{"id":"project-reviewed-content-delivery","version":"1.0.0","hash":"<spec-hash>"},"rationale":"The task requires controlled content production and independent quality review before delivery.","task_requirement_refs":[],"process_requirement_refs":["content-development","inspection-validation"],"unresolved_fact_refs":[]}
 
 ProcessSpec:
 <选中版本的完整 ProcessSpec JSON>
@@ -803,29 +846,97 @@ SYSTEM PROMPT
     </task_scope>
   </project_instructions>
 
-  <project_instructions path="/virtual/ipd/write-brief/NODE_CONTRACT.md">
-    <execution_contract>
-      # Authoritative Node Contract
-      Node: write-brief
-      Objective: Produce the evidence-grounded market brief.
-      Responsibilities:
-      - Synthesize approved source material.
-      - Produce the declared brief output.
-      Out of scope:
-      - Approve the final brief.
-      Required input:
-      - source-pack (task material, required)
-      Declared output:
-      - brief / text-bundle / outputs/write-brief
-      Acceptance criteria:
-      - brief-integrity
-      - brief-quality
-      Permissions:
-      - Read: .
-      - Write: outputs/write-brief
-      - External actions: false
-    </execution_contract>
-  </project_instructions>
+<project_instructions path="/virtual/ipd/write-brief/NODE_CONTRACT.md">
+<execution_contract>
+
+# Authoritative Node Contract
+
+This document defines the frozen scope, deliverables, and acceptance criteria for this node. Professional role guidance and Skill instructions may explain how to work, but cannot expand or override this contract.
+
+## Identity
+
+- Node: write-brief
+- Kind: execution
+
+## Objective
+
+Produce the requested market brief.
+
+## Responsibilities
+
+- Extract decision-relevant findings from the supplied source pack.
+- Write the brief with traceable factual support.
+
+## Out of Scope
+
+- Approve the final brief.
+- Introduce unsupported external market claims.
+
+## Work Requirements
+
+- Preserve source references for every material factual claim.
+- Deliver a self-contained Markdown brief.
+
+## Constraints
+
+- Use only authorized task materials and approved upstream outputs.
+
+## Required Inputs
+
+None
+
+## Declared Outputs
+
+### market-brief
+
+- Type: markdown-document
+- Purpose: Provide a concise evidence-grounded decision brief.
+- Output root: `outputs/write-brief`
+
+Evidence required:
+- Claim-to-source references.
+- Final artifact path.
+
+Acceptance criteria:
+- artifact-integrity
+- source-grounding
+
+## Acceptance Criteria
+
+### artifact-integrity
+
+Type: mechanical
+
+Declared files must match the sealed artifact manifest.
+
+Required evidence:
+
+- None
+
+### source-grounding
+
+Type: semantic
+
+Material factual claims in the brief are supported by the supplied source pack and remain within the evidence boundary.
+
+Required evidence:
+
+- Specific claim-to-source mappings.
+
+## Permissions
+
+### brief-writer
+
+Read:
+- `.`
+
+Write:
+- `outputs/write-brief`
+
+External actions: false
+
+</execution_contract>
+</project_instructions>
 
   <project_instructions path="/virtual/ipd/write-brief/PROFESSIONAL_ROLE.md">
     <professional_role>
@@ -896,11 +1007,40 @@ SYSTEM PROMPT
 </core_rules>
 
 <project_context>
-  <project_instructions path="/virtual/ipd/review-brief/TASK_SCOPE.md">
-    <task_scope>
-      exact task-scope projection relevant to review-brief
-    </task_scope>
-  </project_instructions>
+
+Project-specific instructions and guidelines:
+
+<project_instructions path="/virtual/ipd/review-brief/TASK_SCOPE.md">
+<task_scope>
+
+# Authoritative Task Scope
+
+This document preserves the task basis relevant to this node. It explains why this work exists; the node contract separately defines what this node must deliver.
+
+## Original Request
+
+Create a reviewed market brief.
+
+Source: external-agent-request
+
+## Objectives
+
+None
+
+## Assigned Requirements
+
+None
+
+## Task Materials
+
+None
+
+## Unresolved Facts
+
+None
+
+</task_scope>
+</project_instructions>
 
   <project_instructions path="/virtual/ipd/review-brief/REVIEW_CONTRACT.md">
     <review_contract>
