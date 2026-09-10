@@ -3,7 +3,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import Type from "typebox";
 import { renderAgentSelectionProfile } from "../adapter/render-agent-profile.ts";
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
-import { NonEmptyStringSchema, VersionSchema } from "../contracts/primitives.ts";
+import { IdentifierSchema, NonEmptyStringSchema, VersionSchema } from "../contracts/primitives.ts";
 import type { ProcessSpec } from "../contracts/process-spec.ts";
 import { canonicalJson } from "../ir/hash.ts";
 import { wrapPromptBlock } from "../prompt/block.ts";
@@ -25,6 +25,16 @@ const SearchSchema = Type.Object(
 	{
 		query: NonEmptyStringSchema,
 		limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+	},
+	{ additionalProperties: false },
+);
+
+const AgentSearchSchema = Type.Object(
+	{
+		query: NonEmptyStringSchema,
+		limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+		capabilities_all: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
+		tools_all: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
 	},
 	{ additionalProperties: false },
 );
@@ -121,11 +131,18 @@ export function createAgentCardCatalogTools(cards: readonly CompiledAgentCard[])
 			name: "search_agent_cards",
 			label: "Search AgentCards",
 			description:
-				'List or search registered employees by responsibility, capability, scenario, and professional method. Use "*" for the compact catalog. Results are compact candidates; inspect a candidate before binding it.',
-			parameters: SearchSchema,
+				'List or search registered employees by responsibility, capability, scenario, and professional method. Use "*" for the compact catalog. Use capabilities_all/tools_all for exact executable constraints. Results are compact candidates; inspect a candidate before binding it.',
+			parameters: AgentSearchSchema,
 			executionMode: "sequential",
 			async execute(_toolCallId, input) {
+				const requiredCapabilities = input.capabilities_all ?? [];
+				const requiredTools = input.tools_all ?? [];
 				const results = cards
+					.filter(
+						(card) =>
+							requiredCapabilities.every((capability) => card.capabilities.includes(capability)) &&
+							requiredTools.every((tool) => card.tools.includes(tool)),
+					)
 					.map((card) => ({
 						card,
 						score: score(
@@ -156,6 +173,7 @@ export function createAgentCardCatalogTools(cards: readonly CompiledAgentCard[])
 						name: card.name,
 						description: card.description,
 						capabilities: card.capabilities,
+						tools: card.tools,
 					}));
 				return {
 					content: [{ type: "text", text: wrapPromptBlock("agent_card_search_results", canonicalJson(results)) }],
