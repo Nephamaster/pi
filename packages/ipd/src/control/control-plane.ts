@@ -1,6 +1,7 @@
 // 编排任务接入、规范选择、工作流设计和编译冻结。
 import { compileWorkflow } from "../compiler/compiler.ts";
 import type { CompilerAssetCatalog } from "../compiler/types.ts";
+import { validateProcessSpecStaffing } from "../compiler/validate-process-spec.ts";
 import type { ExecutionBaseline, LockedSkill } from "../contracts/baseline.ts";
 import type { JsonValue } from "../contracts/primitives.ts";
 import type { ProcessSelection, ProcessSpec } from "../contracts/process-spec.ts";
@@ -24,6 +25,26 @@ export class ProcessSelectionBlockedError extends Error {
 		super(message);
 		this.name = "ProcessSelectionBlockedError";
 		this.unresolvedFactRefs = unresolvedFactRefs;
+	}
+}
+
+export interface WorkflowDesignBlock {
+	type: "resource_gap" | "expressiveness_gap" | "task_blocker" | "other";
+	reason: string;
+	missing_conditions: string[];
+	task_requirement_refs: string[];
+	process_requirement_refs: string[];
+	diagnostics: Array<{ code?: string; path?: string; message: string }>;
+	needed_to_resume: string[];
+}
+
+export class WorkflowDesignBlockedError extends Error {
+	readonly block: WorkflowDesignBlock;
+
+	constructor(block: WorkflowDesignBlock) {
+		super(block.reason);
+		this.name = "WorkflowDesignBlockedError";
+		this.block = structuredClone(block);
 	}
 }
 
@@ -126,16 +147,56 @@ export class IpdControlPlane {
 		);
 		if (!spec || hashJson(spec) !== selection.process_spec_ref.hash)
 			return this.block(input.runId, directory, ["Selected ProcessSpec is unavailable or changed"]);
+
+		const staffingDiagnostics = validateProcessSpecStaffing(spec, input.assets.agentCards);
 		await this.store.mutate(input.runId, "process-selected", { selection: hashJson(selection) }, (draft, event) => {
-			draft.phase = "design";
 			draft.processSelection = selection;
+			draft.selectedProcessSpec = structuredClone(spec);
+			draft.staffingReport = {
+				ok: staffingDiagnostics.length === 0,
+				diagnostics: staffingDiagnostics.map((item) => ({ ...item })),
+			};
+			draft.phase = staffingDiagnostics.length === 0 ? "design" : "selection";
 			event.emit("process_selected", { processSpec: selection.process_spec_ref.id });
+			event.emit("process_staffing_checked", {
+				ok: staffingDiagnostics.length === 0,
+				diagnostics: staffingDiagnostics.map((item) => ({ code: item.code, path: item.path, message: item.message })),
+			});
 			return true;
 		});
+		if (staffingDiagnostics.length > 0)
+			return this.block(
+				input.runId,
+				directory,
+				staffingDiagnostics.map((item) => `${item.path}: ${item.message}`),
+				"process_spec_unstaffable",
+			);
+
 		let diagnostics: string[] = [];
 		for (let revision = 1; revision <= 10; revision++) {
 			await this.setPreparationPhase(input.runId, "design", `design:${revision}`);
-			const workflow = await this.designer.design(input.runId, input.taskInput, selection, spec, diagnostics);
+			let workflow: WorkflowDefinition;
+			try {
+				workflow = await this.designer.design(input.runId, input.taskInput, selection, spec, diagnostics);
+			} catch (error) {
+				if (!(error instanceof WorkflowDesignBlockedError)) throw error;
+				await this.store.mutate(
+					input.runId,
+					`workflow-design-blocked:${hashJson(error.block)}`,
+					{ block: error.block },
+					(draft, event) => {
+						draft.workflowDesignBlock = structuredClone(error.block);
+						event.emit("workflow_design_blocked", error.block);
+						return true;
+					},
+				);
+				return this.block(
+					input.runId,
+					directory,
+					[error.block.reason, ...error.block.missing_conditions, ...error.block.diagnostics.map((item) => item.message)],
+					"workflow_design_blocked",
+				);
+			}
 			const workflowHash = hashJson(workflow);
 			await this.store.mutate(
 				input.runId,
@@ -191,11 +252,16 @@ export class IpdControlPlane {
 		});
 	}
 
-	private async block(runId: string, directory: RunDirectory, diagnostics: string[]): Promise<PrepareRunResult> {
-		await this.store.mutate(runId, `prepare-blocked:${hashJson(diagnostics)}`, { diagnostics }, (draft, event) => {
+	private async block(
+		runId: string,
+		directory: RunDirectory,
+		diagnostics: string[],
+		failureCode = "preparation_blocked",
+	): Promise<PrepareRunResult> {
+		await this.store.mutate(runId, `prepare-blocked:${hashJson({ failureCode, diagnostics })}`, { diagnostics }, (draft, event) => {
 			draft.status = "blocked";
-			draft.failure = { code: "preparation_blocked", message: diagnostics.join("\n") };
-			event.emit("preparation_blocked", { diagnostics });
+			draft.failure = { code: failureCode, message: diagnostics.join("\n") };
+			event.emit("preparation_blocked", { code: failureCode, diagnostics });
 			return true;
 		});
 		return { ok: false, directory, diagnostics };
