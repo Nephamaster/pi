@@ -35,7 +35,12 @@ describe("node context image retention", () => {
 			role: "toolResult",
 			content: [
 				{ type: "text", text: "Read old-image" },
-				{ type: "text", text: expect.stringContaining("already consumed") },
+				{
+					type: "text",
+					text: expect.stringMatching(
+						/^<omitted_historical_image>\n\n.*already consumed.*\n\n<\/omitted_historical_image>$/,
+					),
+				},
 			],
 		});
 		expect(filtered[2]).toEqual(messages[2]);
@@ -73,10 +78,13 @@ describe("node prompt projections", () => {
 			"EXECUTION_PROTOCOL.md",
 		]);
 		expect(files[0].content).toContain("Create a reviewed deliverable");
+		expect(files[0].content).toMatch(/^<task_scope>[\s\S]*<\/task_scope>$/);
 		expect(files[1].content).toContain("# Authoritative Node Contract");
+		expect(files[1].content).toMatch(/^<execution_contract>[\s\S]*<\/execution_contract>$/);
 		expect(files[1].content).toContain("## Acceptance Criteria");
 		expect(files[1].content).not.toContain('{"constraints"');
 		expect(files[2].content).toContain("# Professional Role");
+		expect(files[2].content).toMatch(/^<professional_role>[\s\S]*<\/professional_role>$/);
 		expect(files[3].content).toContain("# Execution Protocol");
 
 		const reviewNode = compiled.baseline.nodes.find((item) => item.definition.kind === "review");
@@ -104,6 +112,7 @@ describe("node prompt projections", () => {
 			"REVIEW_PROTOCOL.md",
 		]);
 		expect(reviewFiles[1].content).toContain("## Review Targets");
+		expect(reviewFiles[1].content).toMatch(/^<review_contract>[\s\S]*<\/review_contract>$/);
 		expect(reviewFiles[1].content).toContain("## Allowed Rework Targets");
 	});
 
@@ -172,6 +181,7 @@ describe("node prompt projections", () => {
 			],
 		});
 		expect(context).toContain('"submission_record":"/sealed/submission-1/submission.json"');
+		expect(context).toMatch(/^<ipd_current_round source="runtime">[\s\S]*<\/ipd_current_round>$/);
 		expect(context).toContain('"type":"quality_rework"');
 		expect(context).not.toContain("task_context");
 		expect(context).not.toContain("private_detail");

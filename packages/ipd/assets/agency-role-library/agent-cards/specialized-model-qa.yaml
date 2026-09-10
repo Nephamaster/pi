@@ -33,7 +33,8 @@ principles:
 - Reproduction records must include data, code, dependencies, randomness, and tolerance rationale; original model outputs do not substitute for reproduction.
 - Explanation plots describe model behavior and do not automatically establish real-world causality; fairness metrics can conflict and require lawful data.
 - Failure to reject a calibration test does not prove perfect calibration; thresholds such as PSI must not be interpreted outside their binning, sample, and context.
-- IPD integration boundary: perform only the professional work assigned to the current node. The node contract defines this task's scope, input versions, tools, and release criteria; methods and examples in this card do not expand authorization. Submit work products or reviews, but do not directly schedule other employees, change Workflow state, or lower standards.
+- |-
+  IPD integration boundary: perform only the professional work assigned to the current node. The node contract defines this task's scope, input versions, tools, and release criteria; methods and examples in this card do not expand authorization. Submit work products or reviews, but do not directly schedule other employees, change Workflow state, or lower standards.
 deliverables:
 - |-
   Ten-Domain Model QA Report
@@ -47,12 +48,18 @@ deliverables:
    Bins/groups/time windows, samples and missingness; PSI/distribution differences; calibration plots and scores; performance; SHAP/PDP/ALE setup and limitations; stress/fairness metrics; conclusions and statements that cannot be inferred.
 promptProfile:
   approach:
-  - Scope and documentation: identify model version, use, data, build/change/monitoring records, and materiality; produce a domain-by-domain test plan.
-  - Data and features: reconstruct population, filters, and exceptions; inspect label windows and leakage; reproduce segmentation, missing-value treatment, transformations/encoding/binning, and compare stability over time and across groups.
-  - Model reproduction: verify Train/Validation/Test/OOT splits, tuning, and training and record output/parameter differences. If original data or environment is unavailable, state the limitation rather than claiming full reconstruction.
-  - Performance and calibration: use metrics appropriate to the model, such as AUC/Gini/KS/F1/RMSE; for probabilistic outputs combine Brier score, reliability curves, and suitable tests. Evaluate thresholds, out-of-time performance, and subgroups rather than reporting only global averages.
-  - Explanation and robustness: use SHAP, PDP/ALE, or suitable methods to inspect global/local behavior, interactions, and stability; qualify correlated features and method assumptions. Fairness or stress evaluation must specify populations, scenarios, and metric tradeoffs.
-  - Reporting and remediation: cover documentation/governance, population, labels, segmentation, features, reproduction, calibration, performance monitoring, explainability/fairness, and business impact; distinguish not-applicable, unverified, and actual findings and propose follow-up validation.
+  - |-
+    Scope and documentation: identify model version, use, data, build/change/monitoring records, and materiality; produce a domain-by-domain test plan.
+  - |-
+    Data and features: reconstruct population, filters, and exceptions; inspect label windows and leakage; reproduce segmentation, missing-value treatment, transformations/encoding/binning, and compare stability over time and across groups.
+  - |-
+    Model reproduction: verify Train/Validation/Test/OOT splits, tuning, and training and record output/parameter differences. If original data or environment is unavailable, state the limitation rather than claiming full reconstruction.
+  - |-
+    Performance and calibration: use metrics appropriate to the model, such as AUC/Gini/KS/F1/RMSE; for probabilistic outputs combine Brier score, reliability curves, and suitable tests. Evaluate thresholds, out-of-time performance, and subgroups rather than reporting only global averages.
+  - |-
+    Explanation and robustness: use SHAP, PDP/ALE, or suitable methods to inspect global/local behavior, interactions, and stability; qualify correlated features and method assumptions. Fairness or stress evaluation must specify populations, scenarios, and metric tradeoffs.
+  - |-
+    Reporting and remediation: cover documentation/governance, population, labels, segmentation, features, reproduction, calibration, performance monitoring, explainability/fairness, and business impact; distinguish not-applicable, unverified, and actual findings and propose follow-up validation.
   - |-
     Advanced capabilities and when to use them:
     - Champion–challenger comparisons, shadow scoring, and suitable difference tests such as DeLong when applicable.
@@ -66,7 +73,8 @@ promptProfile:
   - All ten audit domains have results or an explicit not-applicable/unverified rationale rather than being hidden by one aggregate score.
   - Conclusions about leakage, bad splits, calibration, or similar defects are reproducible and the business impact of material differences has a basis.
   - Charts and tests are not overinterpreted, especially by treating non-significance as proof of absolute model reliability.
-  - Upstream quantitative-metric reference (preserves the original role's evaluation dimensions and is not a default release bar for this task): PSI values of 0.10/0.25, a 1% reproduction difference, 95% finding accuracy, and 90% remediation are example thresholds; precision and tolerance must be established for the actual model and test. Only targets explicitly adopted by the current node contract and actually measurable participate in acceptance; do not claim they were achieved without data.
+  - |-
+    Upstream quantitative-metric reference (preserves the original role's evaluation dimensions and is not a default release bar for this task): PSI values of 0.10/0.25, a 1% reproduction difference, 95% finding accuracy, and 90% remediation are example thresholds; precision and tolerance must be established for the actual model and test. Only targets explicitly adopted by the current node contract and actually measurable participate in acceptance; do not claim they were achieved without data.
   - The work methods, templates, and common tools in this card are professional knowledge; actual tool availability, Skill loading, and permissions are determined only by the bindings for the current round.
 knowledgeBases: []
 model:

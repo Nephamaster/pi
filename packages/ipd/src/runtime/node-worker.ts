@@ -1,5 +1,5 @@
 // 定义节点执行接口、结构化反馈和有限技术重试。
-import type { SubmitArtifact, SubmitReview } from "../adapter/structured-submissions.ts";
+import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "../adapter/structured-submissions.ts";
 import type { EffectiveNode } from "../contracts/baseline.ts";
 import type { RoundInputBindingRecord, SubmissionRecord } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
@@ -33,8 +33,10 @@ export interface NodeRoundWork {
 	feedback: RoundFeedback[];
 }
 
+export type ExecutionNodeResult = SubmitArtifact | { kind: "blocked"; report: ReportNodeBlocked };
+
 export interface NodeWorker {
-	runExecution(work: NodeRoundWork): Promise<SubmitArtifact>;
+	runExecution(work: NodeRoundWork): Promise<ExecutionNodeResult>;
 	runReview(work: NodeRoundWork): Promise<SubmitReview>;
 	stopRound?(runId: string, nodeId: string, participantId: string, roundId: string): Promise<void>;
 	releaseRun?(runId: string): Promise<void>;
@@ -78,7 +80,7 @@ export class RetryingNodeWorker implements NodeWorker {
 		this.delay = delay;
 	}
 
-	runExecution(work: NodeRoundWork): Promise<SubmitArtifact> {
+	runExecution(work: NodeRoundWork): Promise<ExecutionNodeResult> {
 		return this.retry(work, (current) => this.delegate.runExecution(current));
 	}
 

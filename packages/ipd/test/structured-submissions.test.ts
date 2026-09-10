@@ -30,10 +30,18 @@ describe("SubmissionCapture", () => {
 		});
 		const rejected = await tool.execute("call-1", { result: "bad" }, undefined, undefined, {} as never);
 		expect(rejected).toMatchObject({ isError: true, details: { captured: false } });
+		expect(rejected.content[0]).toMatchObject({
+			type: "text",
+			text: expect.stringMatching(/^<submission_validation_result>[\s\S]*<\/submission_validation_result>$/),
+		});
 		expect(rejected.terminate).toBeUndefined();
 		expect(capture.value).toBeUndefined();
 		const accepted = await tool.execute("call-2", { result: "ok" }, undefined, undefined, {} as never);
 		expect(accepted).toMatchObject({ terminate: true, details: { captured: true } });
+		expect(accepted.content[0]).toMatchObject({
+			type: "text",
+			text: expect.stringMatching(/^<submission_capture_result>[\s\S]*<\/submission_capture_result>$/),
+		});
 		expect(capture.value).toEqual({ result: "ok" });
 	});
 });

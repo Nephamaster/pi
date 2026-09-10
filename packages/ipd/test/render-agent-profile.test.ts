@@ -28,6 +28,7 @@ describe("AgentCard prompt projections", () => {
 			},
 		).value!;
 		const rendered = renderAgentRuntimeProfile(card);
+		expect(rendered).toMatch(/^<professional_role>[\s\S]*<\/professional_role>$/);
 		expect(rendered).toContain("Decompose by deliverable");
 		expect(rendered).toContain("Coordinate delivery");
 		expect(rendered).toContain("Approve own work");
@@ -37,6 +38,7 @@ describe("AgentCard prompt projections", () => {
 		expect(rendered).not.toContain("State risks directly");
 
 		const selection = renderAgentSelectionProfile(card);
+		expect(selection).toMatch(/^<agent_selection_profile>[\s\S]*<\/agent_selection_profile>$/);
 		expect(selection).toContain("Complex delivery");
 		expect(selection).toContain("Decision package");
 		expect(selection).toContain("Verify source lineage");

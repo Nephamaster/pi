@@ -14,6 +14,8 @@
 - Added the explicitly loaded IPD Extension with create, state, event, and result tools.
 - Added default general-delivery producer and reviewer assets so every ProcessSpec marked executable can be staffed by
   the packaged employee pool.
+- Added structured execution-node business blocking through `report_node_blocked`, including persisted causes,
+  affected requirements, evidence, and recovery conditions.
 
 ### Changed
 
@@ -36,3 +38,4 @@
 - Fixed partial Gate approval that could release an output or complete a Run before all semantic criteria passed.
 - Fixed ProcessSpec coverage that previously accepted arbitrary Workflow criteria without proving that normative
   evidence and review requirements were instantiated.
+- Fixed genuine execution business blocks being retried as malformed Artifact submissions until the correction limit.

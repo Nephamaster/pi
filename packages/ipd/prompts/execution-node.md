@@ -44,7 +44,15 @@ Before submission, verify that:
 
 Self-checking improves the candidate; it does **not** replace independent review.
 
-## 4. Submit a Complete Candidate
+## 4. Report a Business Block
+
+If a required fact, material, access permission, authorization, or other necessary business condition is unavailable and no valid Artifact can be produced, use `report_node_blocked`.
+
+Use it only for a genuine inability to continue within the frozen assignment. Do not use it for a malformed submission, correctable quality defect, or transient model, tool, or storage failure.
+
+Record only conditions actually observed, what was attempted, which task requirements are affected, and what is needed before work can resume. Runtime decides the node and Run state.
+
+## 5. Submit a Complete Candidate
 
 When the node deliverable is ready, use `submit_artifact`.
 
@@ -52,7 +60,7 @@ Submit one complete candidate for the current round. The candidate must cover al
 
 A successful tool call means the candidate has been captured for Runtime validation. It does not mean the output has passed mechanical checks, semantic review, or downstream approval.
 
-## 5. Correction and Rework
+## 6. Correction and Rework
 
 If Runtime returns:
 
@@ -64,7 +72,7 @@ update only the affected work using the current valid inputs, then re-check the 
 
 Do **not** lower standards, remove known issues, alter task assumptions, or change acceptance criteria merely to obtain a pass.
 
-## 6. Completion Boundary
+## 7. Completion Boundary
 
 Your responsibility ends with producing a valid candidate for this node.
 

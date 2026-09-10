@@ -4,6 +4,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { EffectiveNode } from "../contracts/baseline.ts";
 import { canonicalJson } from "../ir/hash.ts";
+import { wrapPromptBlock } from "../prompt/block.ts";
 import type { NodeRoundWork } from "../runtime/node-worker.ts";
 import { loadPrompt } from "./prompt-loader.ts";
 import { renderAgentRuntimeProfile } from "./render-agent-profile.ts";
@@ -60,7 +61,9 @@ function executionContract(node: EffectiveNode): string {
 				`### ${output.output_id}\n\n- Type: ${output.artifact_type}\n- Purpose: ${output.business_purpose}\n- Output root: \`${output.path_prefix}\`\n\nEvidence required:\n${bullets(output.evidence_requirements)}\n\nAcceptance criteria:\n${bullets(output.criterion_refs)}`,
 		)
 		.join("\n\n");
-	return `# Authoritative Node Contract
+	return wrapPromptBlock(
+		"execution_contract",
+		`# Authoritative Node Contract
 
 This document defines the frozen scope, deliverables, and acceptance criteria for this node. Professional role guidance and Skill instructions may explain how to work, but cannot expand or override this contract.
 
@@ -103,7 +106,8 @@ ${criteria(node)}
 
 ## Permissions
 
-${permissions(node)}`;
+${permissions(node)}`,
+	);
 }
 
 function reviewContract(node: EffectiveNode): string {
@@ -115,7 +119,9 @@ function reviewContract(node: EffectiveNode): string {
 				`### ${target.node_id} / ${target.output_id}\n\nEvaluate criteria:\n${bullets(target.criterion_refs)}`,
 		)
 		.join("\n\n");
-	return `# Authoritative Review Contract
+	return wrapPromptBlock(
+		"review_contract",
+		`# Authoritative Review Contract
 
 This document defines the frozen review scope, targets, acceptance criteria, and allowed rework boundaries. Professional role guidance and Skill instructions cannot expand or override it.
 
@@ -158,7 +164,8 @@ ${criteria(node)}
 
 ## Permissions
 
-${permissions(node)}`;
+${permissions(node)}`,
+	);
 }
 
 export function renderTaskScopeFile(work: NodeRoundWork): VirtualContextFile {
@@ -180,7 +187,9 @@ export function renderTaskScopeFile(work: NodeRoundWork): VirtualContextFile {
 		.join("\n");
 	return {
 		path: `/virtual/ipd/${work.node.definition.node_id}/TASK_SCOPE.md`,
-		content: `# Authoritative Task Scope
+		content: wrapPromptBlock(
+			"task_scope",
+			`# Authoritative Task Scope
 
 This document preserves the task basis relevant to this node. It explains why this work exists; the node contract separately defines what this node must deliver.
 
@@ -205,6 +214,7 @@ ${materials || "None"}
 ## Unresolved Facts
 
 ${unresolvedFacts || "None"}`,
+		),
 	};
 }
 
@@ -273,7 +283,10 @@ export function omitConsumedImages(messages: AgentMessage[]): AgentMessage[] {
 				...message.content.filter((item) => item.type !== "image"),
 				{
 					type: "text",
-					text: "[Image content already consumed by a later assistant response; omitted from this model request.]",
+					text: wrapPromptBlock(
+						"omitted_historical_image",
+						"Image content already consumed by a later assistant response; omitted from this model request.",
+					),
 				},
 			],
 		};

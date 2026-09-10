@@ -190,6 +190,62 @@ describe("WorkflowRuntime", () => {
 		expect(result.rounds.filter((round) => round.nodeId === "review-produce")).toHaveLength(1);
 	});
 
+	it("records a structured execution business block without submission correction", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-runtime-business-block-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		const compiled = compileWorkflow(fixture);
+		if (!compiled.ok) throw new Error("Fixture Workflow did not compile");
+		const directory = await prepareRunDirectory(root, "run-1");
+		let executionCalls = 0;
+		const worker: NodeWorker = {
+			async runExecution() {
+				executionCalls++;
+				return {
+					kind: "blocked",
+					report: {
+						reason: "Required source access is unavailable",
+						missing_conditions: ["Source credentials"],
+						affected_requirement_ids: ["deliver-result"],
+						attempted_actions: ["Checked supplied materials"],
+						evidence: [],
+						needed_to_resume: ["Provide source credentials"],
+					},
+				};
+			},
+			async runReview() {
+				throw new Error("Review must not run for a blocked candidate");
+			},
+		};
+		const store = new FileRunStore();
+		store.bind("run-1", directory.stateFile);
+		const checks = new CheckExecutorRegistry();
+		checks.add(createArtifactIntegrityCheckExecutor());
+		const runtime = new WorkflowRuntime(
+			store,
+			directory,
+			worker,
+			new SubmissionStore(),
+			new MechanicalChecker(checks),
+		);
+		await runtime.activate(compiled.baseline, fixture.taskInput);
+		const result = await runtime.run();
+		const node = result.nodes.find((item) => item.nodeId === "produce");
+		expect(result.status).toBe("blocked");
+		expect(executionCalls).toBe(1);
+		expect(result.submissions).toEqual([]);
+		expect(result.rounds[0]).toMatchObject({ status: "blocked" });
+		expect(node).toMatchObject({
+			status: "blocked",
+			block: {
+				reason: "Required source access is unavailable",
+				missingConditions: ["Source credentials"],
+				neededToResume: ["Provide source credentials"],
+			},
+		});
+		expect(result.events.map((event) => event.type)).toContain("node_blocked");
+	});
+
 	it("dispatches independent execution nodes concurrently without a global workspace lock", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-runtime-parallel-"));
 		roots.push(root);

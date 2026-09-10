@@ -3,6 +3,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import Type, { type Static, type TSchema } from "typebox";
 import { IdentifierSchema, JsonValueSchema, NonEmptyStringSchema } from "../contracts/primitives.ts";
 import { hashJson } from "../ir/hash.ts";
+import { wrapPromptBlock } from "../prompt/block.ts";
 
 const SubmittedFileSchema = Type.Object(
 	{
@@ -41,6 +42,20 @@ export const SubmitArtifactSchema = Type.Object(
 );
 
 export type SubmitArtifact = Static<typeof SubmitArtifactSchema>;
+
+export const ReportNodeBlockedSchema = Type.Object(
+	{
+		reason: NonEmptyStringSchema,
+		missing_conditions: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+		affected_requirement_ids: Type.Array(IdentifierSchema, { uniqueItems: true }),
+		attempted_actions: Type.Array(NonEmptyStringSchema),
+		evidence: Type.Array(SubmittedEvidenceSchema),
+		needed_to_resume: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+	},
+	{ additionalProperties: false },
+);
+
+export type ReportNodeBlocked = Static<typeof ReportNodeBlockedSchema>;
 
 const ReviewDecisionSchema = Type.Union([Type.Literal("PASS"), Type.Literal("REWORK"), Type.Literal("BLOCKED")]);
 const CriterionDecisionSchema = Type.Union([Type.Literal("PASS"), Type.Literal("FAIL"), Type.Literal("BLOCKED")]);
@@ -141,7 +156,10 @@ export function createSubmissionTool<TParameters extends TSchema>(options: {
 					content: [
 						{
 							type: "text",
-							text: `Submission rejected. Correct these issues and submit again:\n${diagnostics.map((item) => `- ${item}`).join("\n")}`,
+							text: wrapPromptBlock(
+								"submission_validation_result",
+								`Submission rejected. Correct these issues and submit again:\n${diagnostics.map((item) => `- ${item}`).join("\n")}`,
+							),
 						},
 					],
 					details: { captured: false, diagnostics },
@@ -149,7 +167,15 @@ export function createSubmissionTool<TParameters extends TSchema>(options: {
 				};
 			const receipt = options.capture.capture(toolCallId, params);
 			return {
-				content: [{ type: "text", text: `${options.label} captured for Runtime validation.` }],
+				content: [
+					{
+						type: "text",
+						text: wrapPromptBlock(
+							"submission_capture_result",
+							`${options.label} captured for Runtime validation.`,
+						),
+					},
+				],
 				details: { captured: true, operationId: toolCallId, reused: receipt.reused },
 				terminate: true,
 			};

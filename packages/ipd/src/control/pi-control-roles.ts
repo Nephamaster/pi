@@ -20,6 +20,7 @@ import { ProcessSelectionBlockedError, type ProcessSelector, type WorkflowDesign
 import {
 	buildInitialWorkflowDesignPrompt,
 	buildProcessSelectionPrompt,
+	buildWorkflowDesignMethodPrompt,
 	buildWorkflowDesignRevisionPrompt,
 } from "./control-role-prompts.ts";
 import type { WorkflowDraftManager } from "./workflow-draft.ts";
@@ -283,7 +284,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				"workflow-designer",
 				"workflow-designer",
 				"design-method",
-				`/skill:${this.designSkill.id} Load the workflow design method. Do not submit a Workflow yet.`,
+				buildWorkflowDesignMethodPrompt(this.designSkill.id),
 			);
 			this.active.set(runId, active);
 		}

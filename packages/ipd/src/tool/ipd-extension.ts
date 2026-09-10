@@ -3,6 +3,7 @@ import { defineTool, type ExtensionAPI, type ExtensionContext } from "@earendil-
 import Type, { type Static } from "typebox";
 import { NonEmptyStringSchema } from "../contracts/primitives.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
+import { wrapPromptBlock } from "../prompt/block.ts";
 import type { IpdService } from "../runtime/ipd-service.ts";
 
 const CreateRunSchema = Type.Object(
@@ -81,7 +82,15 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 					lines.push(`Visualization unavailable: ${receipt.visualizationError}`);
 				}
 				return {
-					content: [{ type: "text", text: lines.join("\n") }],
+					content: [
+						{
+							type: "text",
+							text: wrapPromptBlock(
+								"ipd_run_receipt",
+								`IPD Run ${receipt.runId} accepted=${receipt.accepted}; phase=${receipt.phase}; status=${receipt.status}`,
+							),
+						},
+					],
 					details: receipt,
 				};
 			},
@@ -104,7 +113,10 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 					nodes: state.nodes,
 					failure: state.failure,
 				};
-				return { content: [{ type: "text", text: JSON.stringify(view) }], details: view };
+				return {
+					content: [{ type: "text", text: wrapPromptBlock("ipd_run_status", JSON.stringify(view)) }],
+					details: view,
+				};
 			},
 		}),
 	);
@@ -119,7 +131,10 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 			),
 			async execute(_toolCallId, input, _signal, _onUpdate, context) {
 				const events = await (await serviceProvider(context)).readEvents(input.run_id, input.after_sequence ?? 0);
-				return { content: [{ type: "text", text: JSON.stringify(events) }], details: { events } };
+				return {
+					content: [{ type: "text", text: wrapPromptBlock("ipd_run_events", JSON.stringify(events)) }],
+					details: { events },
+				};
 			},
 		}),
 	);
@@ -139,7 +154,10 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 					final_submission: result.finalSubmission,
 					failure: result.state.failure,
 				};
-				return { content: [{ type: "text", text: JSON.stringify(view) }], details: view };
+				return {
+					content: [{ type: "text", text: wrapPromptBlock("ipd_run_result", JSON.stringify(view)) }],
+					details: view,
+				};
 			},
 		}),
 	);
