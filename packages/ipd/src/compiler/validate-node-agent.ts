@@ -104,7 +104,7 @@ export function validateNodeAgent(
 				node.node_id,
 			);
 		if (!skill) continue;
-		for (const requiredTool of skill.requiredTools) {
+		for (const requiredTool of skill.requiredTools ?? []) {
 			if (agent.tools.some((tool) => tool.id === requiredTool)) continue;
 			addDiagnostic(
 				diagnostics,
