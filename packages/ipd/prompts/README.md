@@ -4,9 +4,6 @@
 分别会向模型提供什么上下文，以及首次工作、设计修订、提交补正、机械失败、质量返工和技术重试时
 哪些内容会变化。
 
-本文描述当前代码事实，不描述旧 V1。提示词正文以本目录文件为准，字段结构以 Tool Schema 和
-Workflow Schema 为准。
-
 ## 1. Provider 最终收到什么
 
 一次模型请求最终由三部分组成：
@@ -30,9 +27,9 @@ Workflow Schema 为准。
 Pi 的 buildSystemPrompt 按以下顺序组装：
 
 ```text
-Pi Base
-→ appendSystemPrompt
-→ contextFiles
+Pi Base（Pi 的基础提示词）
+→ appendSystemPrompt（用这个方法来追加提示词）
+→ contextFiles（Pi 提供的方法，用于把稳定的文件内容加入 Pi 的 systemPrompt，是为了保持清晰地辩解来源）
 → Skill Catalog
 → Current Working Directory
 ```
