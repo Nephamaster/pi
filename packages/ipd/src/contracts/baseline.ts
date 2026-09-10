@@ -39,6 +39,7 @@ export interface LockedSkill {
 	baseDir: string;
 	description: string;
 	allowedTools: string[];
+	requiredTools: string[];
 }
 
 export interface LockedTool {
