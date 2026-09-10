@@ -65,9 +65,14 @@ Do not introduce parallel branches simply because multiple employees exist. Para
 
 Select employees **after** you understand the responsibility of the work package.
 
-Use `search_agent_cards` to find candidates by responsibility and professional capability. Search results are compact summaries, not sufficient evidence for binding an employee.
+Use `search_agent_cards` to find candidates by responsibility and professional capability. When a work package has non-negotiable execution constraints, use the exact filters:
 
-For serious candidates, use `get_agent_card` to inspect the exact version's full selection profile, including:
+- `capabilities_all` for every capability the employee must possess;
+- `tools_all` for every tool the employee must be authorized to receive.
+
+A useful pattern for a hard staffing check is `query: "*"` plus exact capability/tool filters.
+
+Search results are compact summaries, not sufficient evidence for binding an employee. For serious candidates, use `get_agent_card` to inspect the exact version's full selection profile, including:
 
 - responsibilities and non-responsibilities;
 - applicable scenarios;
@@ -79,11 +84,13 @@ Do not bind an employee based only on name, one capability label, or search rank
 
 The current implementation allows exactly one employee per execution or review node.
 
-## 6. Bind Only Necessary Resources
+## 6. Bind Only Necessary and Executable Resources
 
 Configure Skills, tools, knowledge bases, and permissions explicitly for each node.
 
 An AgentCard authorizing a resource means the employee **may** use it; it does not mean every node using that employee should receive it.
+
+A Skill may also declare `required-tools`. These are machine-readable execution prerequisites. Every required tool must be explicitly bound to the node and must remain inside the selected AgentCard's tool ceiling. If the Skill requires a tool the employee cannot receive, that employee/Skill combination is not executable even when the employee's professional capability label matches.
 
 Do not grant resources that the work package does not need, and do not use Workflow configuration to bypass AgentCard authorization.
 
@@ -117,7 +124,24 @@ During the initial design, use the full TaskInput, ProcessSelection, ProcessSpec
 
 When Compiler diagnostics are returned, revise the existing draft in the same Session. Fix the affected design locally rather than restarting from scratch.
 
-## 9. Final Design Quality Check
+`workflow_draft_validate` returns compact structured diagnostics. Use diagnostic `code`, `category`, `nodeId`, and `processRequirementId` when available instead of reparsing the whole Workflow or guessing which requirement failed.
+
+## 9. Report a Genuine Design Block Explicitly
+
+If, after checking serious alternative employee/resource combinations, no legal Workflow can satisfy the preserved TaskInput and selected ProcessSpec, do not weaken the task, drop required process obligations, or bind a knowingly unusable employee merely to make validation pass.
+
+Use `report_workflow_design_blocked` and classify the cause as one of:
+
+- `resource_gap` — required employee capability, Skill, tool, knowledge source, or permission combination is unavailable;
+- `expressiveness_gap` — the current Workflow/Runtime model cannot legally represent a required governance relationship;
+- `task_blocker` — a required task condition cannot be resolved by legitimate work available to the Workflow;
+- `other` — a verified blocker outside the above categories.
+
+The report must identify the exact missing conditions, relevant TaskInput/ProcessSpec requirement IDs, useful diagnostics, and what would need to change before design can resume.
+
+This is a **normal preparation-blocked outcome**, not a Runtime failure. Use it only for a genuine blocker; ordinary draft mistakes should be repaired in the same persistent Designer Session.
+
+## 10. Final Design Quality Check
 
 A successful Draft validation or Compiler pass means the structure is valid. It does **not** prove that the design is good.
 
