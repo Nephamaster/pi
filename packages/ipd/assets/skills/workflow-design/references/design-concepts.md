@@ -1,89 +1,127 @@
-# 设计概念与判断原则
+# Design Concepts and Judgment Principles
 
-这份参考用于解释工作流设计中常见的 IPD 和图执行术语。理解这些概念即可，不要求掌握图论或运行时实现细节。
+This reference explains common IPD and graph-execution terms used during Workflow design.
 
-## 1. IPD、ProcessSpec 与 Workflow 的关系
+You only need a practical understanding. You do not need graph-theory knowledge or Runtime implementation details.
 
-IPD 的核心不是“把任务拆成更多步骤”，而是用**明确责任、结构化交付、跨专业协作和阶段性质量评审**降低长程任务中错误累积和晚期返工的风险。
+## 1. Relationship Between IPD, ProcessSpec, and Workflow
 
-在当前系统里：
+The point of IPD is not to "split a task into more steps."
 
-- **ProcessSpec** 是面向某类任务的流程治理规范，规定必须承担的活动、交付、专业责任、评审和流程规则；
-- **WorkflowDefinition** 是针对当前 TaskInput 设计出来的具体执行方案；
-- **Runtime** 按冻结后的 Workflow 执行状态、版本、准出和返工；Agent 不直接控制全局流程。
+Its purpose is to reduce error accumulation and late rework in long, cross-functional work through:
 
-ProcessSpec 不是一张固定工作流。它描述的是“这类任务要怎样组织才不会漏掉关键责任和质量控制”。同一 ProcessSpec 面对不同任务，可以产生结构不同但都合规的 Workflow。
+- explicit responsibility;
+- structured deliverables;
+- cross-functional collaboration;
+- staged quality review.
 
-因此，工作流设计既不是：
+In this system:
+
+- **ProcessSpec** is the process governance specification for a class of tasks;
+- **WorkflowDefinition** is the concrete execution design for one current TaskInput;
+- **Runtime** executes the frozen Workflow, controls state, versions, approval, and rework; Agents do not directly control the global process.
+
+A ProcessSpec is not a fixed Workflow.
+
+It describes how this class of task should be organized so that key responsibility and quality control are not lost.
+
+Therefore, Workflow design is neither:
 
 ```text
-把 ProcessSpec 中每一行按顺序变成节点
+Turn each ProcessSpec line into a node
 ```
 
-也不是：
+nor:
 
 ```text
-读完 ProcessSpec 后自由发挥，只在最后补几个 coverage ID
+Freely design a Workflow and attach coverage IDs later
 ```
 
-而是：
+It is:
 
 ```text
-保留 ProcessSpec 的责任 / 交付 / 评审语义
-                    +
-        用当前 TaskInput 决定具体工作包
-                    ↓
-        得到当前任务的 WorkflowDefinition
+Preserve ProcessSpec responsibility / deliverable / review semantics
+                             +
+             Use TaskInput to define concrete work packages
+                             ↓
+               Produce this task's WorkflowDefinition
 ```
 
 ## 2. Execution Node
 
-execution 节点代表一个**对明确成果负责的专业工作包**。
+An execution node is a **professional work package accountable for a specific result**.
 
-好的 execution 节点通常同时具备：
+A good execution node normally has:
 
-- 明确目标；
-- 确定输入；
-- 数个有能力的责任员工（当前仅支持一个）；
-- 可定位的实际输出；
-- 预先固定的验收标准；
-- 有限且明确的写权限。
+- a clear objective;
+- exact inputs;
+- one capable responsible employee;
+- a concrete output;
+- acceptance criteria fixed in advance;
+- limited and explicit write permission.
 
-节点不是“调用一次模型”。一个 Session 可以在同一个节点中完成多次思考、工具调用、提交补正和正式返工。
+A node is not "one model call."
+
+The persistent Session for one node may contain:
+
+- multiple reasoning steps;
+- tool calls;
+- submission correction;
+- formal quality rework.
 
 ## 3. Review Node / Gate
 
-review 节点代表独立质量判断责任。它读取确定版本的提交和证据，依据事先固定的 semantic criteria 判断成果是否可被接受。
+A review node represents independent quality judgment.
 
-Review 的作用不是“再读一遍”或“必须找问题”，而是保证：
+It reads an exact Submission version and evidence, then evaluates frozen semantic criteria.
 
-- 生产者不能仅凭自述宣布自己合格；
-- 下游只能使用经过规定评审的成果；
-- 出现问题时能够指出哪个标准、哪个输出、由谁修正。
+Review does not exist merely to "read it again" or "find some problems."
 
-评审是否独立复用同一员工资产，由 ProcessSpec 的独立性要求和 Compiler 规则决定；首版每个 review 节点只绑定一个员工。
+It ensures that:
 
-## 4. Submission、Approved Input 与版本
+- a producer cannot approve itself through a completion claim;
+- downstream work uses only the required approved outputs;
+- defects can be mapped to a criterion, output, and responsible rework owner.
 
-execution 提交的是一个确定版本的 Submission。Review 针对这个版本进行判断。
+Whether the same AgentCard may be reused depends on ProcessSpec independence requirements and Compiler rules.
 
-下游如果要求 `approved` 输入，表示它不能直接读取生产者正在修改的 workspace 文件，而要消费通过指定评审的确定提交版本。
+The current implementation binds one employee per review node.
 
-这使“谁生产了什么、哪一版通过了什么评审、下游实际用了哪一版”可以追溯，也使返工只影响真正消费旧版本的下游。
+## 4. Submission, Approved Input, and Versioning
+
+An execution node submits an exact versioned **Submission**.
+
+A Review evaluates that exact version.
+
+If downstream work requires an `approved` input, it must consume the specific Submission version that has passed the required review, not the producer's mutable workspace file.
+
+This provides traceability for:
+
+- who produced what;
+- which version passed which review;
+- which version downstream actually consumed.
+
+It also allows rework invalidation to affect only downstream work that truly consumed an older version.
 
 ## 5. Forward Dependency / DAG
 
-正常执行关系通过输入绑定形成：B 需要 A 的输出，则 A 是 B 的前置依赖。
+Normal execution dependencies come from input bindings.
 
-这些正常向前的依赖必须形成 DAG（Directed Acyclic Graph，有向无环图）。直观理解就是：
+If B needs an output from A, then A is a forward dependency of B.
 
-> 正常执行不能出现“A 等 B、B 又等 A”的循环等待。
+These forward dependencies form a DAG: **Directed Acyclic Graph**.
 
-你不需要手工维护一张单独的依赖图。正确填写节点 inputs，Compiler 会从这些输入关系生成并检查前向图。
+The practical meaning is simple:
 
-## 6. Fan-out 与 Fan-in
+> Normal execution must not contain a circular wait where A waits for B and B also waits for A.
 
-**Fan-out**：一个成果产生后，多个互不依赖的后续工作可以同时开始。
+You do not manually maintain a separate dependency graph.
+
+Correctly configure node inputs; the Compiler derives and validates the forward graph.
+
+## 6. Fan-out and Fan-in
+
+**Fan-out** means one approved result enables several independent downstream work packages.
 
 ```text
         ┌→ B
@@ -91,7 +129,7 @@ A ──────┼→ C
         └→ D
 ```
 
-**Fan-in**：某项工作需要多个前置成果，必须等所有必需输入准备好后才能开始。
+**Fan-in** means one downstream work package requires several upstream results.
 
 ```text
 B ─┐
@@ -99,11 +137,15 @@ C ─┼→ E
 D ─┘
 ```
 
-并行是手段，不是目标。只有工作真正独立时才并行；如果一个工作需要另一个工作的结果，就应明确依赖，而不是为了“看起来高效”强行并发。
+Parallelism is a means, not a goal.
+
+Run work in parallel only when it is genuinely independent.
+
+If one work package requires another result, declare the dependency rather than forcing concurrency for appearance.
 
 ## 7. Normal Rework
 
-质量返工属于正常作业闭环，不是运行时异常，也不意味着重新设计 Workflow。
+Quality rework is a normal work loop, not a Runtime exception and not Workflow redesign.
 
 ```text
 execution → submission → review
@@ -111,61 +153,90 @@ execution → submission → review
      └────── REWORK ──────┘
 ```
 
-返工继续由原 execution 节点、原 AgentSession 承担，只产生新的 round 和新的提交版本。返工关系通过 `allowed_rework_node_ids` 声明，不加入前向 DAG。
+Rework remains with the original execution node and original AgentSession.
 
-## 8. Criterion 与 Evidence
+It creates:
 
-criterion 是“什么状态算合格”的固定判断条件；evidence 是“凭什么做出这个判断”的可定位依据。
+- a new round;
+- a new Submission version.
 
-例如：
+Rework targets are declared through `allowed_rework_node_ids`.
+
+They are not part of the forward DAG.
+
+## 8. Criterion and Evidence
+
+A **criterion** defines what condition counts as acceptable.
+
+**Evidence** provides the traceable basis for making that judgment.
+
+Example:
 
 ```text
-抽象要求：数据准确
+Vague requirement:
+The data must be accurate.
 
-较好的 criterion：
-报告中的关键数字与批准的数据源一致，派生数值可按记录的方法复算。
+Better criterion:
+Key figures in the report match the approved data source,
+and derived values can be reproduced using the recorded method.
 
-Evidence：
-- 原始数据位置
-- 计算脚本/公式
-- 复算结果
-- 报告中对应位置
+Evidence:
+- original data location
+- calculation script/formula
+- recomputation result
+- corresponding report location
 ```
 
-标准越具体，执行员工越知道应该怎样自检，Reviewer 越容易作出稳定判断，返工也越容易局部化。
+The more concrete the criterion:
+
+- the better the producer can self-check;
+- the more stable the Reviewer judgment can be;
+- the easier it is to localize rework.
 
 ## 9. Requirement Coverage
 
-Coverage 不是为了让 ID 全部出现，而是为了证明：
+Coverage is not about making every ID appear.
 
-> 每个用户要求和 ProcessSpec 强制项，都有明确责任人、实际成果和必要的质量检查。
+It proves:
 
-好的 coverage 能回答：
+> Every user requirement and mandatory ProcessSpec item has accountable responsibility, a real artifact, and the required quality verification.
+
+Good coverage answers:
 
 ```text
-REQ-07 谁负责？
-       ↓
-哪个输出真正满足它？
-       ↓
-用什么标准判断满足？
-       ↓
-必要时由哪个 Review 检查？
+Who owns REQ-07?
+      ↓
+Which output actually satisfies it?
+      ↓
+Which criterion determines satisfaction?
+      ↓
+Which Review checks it when independent judgment is required?
 ```
 
-如果 coverage 只把所有要求都挂到最后一个节点，而这些工作实际上由前面不同节点完成，这属于形式覆盖，不是合规设计。
+Attaching all requirements to the last node when earlier nodes actually perform the work is formal coverage, not a compliant design.
 
-## 10. 最小充分原则
+## 10. Minimal Sufficiency
 
-设计质量不是节点越多越高。每增加一个节点，都会增加一次上下文建立、交接、等待、评审和潜在的信息损失。
+More nodes do not automatically mean higher quality.
 
-因此只在下面这些理由成立时拆节点：
+Every new node adds:
 
-- 独立专业责任；
-- 独立交付或复用价值；
-- 明确并行收益；
-- 独立评审/权限边界；
-- 希望故障或返工被局部隔离。
+- context setup;
+- handoff;
+- waiting;
+- review overhead;
+- potential information loss.
 
-反过来，职责相同、输入相同、产物不可合理分离且没有独立下游的工作应合并。
+Split nodes only for a real reason:
 
-IPD 的目标不是增加流程仪式，而是让**必要的组织责任和质量控制尽可能早地发生，同时避免无价值的流程税。**
+- independent professional responsibility;
+- independent deliverable or reuse value;
+- useful parallelism;
+- independent review or permission boundary;
+- useful failure/rework isolation.
+
+Conversely, work should usually be merged when it shares the same responsibility and inputs, produces one inseparable artifact, and has no independent downstream value.
+
+IPD is not about ceremony.
+
+It is about making **necessary responsibility and quality control happen early enough while avoiding unnecessary process tax**.

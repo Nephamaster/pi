@@ -1,73 +1,140 @@
-# ProcessSpec 阅读指南
+# ProcessSpec Reading Guide
 
-这份参考只解释 ST 在**选型阶段**如何理解 ProcessSpec 字段。它不教你设计 Workflow，也不把规范字段等同于节点。
+This reference explains how ST should interpret ProcessSpec fields during **process selection**.
+
+It does not teach Workflow design and does not equate ProcessSpec fields with nodes.
 
 ## 1. `applicable_when`
 
-描述这份规范面向什么类型、对象、交付或治理情形。选型时寻找 TaskInput 中的正向证据。
+Describes the task types, objects, delivery modes, or governance situations the ProcessSpec is intended for.
 
-正确理解：
+During selection, look for positive evidence in TaskInput.
 
-> “当前任务具有这些特征，所以这份规范可能适用。”
+Correct interpretation:
 
-错误理解：
+> The current task has these characteristics, so this ProcessSpec may apply.
 
-> “只要任务名字和规范名字有相似词，就视为满足。”
+Incorrect interpretation:
 
-如果一条适用条件包含多个实质前提，应判断这些前提是否真的成立；不要用模型常识补全。
+> The task name and ProcessSpec name contain similar words, therefore it applies.
+
+If one applicability condition contains several substantive prerequisites, verify that those prerequisites are actually supported.
+
+Do not fill missing prerequisites using model common sense.
 
 ## 2. `not_applicable_when`
 
-描述明确不适用边界。它通常比普通正向匹配具有更高优先级。
+Defines explicit boundaries where the ProcessSpec should not be used.
 
-TaskInput 明确触发一项排除条件时，应淘汰该规范。若是否触发取决于一个决定性未知事实，不能默认按“不触发”处理，应考虑 blocked。
+It often has stronger selection priority than general positive similarity.
+
+If TaskInput clearly triggers one exclusion condition, eliminate the candidate.
+
+If the answer depends on a decisive unresolved fact, do not default to "not excluded." Consider a blocked decision.
 
 ## 3. `required_activities`
 
-表示选择该规范后，后续具体工作必须承担哪些**责任**。
+Defines which **responsibilities must exist** after selecting the ProcessSpec.
 
-ST 不需要判断一个 activity 将来对应几个节点。只需判断：这些责任是否属于当前任务真正需要的治理范围，是否存在明显无关的强制活动。
+ST does not determine how many nodes will later represent one activity.
 
-`required_capabilities` 描述完成该活动通常要求的专业能力，不等于 ST 现在要去员工池选人。
+ST asks:
+
+- Does this responsibility genuinely belong in the governance scope of the current task?
+- Does the ProcessSpec require obviously irrelevant mandatory activity?
+
+`required_capabilities` describes the professional capability normally required to perform the activity.
+
+It does not mean ST should select an employee now.
 
 ## 4. `required_deliverables`
 
-表示规范要求必须形成哪些受控成果，以及需要哪些证据。
+Defines controlled artifacts the process requires and what evidence those artifacts must provide.
 
-ST 关注的是：当前任务是否确实需要这些成果类型或相应的治理责任。不要把 deliverable 名称直接等同于用户最终交付；它可能是内部基线、分析、设计、验证或报告。
+ST asks whether the current task genuinely needs:
 
-如果一份规范强制要求现实中完全无关的交付物，这通常是规范不适合当前任务的重要信号，而不是“设计师以后可以删掉”的内容。
+- that kind of artifact; or
+- the governance responsibility represented by that artifact.
+
+Do not assume a required deliverable is the user-facing final deliverable.
+
+It may be an internal:
+
+- baseline;
+- analysis;
+- design specification;
+- verification record;
+- quality report.
+
+If a ProcessSpec mandates a completely irrelevant real-world deliverable, that is evidence the ProcessSpec may be unsuitable.
+
+It is not something the Workflow Designer may simply delete later.
 
 ## 5. `required_reviews`
 
-表示哪些成果必须由哪些专业责任独立判断，以及评审关注什么质量条件。
+Defines which artifacts require independent professional judgment and what quality aspects matter.
 
-选型时关注：当前任务是否真的需要这种独立质量控制，它是否对应当前任务的主要风险。
+During selection, ask:
 
-`independent_agent: true` 表示后续必须保持生产和评审责任分离。ST 只理解这个组织约束，不需要现在决定具体 Reviewer。
+> Does the current task actually need this independent quality control, and does it correspond to a material risk?
+
+`independent_agent: true` means later design must preserve producer/reviewer separation.
+
+ST only understands this as an organizational obligation.
+
+ST does not choose the Reviewer.
 
 ## 6. `workflow_rules`
 
-表示跨活动、跨交付或全流程必须遵守的组织/质量原则。
+Defines cross-activity, cross-deliverable, or whole-process organizational and quality principles.
 
-选型时应判断：这些规则是否适合当前任务，是否带来关键治理价值，还是引入明显不必要的限制。
+Selection asks:
 
-`enforced_by` 只是说明规则预计由 compiler / runtime / review 哪一层落实，不代表 ST 要验证代码实现。ST 也不能因为当前引擎对某条规则支持不足就自行删除规则。
+- does this rule provide necessary governance value for the task?
+- or does it impose an obviously unnecessary constraint?
+
+`enforced_by` indicates the intended enforcement layer such as:
+
+- compiler;
+- runtime;
+- review.
+
+ST does not validate the implementation of those enforcement layers and must not remove a rule because engine support is currently limited.
 
 ## 7. `source`
 
-用于理解规范来源和可信边界。项目手写规范、公开资料工程映射和正式内部规范的权威性不同。
+Explains provenance and authority boundaries.
 
-ST 应以资产中声明的适用条件和正式内容做选型，不自行把“项目衍生规范”说成正式华为内部模板，也不因为来源权威就认为它适用于所有任务。
+Examples:
 
-## 8. 规范“更完整”不等于“更适合”
+- project-authored bootstrap spec;
+- public-source engineering mapping;
+- formal internal ProcessSpec.
 
-一份包含更多阶段、更多评审、更多角色的 ProcessSpec 并不会自动更优。好的规范选择是在当前任务复杂性与治理成本之间匹配：
+These sources have different authority.
+
+ST should use the registered ProcessSpec's declared applicability and normative content.
+
+Do not describe a project-derived ProcessSpec as an official Huawei internal template.
+
+Likewise, authoritative provenance does not mean the ProcessSpec applies to every task.
+
+## 8. "More Complete" Does Not Mean "More Appropriate"
+
+A ProcessSpec with more phases, reviews, roles, or activities is not automatically better.
+
+Good selection balances task complexity and governance cost:
 
 ```text
-治理不足 → 关键责任和质量风险未被控制
-治理适配 → 足够的责任、交付和评审，且无明显无关流程税
-过度治理 → 大量强制工作与当前任务无关
+Under-governance
+→ important responsibilities and quality risks remain uncontrolled
+
+Good fit
+→ sufficient responsibility, deliverables, and reviews
+  without obvious unrelated process tax
+
+Over-governance
+→ substantial mandatory work is irrelevant to the current task
 ```
 
-ST 应寻找中间状态，而不是默认“越完整越安全”。
+ST should seek the middle state rather than assuming "more process is safer."

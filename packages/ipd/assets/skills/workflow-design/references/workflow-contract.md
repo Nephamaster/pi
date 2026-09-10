@@ -1,125 +1,260 @@
-# WorkflowDefinition 契约检查表
+# WorkflowDefinition Contract Checklist
 
-这份文件只负责说明“具体配置应该怎样填写”。IPD、ProcessSpec、节点、依赖、并行和返工等概念先阅读 [设计概念与判断原则](design-concepts.md)。实际字段以草稿工具暴露的当前 Schema 为准；不要将本文整段复制进节点提示词。
+This reference explains **how to fill the concrete Workflow configuration**.
 
-## 1. Header、身份和资源
+For the meaning of IPD, ProcessSpec, nodes, dependencies, parallelism, and rework, first read [Design Concepts and Judgment Principles](design-concepts.md).
 
-Header 仅包含 `schema_version=2`、`workflow_id`、`workflow_version`、`name`。最终配置的 `task_input_ref`、`process_selection_ref` 由草稿管理器填入，不由设计师计算可信 Hash。
+The current Schema exposed by the draft tools is the final authority for actual fields.
 
-自定义 node、criterion、output、participant ID 应稳定且以字母开头，只使用字母、数字、点、下划线和连字符；引用 TaskInput、ProcessSpec、AgentCard 等既有 ID 时原样复制。
+Do not copy this entire document into node prompts.
 
-每个节点当前只绑定一个员工。参与者对象包含：`participant_id`、`agent_ref(id/version)`、`required_capabilities`、`skills`、`tools`、`knowledge_bases`、`permissions`。
+## 1. Header, Identity, and Resources
 
-Skill/Tool 引用使用目录中的真实 ID；AgentCard/Knowledge Base 使用确定版本。不要填写 Schema 中不存在的 model、Hash 或自由文本提示词旁路字段。模型由员工资产和 Run 配置解析。
+The header contains only:
 
-AgentCard 中的默认专业 Skill 不等于节点自动加载全部 Skill。节点实际需要的方法仍应显式绑定；Tool 和 Knowledge Base 也必须存在，并且不突破员工资产声明的边界。
+- `schema_version`;
+- `workflow_id`;
+- `workflow_version`;
+- `name`.
 
-## 2. 节点工作契约
+Trusted `task_input_ref` and `process_selection_ref` are filled by the draft manager.
 
-| 字段 | 应表达的内容 |
+The Workflow Designer does not calculate their trusted hashes.
+
+Custom node, criterion, output, and participant IDs should be stable and begin with a letter, using only:
+
+- letters;
+- digits;
+- `.`;
+- `_`;
+- `-`.
+
+When referencing existing IDs from TaskInput, ProcessSpec, AgentCard, etc., copy them exactly.
+
+The current implementation binds one employee per node.
+
+A participant definition contains:
+
+- `participant_id`;
+- `agent_ref(id/version)`;
+- `required_capabilities`;
+- `skills`;
+- `tools`;
+- `knowledge_bases`;
+- `permissions`.
+
+Skill and Tool references must use real registered IDs.
+
+AgentCard and Knowledge Base references use exact versions.
+
+Do not add Schema fields such as:
+
+- ad-hoc `model`;
+- custom hashes;
+- free-text prompt bypass fields.
+
+Model selection is resolved from the employee asset and Run configuration.
+
+AgentCard professional Skills do not mean every node automatically loads all Skills.
+
+Bind only the methods the node actually needs.
+
+Tools and Knowledge Bases must also exist and remain within the employee asset's authorization boundary.
+
+## 2. Node Work Contract
+
+| Field | Meaning |
 |---|---|
-| objective | 这个工作包最终要达到什么结果，能够判断完成与否。 |
-| responsibilities | 该节点必须承担的具体责任。 |
-| non_responsibilities | 与它相邻但明确不由它承担的工作，防止职责漂移。 |
-| work_requirements | 对输入处理、作业方式、交付、自检的任务特有要求。 |
-| constraints | 来源于任务和规范的范围、事实、权限、证据等硬约束。 |
+| `objective` | The concrete result this work package must achieve; should be possible to judge completion. |
+| `responsibilities` | Specific responsibilities this node must own. |
+| `non_responsibilities` | Adjacent work that this node explicitly does not own, preventing responsibility drift. |
+| `work_requirements` | Task-specific requirements for input handling, work method, delivery, and self-checking. |
+| `constraints` | Hard constraints derived from TaskInput and ProcessSpec, including scope, factual, permission, and evidence constraints. |
 
-节点特有要求只进入 `contract.work_requirements` 或 `contract.constraints`，不要另建自由文本 Prompt 旁路。员工通用专业原则也不能自动变成节点验收标准。
+Node-specific stable instructions belong in `contract.work_requirements` or `contract.constraints`.
 
-## 3. 输入、输出与目录
+Do not create a free-text prompt side channel.
 
-### Task material
+Generic professional principles from AgentCard also do not automatically become node acceptance criteria.
 
-使用 `kind=task_material`，填写 `input_id`、`material_id`、`required`。`material_id` 必须来自 TaskInput.materials。只有 ID 而没有可读取来源的必需材料不能视为已经满足。
+## 3. Inputs, Outputs, and Paths
 
-### Node output input
+### Task Material Input
 
-使用 `kind=node_output`，填写：
+Use `kind=task_material`.
 
-- `input_id`；
-- `source.node_id / source.output_id`；
-- `required`；
-- `availability`；
-- `approval_review_node_ids`。
+Provide:
 
-execution 消费正式受控上游成果时使用 `approved`，并精确列出负责该输出准出的 review；review 读取自己的评审对象时使用 `submitted`，不能要求自己先批准才能启动。
+- `input_id`;
+- `material_id`;
+- `required`.
 
-不要为了避免阻塞把真正必需的输入改成 `required=false`。
+`material_id` must exist in `TaskInput.materials`.
 
-### Execution outputs
+A required material whose ID exists but whose content cannot actually be read is not satisfied.
 
-每项输出填写：
+### Node Output Input
 
-- `output_id`；
-- `artifact_type`；
-- `description`；
-- `business_purpose`；
-- `path_prefix`；
-- `evidence_requirements`；
-- `process_evidence_requirement_refs`；
-- `criterion_refs`。
+Use `kind=node_output`.
 
-`process_evidence_requirement_refs` 只引用该输出实际承接的 ProcessSpec `evidence_requirement_id`。ProcessSpec 要求的证据不能只改写成另一段自然语言而失去映射。
+Provide:
 
-`path_prefix` 是共享 Run workspace 下的相对路径，不是 Submission 封存目录。使用规范相对路径，无 `..`、无尾 `/`。建议 execution 节点拥有独立 `outputs/<node_id>` 根，不同 execution 的写根不得相同或互为父子。
+- `input_id`;
+- `source.node_id`;
+- `source.output_id`;
+- `required`;
+- `availability`;
+- `approval_review_node_ids`.
 
-review `write_paths=[]`、`external_actions=false`。需要生成测试、渲染、缓存或审查衍生物时，由具备写权限的 execution 负责，而不是临时扩权 Reviewer。
+Execution nodes consuming controlled upstream work should use `approved` and list the exact review nodes responsible for approval of that output.
 
-## 4. Criterion、Review 与返工
+A review node reading the candidate it reviews should use `submitted`.
 
-### Mechanical criterion
+A review must not require its own approval before it can start.
 
-字段包括 `criterion_id`、`description`、`check_id`、`parameters`、`evidence_requirements`。`check_id` 和参数 Schema 必须来自实际机械检查目录。
+Do not mark a genuinely required input as `required=false` merely to avoid blocking.
 
-机械检查只承担它真实实现的验证范围。例如 `artifact-integrity` 不能被写成“证明内容正确、视觉合理或业务完成”。
+### Execution Outputs
 
-### Semantic criterion
+Each output includes:
 
-字段包括 `criterion_id`、`description`、非空 `evidence_requirements` 和 `process_criterion_refs`。标准应明确：
+- `output_id`;
+- `artifact_type`;
+- `description`;
+- `business_purpose`;
+- `path_prefix`;
+- `evidence_requirements`;
+- `criterion_refs`.
 
-- 判断对象；
-- 合格条件；
-- 必要的核验方式；
-- 所需证据。
+`path_prefix` is a relative path under the shared Run workspace, not the sealed Submission directory.
 
-标准只定义一次，再由 output、review 和 coverage 引用，避免出现多个措辞略有不同的“同一标准”。
+Use normalized relative paths:
 
-`process_criterion_refs` 显式说明该标准细化了哪些 ProcessSpec `process_criterion_id`。任务特有且不源自规范的 semantic criterion 可以使用空数组；规范的每项标准则必须被对应 Review target 实际覆盖。
+- no `..`;
+- no trailing `/`.
+
+A good default is one owned root such as:
+
+```text
+outputs/<node_id>
+```
+
+Different execution-node write roots must not be equal or parent/child of one another.
+
+Review nodes must use:
+
+```text
+write_paths = []
+external_actions = false
+```
+
+If tests, renders, caches, or review-support derivatives require writing files, assign that work to a writable execution node instead of widening Reviewer permissions.
+
+## 4. Criteria, Review, and Rework
+
+### Mechanical Criterion
+
+Fields include:
+
+- `criterion_id`;
+- `description`;
+- `check_id`;
+- `parameters`;
+- `evidence_requirements`.
+
+`check_id` and its parameter Schema must come from the real mechanical-check catalog.
+
+Mechanical checks may claim only what they actually validate.
+
+For example, `artifact-integrity` must not be described as proving business correctness, factual correctness, or visual quality if it does not implement those checks.
+
+### Semantic Criterion
+
+Fields include:
+
+- `criterion_id`;
+- `description`;
+- non-empty `evidence_requirements`.
+
+A semantic criterion should state:
+
+- the judgment object;
+- the acceptable condition;
+- required verification;
+- required evidence.
+
+Define each standard once, then reference it from outputs, reviews, and coverage.
+
+Do not create slightly different versions of the same criterion in multiple places.
 
 ### Review
 
-`review.targets` 精确引用 `node_id/output_id` 及该输出需要判断的 semantic criteria。每项 semantic criterion 都必须有实际 Reviewer 覆盖。
+`review.targets` precisely identifies:
 
-`allowed_rework_node_ids` 只包含真正有责任修复被评缺陷的 execution 节点。不要添加投票、动态 Reviewer 替换、预算阈值或任意脚本路由作为首版流程控制。
+- `node_id`;
+- `output_id`;
+- semantic criteria to evaluate.
 
-## 5. Requirement coverage
+Every semantic criterion must have real Reviewer coverage.
 
-`requirement_coverage` 的 `source` 只能是：
+`allowed_rework_node_ids` should contain only execution nodes actually responsible for correcting potential defects.
 
-- `task_requirement`；
-- `process_activity`；
-- `process_deliverable`；
-- `process_review`；
-- `process_rule`。
+Do not add:
 
-每条 coverage 应真实填写：
+- voting;
+- dynamic Reviewer replacement;
+- budget thresholds;
+- arbitrary script-based routing
 
-- `requirement_id`；
-- `responsible_node_ids`；
-- `output_refs`；
-- `criterion_refs`。
+as first-version workflow control.
 
-ProcessSpec 的 required activity 应由能力符合的 execution 承担；required deliverable 应对应真实输出；required review 应有符合专业能力和独立性要求的 review。自然语言质量要求必须被任务化为实际 criterion，不能只让规范 ID 出现在 coverage 中。
+## 5. Requirement Coverage
 
-## 6. Completion 与用户交付
+`requirement_coverage.source` must be one of:
 
-`completion` 包含四类非空引用：
+- `task_requirement`;
+- `process_activity`;
+- `process_deliverable`;
+- `process_review`;
+- `process_rule`.
 
-- `required_node_ids`：Run 成功必须完成的必要节点；
-- `final_outputs`：工作流内部必须形成并达到要求的终局成果；
-- `delivery_outputs`：真正交给用户的输出，必须是 final_outputs 的子集；
-- `required_review_node_ids`：最终成功必须取得的评审；对每个 final output，这组 Gate 必须完整覆盖它的全部 semantic criteria。
+Each coverage record should truthfully include:
 
-内部证据、来源记录、设计规范、检查报告可以是必要 final output，但只有用户实际要求收到的文件才进入 delivery outputs。
+- `requirement_id`;
+- `responsible_node_ids`;
+- `output_refs`;
+- `criterion_refs`.
 
-用户限制最终文件数量或类型时，严格遵守该限制。不要同时交付某个成品以及另一个包含该成品副本的“完整交付包”，也不要以“流程要求留痕”为理由扩大用户最终文件集合。
+A ProcessSpec required activity should be owned by an execution node with appropriate capability.
+
+A required deliverable should map to a real output.
+
+A required review should map to a review node with the required professional capability and independence.
+
+Natural-language quality requirements must be instantiated as actual criteria.
+
+Merely placing the ProcessSpec ID in coverage is not sufficient.
+
+## 6. Completion and User Delivery
+
+`completion` contains four non-empty groups:
+
+- `required_node_ids` — nodes that must complete for Run success;
+- `final_outputs` — internal terminal artifacts that must exist and satisfy requirements;
+- `delivery_outputs` — outputs actually delivered to the user, and must be a subset of `final_outputs`;
+- `required_review_node_ids` — reviews that must succeed for final success.
+
+Internal evidence, source records, design specifications, and validation reports may be necessary final outputs without being user-facing delivery outputs.
+
+Only files the user should actually receive belong in `delivery_outputs`.
+
+If the user limits the number or type of final files, obey that constraint.
+
+Do not deliver both:
+
+- a final artifact; and
+- another wrapper package containing a duplicate of the same artifact
+
+unless the user actually asked for both.
+
+Do not expand the final user-facing file set merely because internal process traceability requires more artifacts.

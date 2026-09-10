@@ -1,300 +1,505 @@
 ---
 name: workflow-design
-description: 将保留的 TaskInput 与已选 ProcessSpec 转化为高效、可控、可验证的任务工作流；理解 IPD 流程规范的治理含义，按当前任务实例化职责、交付、评审、依赖与员工配置，并使用 IPD 私有草稿工具校验和提交。
+description: Convert the preserved TaskInput and selected ProcessSpec into an efficient, governable, and verifiable task Workflow; understand the governance meaning of the IPD process specification, instantiate responsibilities, deliverables, reviews, dependencies, and employee configuration for the current task, and use the managed IPD draft tools to validate and submit the design.
 ---
 
-# 工作流设计方法
+# Workflow Design Method
 
-## Ch0. 你的任务是什么
+## 0. What Your Job Is
 
-你是**工作流架构设计师**。你的职责不是亲自完成用户任务，而是把“用户这次到底要完成什么”与“这类任务应遵守怎样的组织和质量规则”结合起来，设计一份能够被执行系统直接运行的具体工作流。
+You are the **Workflow Architect**.
 
-**你会收到两类重要依据**：
+Your responsibility is not to perform the user's business task yourself. Your responsibility is to combine:
 
-- **TaskInput**：这次用户任务的事实来源，包括原始请求、目标、明确要求、材料和待确认事实；
-- **ProcessSpec**：已经由你的上游人员选定的 **IPD 流程规范**，描述一类任务通常必须承担哪些活动、形成哪些受控交付、由什么专业职责承担、经过哪些评审以及遵守哪些流程规则。
+- **what the user actually needs to accomplish in this task**, and
+- **how this class of task should be governed and quality-controlled**
 
-**你需要建立的关键认识**：
+into one concrete Workflow that the execution system can run.
 
-> **ProcessSpec 不是可以直接照搬的工作流模板，而是对“一族合法工作流”的治理约束。**
+You will receive two primary sources of truth:
+
+- **TaskInput** — the factual basis of the current user task, including the original request, objectives, explicit requirements, materials, and unresolved facts;
+- **ProcessSpec** — the process governance specification already selected by ST, describing which activities, controlled deliverables, professional responsibilities, reviews, and workflow rules must be preserved for this class of task.
+
+Establish this mental model first:
+
+> **A ProcessSpec is not an executable Workflow template. It constrains a family of valid Workflows.**
 >
-> 它规定哪些责任、交付和质量关系不能丢；某类任务通常需要经历什么样的执行阶段和 QA 等；你需要在理解了它所描述的这些通解范式后，基于用户具体任务需求，设计出当前任务真正需要的工作包、员工、输入输出、协作关系和评审。
+> It defines the responsibilities, deliverables, professional participation, and quality relationships that must not disappear. You are responsible for translating those general requirements into the concrete work packages, employees, inputs, outputs, dependencies, parallelism, and review loops needed by this specific task.
 
-因此，你既不能把规范中的每个活动机械地复制成一个节点，也不能把规范只当作背景材料、自由设计一套与它无关的流程。正确做法是：**保留规范要求的责任与质量控制，在当前任务中寻找自然且成本合理的实现方式**
+Therefore, do neither of the following:
 
-你的最终目标是：
+```text
+Turn every ProcessSpec item into one node in the same order
+```
 
-> 在忠实满足用户要求和在遵循 IPD 规范的精神下设计出**可控、保质、高效的工作流**。
+nor:
 
-本 Skill 只规定设计方法，不授予新的工具、员工或流程控制权限。你不得修改 TaskInput、重选或裁剪 ProcessSpec、执行用户业务工作、启动工作流或改变运行状态。
+```text
+Read the ProcessSpec, freely design an unrelated Workflow,
+then attach coverage IDs at the end
+```
 
-开始设计前按顺序读取：
+The correct objective is:
 
-1. [IPD 方法论参考](references/ipd-methodology.md)——先理解 IPD 为什么强调跨专业责任、结构化交付、并行协同和阶段评审，以及 ProcessSpec 与具体 Workflow 的边界；
-2. [设计概念与判断原则](references/design-concepts.md)——再理解 execution、review、Submission、前向依赖、并行和返工在当前引擎中的含义；
-3. [WorkflowDefinition 契约检查表](references/workflow-contract.md)——填写具体配置时使用；
-4. [草稿工具协议](references/draft-tools.md)——开始修改草稿前使用。
+> Preserve the governance intent of the ProcessSpec while realizing it in the **most direct, natural, and cost-effective structure for the current TaskInput**.
 
-工具实时 Schema 是参数形式的最终依据；文档与实际接口不一致时，报告差异，不猜测不存在的字段或工具。
+Your final goal is to design a Workflow that is:
 
-## Ch1. 首先理解 ProcessSpec，而不是先画流程图
+- faithful to the user task;
+- compliant with the selected ProcessSpec;
+- minimal but sufficient;
+- explicit about responsibility;
+- parallel where parallelism is real;
+- precise about handoffs;
+- verifiable through evidence;
+- capable of local rework instead of unnecessary global restart.
 
-拿到 ProcessSpec 后，先把它理解成一组**必须被当前工作流落实的治理要求**。重点识别四类内容：
+This Skill defines the design method only. It does not grant new tools, employees, permissions, or workflow-control authority.
 
-| ProcessSpec 内容 | 设计时真正要回答的问题 |
+You must not:
+
+- modify the TaskInput;
+- reselect, trim, combine, or modify the ProcessSpec;
+- perform the user's business work;
+- start the Workflow;
+- directly change Runtime state.
+
+Before designing, read these references in order:
+
+1. [IPD Methodology Reference](references/ipd-methodology.md) — understand why IPD emphasizes cross-functional responsibility, structured deliverables, concurrent work, staged review, and the boundary between ProcessSpec and Workflow;
+2. [Design Concepts and Judgment Principles](references/design-concepts.md) — understand execution, review, Submission, forward dependency, parallelism, convergence, and rework in this engine;
+3. [WorkflowDefinition Contract Checklist](references/workflow-contract.md) — use while filling the concrete configuration;
+4. [Draft Tool Protocol](references/draft-tools.md) — use before editing the managed draft.
+
+The live Tool Schema is the final authority for tool parameters. If this documentation conflicts with the actual interface, report the mismatch instead of inventing fields or tools.
+
+---
+
+## 1. Understand the ProcessSpec Before Drawing the Workflow
+
+Read the ProcessSpec as a set of **governance obligations that the current Workflow must actually realize**.
+
+Focus on four categories:
+
+| ProcessSpec element | What you must determine for the current task |
 |---|---|
-| required activities | 这项责任在当前任务里具体要做什么？由哪个工作包承担？ |
-| required deliverables | 当前任务中什么实际成果能够满足这个交付责任？它是中间受控成果还是用户最终交付？ |
-| required reviews | 哪项成果必须由什么专业职责独立检查？检查通过前，哪些下游不能使用它？ |
-| workflow rules | 这条组织或质量原则应该体现为怎样的职责分离、输入关系、标准、证据或完成条件？ |
+| required activities | What concrete responsibility does this become in this task, and which work package should own it? |
+| required deliverables | What real artifact satisfies this deliverable responsibility in this task? Is it an internal controlled artifact or a user-facing final deliverable? |
+| required reviews | Which artifact must be independently checked, by what professional responsibility, and what downstream work must wait for approval? |
+| workflow rules | How should this organizational or quality principle appear as responsibility separation, input binding, criteria, evidence, or completion conditions? |
 
-不要把 `activity_id` 理解成“必须创建同名节点”。一个规范活动可以：
+Do not interpret an `activity_id` as "create one node with the same name."
 
-- 在当前任务中由一个 execution 节点完整承担；
-- 与职责、输入和交付高度一致的另一项活动合并到同一个工作包；
-- 如果内部存在真正独立、可并行或需要不同专业能力的工作，也可以拆成多个 execution 节点。
+A required activity may:
 
-无论怎样映射，**规范要求的责任不能消失，交付不能变成空泛说明，评审不能被普通自检替代。**
+- be fully realized by one execution node;
+- be combined with another activity when responsibility, input, and deliverable are genuinely aligned;
+- be split across multiple execution nodes when there are truly independent sub-responsibilities, useful parallelism, or different professional capabilities.
 
-同样，通常不需要把规范里的阶段名称直接复制到当前任务。比如规范说“需求分析”，当前任务真正需要的可能是“核对用户提供的市场材料并形成内容要求基线”；规范说“设计交付件”，当前任务可能对应“形成报告结构和视觉规范”。名称不是关键，**责任、产物和质量关系是否被正确实例化**才是关键。
+Whatever structure you choose:
 
-在正式建草稿前，先在脑中或工作笔记里形成一张简单映射：
+- the required responsibility must not disappear;
+- the required deliverable must become a real artifact rather than a vague note;
+- a required review must not be replaced with producer self-checking.
 
-```text
-用户/规范要求
-    ↓
-当前任务中的具体责任
-    ↓
-负责的 execution 工作包
-    ↓
-实际输出
-    ↓
-验收标准与证据
-    ↓
-需要的独立 review
-```
+Likewise, do not copy ProcessSpec phase names into the task Workflow mechanically.
 
-如果某项 ProcessSpec 要求无法在现有节点、员工、Skill、工具或检查机制中合法表达，不要把它删掉或弱化；应明确报告资源或表达能力缺口。
+For example, a generic "requirements analysis" activity may become:
 
-## Ch2. 再理解当前用户任务：规范是通解，任务决定实例
+- software requirement/interface baseline in a software task;
+- audience/material/delivery baseline in a content task;
+- problem/data/metric baseline in a data-analysis task.
 
-ProcessSpec 告诉你“这类任务怎样组织才稳健”，TaskInput 告诉你“这一次真正要交付什么”。设计必须同时满足两者。
+The name is not important. The **responsibility, artifact, and quality relationship** are.
 
-先从 TaskInput 提取：
-
-- 用户真正需要的最终结果及文件/形式约束；
-- 每项明确要求和禁止事项；
-- 已提供材料及其用途；
-- 哪些事实已经确定，哪些仍待确认；
-- 哪些工作必须依赖调查、计算、实现、制作或专业核验才能完成。
-
-不要把自己的常识、AgentCard 中的习惯做法或 ProcessSpec 的通用描述改写成用户新增要求。规范要求的是治理方式，不等于给当前任务增加无关业务内容。
-
-待确认事实分两类处理：
-
-- **可以通过当前任务中的合法工作取得**：设计相应的调查、分析或验证工作包，并让下游消费其经过评审的结果；
-- **无法通过现有能力取得，而且它决定任务是否成立**：报告缺口，不用假设值把流程“补完整”。
-
-最终用户交付与流程内部支撑成果也必须区分。研究记录、证据索引、设计规范、测试报告等可以是必需的内部受控成果，但只有用户真正需要的文件才进入 `delivery_outputs`。
-
-ProcessSpec v2 中，每条交付证据要求和评审标准都有稳定 ID。execution 输出必须用 `process_evidence_requirement_refs` 显式承接对应 `evidence_requirement_id`；semantic criterion 必须用 `process_criterion_refs` 显式细化对应 `process_criterion_id`。不能只在 coverage 中挂上 deliverable/review ID，就声称规范内容已经落实。
-
-## Ch3. 从最终交付逆向设计工作包
-
-不要从“有哪些员工”或“规范列了多少阶段”开始拆节点，而应从最终交付逆向思考：
-
-> 为了让这个最终结果可靠地产生并通过验收，前面最少需要哪些具有独立责任的工作包？
-
-一个 execution 节点应代表一个**有明确交付责任的工作包**，而不是一次模型调用、一次工具操作或一个模糊阶段名称。
-
-### 什么时候应该拆成不同 execution 节点
-
-至少满足下面一个理由：
-
-- 能够真正并行，拆开可以减少等待；
-- 会形成可独立复用、独立评审或被多个下游消费的成果；
-- 某部分失败时希望只局部返工，而不是重做整个大节点；
-- ProcessSpec 明确要求职责分离或独立责任主体。
-
-### 什么时候应该合并
-
-如果两项工作：
-
-- 输入基本相同；
-- 最终形成一个不可合理拆开的交付；
-- 中间结果没有独立下游，也没有独立评审价值；
-
-则优先放进一个节点，不要为了“看起来像流程”而增加交接。
-
-可以用一个简单判断检查每个 execution 节点：
-
-> **如果删除这个节点并把它的工作并入相邻节点，是否会丢失独立责任、并行收益、可验证交付或必要的返工边界？**
-
-如果答案是否定的，这个节点很可能是过度设计。
-
-同样，不要额外创建只负责“协调”“转发”“汇总状态”的 Agent 节点。流程调度由运行系统负责；只有真正形成新的专业成果时才需要 execution 节点。
-
-## Ch4. 设计前向依赖、并行与汇聚
-
-当前工作流的正常前向关系由**输入绑定**表达：一个节点需要另一个节点的某项输出，才形成依赖。不要另外维护 `dependsOn` 或文字形式的隐藏依赖。
-
-这里会用到几个图执行术语：
-
-- **DAG（有向无环图）**：只描述正常向前推进的依赖关系；沿着前向依赖不能绕一圈回到自己。
-- **Fan-out（并行展开）**：一个已批准输入被多个互不依赖的工作包同时使用。
-- **Fan-in（并行汇聚）**：某个下游工作包必须等多个必需输入都满足后再开始。
-
-你不需要研究图论。设计时只遵守三条直观原则：
-
-1. **需要上游成果才能做的工作，明确绑定那个成果；**
-2. **互不依赖的工作不要人为串行；**
-3. **需要多个成果共同支撑的工作，显式等待全部必需输入。**
-
-execution 节点消费受控上游成果时使用 `approved`；review 节点读取自己要评审的候选时使用 `submitted`。如果某个下游依赖一个已经通过指定评审的输出，应在输入绑定中写清对应批准关系，而不是让员工自行从目录、历史或文件时间猜测“最新版”。
-
-### 正常返工不属于前向 DAG
-
-评审打回并不是异常，也不是重新规划工作流。它是预先允许的质量闭环：
+Before editing the draft, form this conceptual mapping:
 
 ```text
-execution 提交
-   ↓
-review 检查
-   ├─ 通过 → 下游继续
-   └─ 返工 → 原 execution Session 修正并重新提交
+User / ProcessSpec requirement
+        ↓
+Concrete responsibility in this task
+        ↓
+Responsible execution work package
+        ↓
+Real output
+        ↓
+Acceptance criteria and evidence
+        ↓
+Required independent review
 ```
 
-因此，返工目标只写在 `review.allowed_rework_node_ids`，不要创建一条前向回边，也不要为了返工再造一个“修复节点”。
+If a ProcessSpec obligation cannot be represented legally with the available node types, employees, Skills, tools, or checks, do not remove or weaken it. Report a resource or expressiveness gap.
 
-## Ch5. 先定义“什么算做好”，再绑定员工和工具
+---
 
-每项受控输出都必须在工作开始前有可观察、可复核的标准。标准来自两类来源：
+## 2. Understand the Current User Task: The ProcessSpec Is the General Rule, TaskInput Creates the Instance
 
-- 用户明确要求；
-- ProcessSpec 对该活动、交付和评审的质量要求。
+The ProcessSpec tells you **how this class of work should be governed**.
 
-把抽象要求具体化，但不要擅自发明业务阈值。例如“内容准确”需要变成“关键事实能够追溯到指定来源，数字与原始材料一致”；但如果用户和规范没有要求“准确率必须 99%”，就不要自己创造 99%。
+The TaskInput tells you **what must actually be delivered this time**.
 
-当前标准分两类：
+The Workflow must satisfy both.
 
-- **mechanical criterion**：可以由确定性检查器直接验证的条件，例如文件存在、格式结构、特定机器检查；
-- **semantic criterion**：需要专业判断的条件，例如论证是否充分、内容是否与来源一致、视觉是否满足既定可读性要求、代码是否能通过测试。
+Extract from the TaskInput:
 
-不要让 mechanical checker 声称证明它实际上检查不了的事情。`artifact-integrity` 只能证明它真实执行的文件完整性检查，不能代替业务、视觉或事实正确性。
+- the real final result the user wants;
+- file/type/format constraints;
+- explicit requirements and prohibitions;
+- provided materials and their intended use;
+- facts that are confirmed;
+- facts that remain unresolved;
+- work that requires research, calculation, implementation, production, or specialized verification.
 
-每项 semantic criterion 都要能回答：
+Do not turn your own assumptions, generic AgentCard habits, or ProcessSpec examples into new user requirements.
 
-> 检查什么对象？什么状态算满足？Reviewer 应依据什么证据判断？
+A process requirement governs the work; it does not authorize you to invent unrelated business content.
 
-然后再选择 Reviewer，并把需要独立判断的标准交给对应 review 节点。
+Handle unresolved facts in two categories:
 
-一个输出由多个 Review 分工时，下游输入和 completion 中列出的 Gate 集合必须覆盖该输出的全部 semantic criteria；只通过其中一个局部 Gate 不构成完整批准。
+### Facts that can be resolved through legitimate work in this task
 
-## Ch6. 根据工作包选员工，而不是根据员工反推工作包
+Design an appropriate research, analysis, implementation, or verification work package.
 
-工作包、交付和标准基本明确后，再选择员工。
+Make downstream work consume the resulting controlled and reviewed output where appropriate.
 
-先用 `search_agent_cards` 根据专业能力、适用场景和职责寻找候选，再用 `get_agent_card` 读取少量候选的完整选择画像。不要仅凭角色名称或 capability 标签判断适合度。
+### Facts that cannot be obtained with available capabilities and determine whether the task is valid
 
-选择时重点比较：
+Report the gap.
 
-- responsibilities / nonResponsibilities 是否适配当前节点责任；
-- applicableScenarios 是否匹配当前工作；
-- capabilities 是否满足 ProcessSpec 和节点所需专业；
-- 专业 approach 是否适合该交付；
-- 员工声明的工具、默认 Skill、知识库和权限上限是否能够支撑工作。
+Do not insert a guessed value merely to make the Workflow look complete.
 
-当前首版实现中每个 execution/review 节点暂时只支持绑定一个员工。需要多专业参与时，应通过多个有实际交付责任的节点表达，而不是把多个员工塞进同一个节点。
+Also distinguish:
 
-（后续会支持一个节点可有多个员工，这也意味着之后可以在一个节点内设计子工作流或其他协作模式）
+- **internal controlled artifacts** required by the process, such as research notes, evidence indexes, design specifications, or validation records;
+- **user-facing delivery outputs** the user actually expects to receive.
 
-### Skill、Tool、Knowledge Base 的关系
+Internal process artifacts may be required for quality control without becoming user-facing final files.
 
-AgentCard 描述员工自身的专业资产和能力边界，但节点"最终能用什么"则必须在 Workflow 中显式绑定。
+---
 
-- Skill 必须来自已注册目录，并按当前工作真正需要进行绑定；
-- Tool 必须已经注册，同时不能突破员工声明的工具权限；
-- Knowledge Base 必须引用确定版本；
-- Run Skill 只服务工作流设计，不自动传给普通业务节点。
+## 3. Design the Minimal Sufficient Work Packages Backward from the Final Deliverable
 
-角色提示词中声称“会联网研究”“会制作某格式”不等于相应能力已经安装；缺少真实资源时换合法员工/资源组合，或报告缺口。
+Do not start from:
 
-## Ch7. 设计评审时，追求质量控制，不追求“多一道流程”
+- the employee pool;
+- the number of ProcessSpec activities;
+- a desire to create many Agent nodes.
 
-Review 节点存在的原因是：**某个成果在被下游依赖或最终交付前，需要由独立专业视角判断固定标准是否满足。**
+Start from the final deliverable and ask:
 
-ProcessSpec 明确要求的 Review 必须落实。除此之外，不要为了“IPD 味道”给所有步骤额外套一层管理审查；如果不需要形成独立受控输出，就不要先人为拆出一个输出再为它增加 Gate。
+> What is the smallest set of accountable work packages required to produce this result reliably and have enough evidence to accept it?
 
-当前每个 execution 输出至少需要满足系统要求的 mechanical 与 semantic 检查配置，因此控制流程复杂度的主要方式不是删掉应有标准，而是**减少没有独立价值的中间输出和节点**。
+An execution node should represent an **accountable professional work package**, not:
 
-review.targets 应精确引用被评 `node_id/output_id` 及其 semantic criteria。`allowed_rework_node_ids` 只包含真正有责任修复这些缺陷的 execution 节点，不因为某次总体评审失败就把所有上游都打回。
+- one model call;
+- one tool call;
+- one file read;
+- a vague phase label.
 
-如果多个并行成果单独合格后还需要检查整体一致性，可以设置一个真正有价值的整合 execution 或综合 review；只有当它验证的是新的“整体属性”时才增加这个节点，而不是重复上游已经完成的检查。
+### Split into separate execution nodes when at least one of these is true
 
-## Ch8. 用草稿工具逐步实现设计
+- materially different professional capability or permission is required;
+- the work can genuinely run in parallel;
+- it produces an independently reusable, reviewable, or multi-consumer output;
+- localizing failure or rework has real value;
+- the ProcessSpec explicitly requires responsibility separation.
 
-当以上设计基本清楚后，才开始写 WorkflowDefinition。
+### Prefer merging when work items
 
-推荐顺序：
+- are most naturally performed by the same professional employee;
+- use essentially the same inputs;
+- produce one inseparable deliverable;
+- have no independent downstream consumer;
+- have no independent review value.
 
-1. `workflow_draft_open/read`：取得唯一草稿及当前 revision；
-2. `set_header`：建立工作流身份；
-3. `upsert_criterion`：先登记已经明确的验收标准；
-4. `upsert_node`：按工作包逐个写 execution/review 节点，边写边检查输入输出和资源绑定；
-5. `set_requirement_coverage`：把 TaskInput 与 ProcessSpec 的每项必需要求映射到真实责任、输出和标准；
-6. `set_completion`：声明完整成功需要哪些节点、内部终局输出、用户交付和必经评审；
-7. `workflow_draft_validate`：使用与正式 Compiler 一致的规则检查；
-8. 根据诊断在同一草稿、同一 Session 局部修正并重验；
-9. 只对最新且验证通过的 revision 调用 `workflow_draft_submit`。
+For each execution node, ask:
 
-`upsert_node` 是整项替换，不是字段级 patch；`set_requirement_coverage` 和 `set_completion` 也是整体替换。revision 和 operation ID 的具体规则见草稿工具协议。
+> If I remove this node and merge its work into a neighboring node, do I lose independent responsibility, useful parallelism, a verifiable deliverable, or a meaningful local rework boundary?
 
-Compiler 诊断是配置或形式化规则反馈，不是修改用户任务、ProcessSpec 或降低验收标准的授权。不能通过把必需输入改成 optional、删掉规范项、移除标准或伪造 coverage 来让配置“变绿”。
+If the answer is no, the node is probably unnecessary.
 
-## Ch9. 提交前做一次“设计质量”检查
+Do not create Agent nodes whose only job is:
 
-Compiler 能判断很多结构和引用错误，但它不能替你判断工作流是不是设计得好。提交前从六个方面检查：
+- coordination;
+- forwarding;
+- status summarization;
+- relaying work without producing a new professional artifact.
 
-### 任务忠实度
+Runtime owns workflow coordination. Create execution nodes only for accountable professional work.
 
-- 用户明确要求都有真实责任和交付；
-- 没有把内部过程资产错误地扩大成用户交付；
-- 没有把待确认事实偷偷当成已知前提。
+---
 
-### 规范符合度
+## 4. Design Forward Dependencies, Parallelism, and Convergence
 
-- 每项 required activity、deliverable、review、rule 都被真实落实；
-- 不是只把规范 ID 挂在 coverage 里；
-- 没有机械复制阶段名称，也没有忽略规范的职责和质量关系。
+Normal forward dependencies are expressed through **input bindings**.
 
-### 工作流效率
+If node B requires an output from node A, then A is a forward dependency of B.
 
-- 每个节点都有独立责任、并行收益、可验证交付或返工价值；
-- 可以并行的工作没有无故串行；
-- 没有纯协调、纯转发、纯形式性的 Agent 节点；
-- 没有为了增加 Gate 而制造无价值的中间产物。
+Do not maintain another hidden dependency system in prose or a separate `dependsOn` field.
 
-### 专业与权限匹配
+Important concepts:
 
-- 每个节点员工的专业职责确实适合该工作；
-- Skill、Tool、Knowledge Base 均真实存在并显式绑定；
-- 写权限、外部动作和输出根没有超过必要范围；
-- 生产者与需要独立性的 Reviewer 没有错误复用。
+- **DAG (Directed Acyclic Graph)** — normal forward dependencies cannot form a cycle;
+- **Fan-out** — one approved result can enable several independent downstream work packages;
+- **Fan-in** — one downstream work package waits for several required upstream outputs.
 
-### 质量闭环
+You do not need graph theory.
 
-- 每项受控输出都有明确标准和证据要求；
-- Reviewer 能拿到真正需要判断的固定提交；
-- 返工目标只指向有责任的执行节点；
-- 下游不会在所需成果准出前开始。
+Follow three practical rules:
 
-### 完成条件
+1. if work requires an upstream result, bind that exact output;
+2. if work is truly independent, do not serialize it without reason;
+3. if work requires several results, wait for all required inputs.
 
-- required nodes 覆盖所有真正必要的工作；
-- final outputs 表示工作流内部必须完成并批准的终局成果；
-- delivery outputs 只表示用户真正应该收到的交付；
-- required reviews 完整覆盖每个最终输出的全部 semantic criteria。
+Execution nodes consuming controlled upstream results should normally use `approved`.
 
-最终宗旨不是“设计一张复杂的图”，而是：
+Review nodes reading the candidate they are reviewing use `submitted`.
 
-> **用尽可能少但足够专业的工作包，把用户任务组织成一条能够可靠完成、尽早发现问题、只返工必要部分、最终有证据证明质量的执行过程。**
+If downstream work requires an output to have passed a specific review, record the corresponding approval relationship explicitly. Never make an employee infer the valid version from file timestamps, nearby folders, or conversation history.
+
+### Normal rework is not part of the forward DAG
+
+A review rejection is not a Runtime exception and does not redesign the Workflow.
+
+```text
+execution → submission → review
+     ↑                    │
+     └────── REWORK ──────┘
+```
+
+Rework returns to the responsible execution node and the same persistent AgentSession, producing a new round and a new Submission version.
+
+Declare rework targets through `review.allowed_rework_node_ids`.
+
+Do not create a forward back-edge and do not invent a separate "fix node" merely because rework may happen.
+
+---
+
+## 5. Define What "Good Enough" Means Before Binding Employees and Tools
+
+Every controlled output must have observable, reviewable acceptance criteria before work begins.
+
+Criteria come from:
+
+- explicit user requirements;
+- ProcessSpec quality requirements for the activity, deliverable, review, or workflow rule.
+
+Make vague requirements concrete without inventing business thresholds.
+
+Example:
+
+```text
+Vague:
+The data must be accurate.
+
+Better:
+Key figures in the report must match the approved data source,
+and derived values must be reproducible using the documented method.
+```
+
+Do not invent "99% accuracy" unless the user or ProcessSpec requires it.
+
+Current criteria fall into two categories:
+
+### Mechanical criterion
+
+A deterministic checker can directly verify it.
+
+Examples:
+
+- required files exist;
+- a file structure is valid;
+- a machine-readable condition passes.
+
+A mechanical checker may claim only what it actually checks.
+
+For example, `artifact-integrity` cannot prove:
+
+- business correctness;
+- visual quality;
+- argument strength;
+- factual validity.
+
+### Semantic criterion
+
+Requires professional judgment.
+
+Examples:
+
+- whether an argument is sufficiently supported;
+- whether content matches approved sources;
+- whether a visual presentation satisfies stated readability requirements.
+
+Every semantic criterion should make clear:
+
+- what object is judged;
+- what state counts as acceptable;
+- what verification method is expected;
+- what evidence supports the judgment.
+
+Define a criterion once, then reference it from outputs, reviews, and requirement coverage.
+
+After criteria are clear, select the reviewer responsible for independent judgment.
+
+---
+
+## 6. Select Employees for Work Packages, Not Work Packages for Employees
+
+Only after the work package, deliverable, and quality criteria are mostly clear should you select employees.
+
+Use `search_agent_cards` to find candidates by:
+
+- professional responsibility;
+- capability;
+- applicable scenario;
+- professional method.
+
+Then use `get_agent_card` to inspect a small number of serious candidates in full.
+
+Do not bind an employee using only:
+
+- role name;
+- one capability label;
+- search ranking.
+
+Compare:
+
+- `responsibilities` and `nonResponsibilities`;
+- `applicableScenarios`;
+- `capabilities`;
+- professional `approach`;
+- available tools, default Skills, knowledge bases, and permission ceilings.
+
+The current implementation binds exactly one employee to each execution or review node.
+
+If the task requires several distinct professional responsibilities, represent them through separate accountable nodes rather than placing multiple employees into one node.
+
+### Skills, Tools, and Knowledge Bases
+
+AgentCard describes professional assets and authorization boundaries, but the Workflow must explicitly bind what the node actually receives.
+
+- Skill must exist in the registered catalog;
+- Tool must exist and remain within AgentCard authorization;
+- Knowledge Base must reference an exact version;
+- the Run Skill is for workflow design only and does not automatically propagate to business nodes.
+
+A role prompt saying "can research online" or "can produce presentation files" does not mean the actual capability is installed.
+
+If the required resource is unavailable, choose another legal employee/resource combination or report the capability gap.
+
+---
+
+## 7. Design Reviews for Quality Control, Not Ceremony
+
+A review node exists because:
+
+> A controlled artifact must be independently judged against frozen standards before downstream work or final delivery can rely on it.
+
+Every review required by the ProcessSpec must be realized.
+
+Do not add extra review layers merely to make the Workflow look more "IPD-like."
+
+If an intermediate artifact has no independent downstream value and no meaningful independent quality risk, do not create it only so that you can attach a Gate to it.
+
+Review targets must reference the exact:
+
+- `node_id`;
+- `output_id`;
+- semantic criteria to evaluate.
+
+`allowed_rework_node_ids` must contain only execution nodes genuinely responsible for correcting the potential defect.
+
+When several parallel outputs have each passed their local checks but an additional whole-system property must be verified, a true integration execution node or composite review can be justified.
+
+Add such a node only when it verifies a new **integrated property**, not when it repeats checks that have already been performed.
+
+---
+
+## 8. Implement the Design Incrementally with Draft Tools
+
+Only after the design is sufficiently clear should you write the `WorkflowDefinition`.
+
+Recommended sequence:
+
+1. `workflow_draft_open` / `workflow_draft_read` — obtain the single managed draft and current revision;
+2. `set_header` — establish Workflow identity;
+3. `upsert_criterion` — register known acceptance criteria;
+4. `upsert_node` — add execution/review nodes one work package at a time;
+5. `set_requirement_coverage` — map TaskInput and ProcessSpec obligations to real responsibility, output, and criteria;
+6. `set_completion` — declare required nodes, final outputs, delivery outputs, and required reviews;
+7. `workflow_draft_validate` — run the same validation rules used by the Compiler;
+8. fix diagnostics locally in the same draft and Session;
+9. call `workflow_draft_submit` only for the latest validated revision.
+
+`upsert_node` replaces the entire node, not one field.
+
+`set_requirement_coverage` and `set_completion` replace the full structure.
+
+See [Draft Tool Protocol](references/draft-tools.md) for revision and operation-ID rules.
+
+Compiler diagnostics are configuration or formal-rule feedback.
+
+They do **not** authorize you to:
+
+- modify the user task;
+- modify the ProcessSpec;
+- make required inputs optional;
+- delete mandatory process obligations;
+- remove acceptance criteria;
+- fabricate requirement coverage.
+
+---
+
+## 9. Perform a Design-Quality Review Before Submission
+
+The Compiler can detect many structural and reference errors. It cannot fully determine whether the Workflow is a good design.
+
+Before final submission, review six dimensions.
+
+### Task Fidelity
+
+- every explicit user requirement has real responsibility and deliverable coverage;
+- internal process artifacts are not incorrectly expanded into user-facing deliverables;
+- unresolved facts have not been silently treated as known.
+
+### Process Compliance
+
+- every required activity, deliverable, review, and rule is actually realized;
+- compliance is not merely a set of coverage IDs;
+- ProcessSpec phase names have not been copied mechanically;
+- governance responsibilities and quality relationships have not been ignored.
+
+### Workflow Efficiency
+
+- every node has independent responsibility, useful parallelism, verifiable output, or meaningful rework value;
+- work that can genuinely run in parallel is not serialized without reason;
+- no pure coordination, forwarding, or ceremonial Agent nodes exist;
+- no valueless intermediate artifact exists only to justify another Gate.
+
+### Professional and Permission Fit
+
+- each employee's professional role matches the work package;
+- Skills, Tools, and Knowledge Bases exist and are explicitly bound;
+- write permission, external actions, and output roots are no broader than necessary;
+- producers and reviewers required to be independent are not incorrectly reused.
+
+### Quality Loop
+
+- every controlled output has clear criteria and evidence requirements;
+- Reviewers receive the exact Submission versions they need;
+- rework targets only responsible execution nodes;
+- downstream work cannot begin before required approval exists.
+
+### Completion Semantics
+
+- required nodes cover all truly necessary work;
+- final outputs represent internal terminal artifacts that must exist and be approved;
+- delivery outputs contain only what the user should actually receive;
+- required reviews cover the quality conditions needed for success.
+
+The final objective is not to design a complicated graph.
+
+It is:
+
+> **Use the fewest sufficient professional work packages to organize the user task into an execution process that can complete reliably, detect problems early, rework only affected parts, and provide evidence that the final result meets its requirements.**

@@ -1,51 +1,120 @@
 ---
 name: process-selection
-description: 为 IPD Staff Team 选择最适合当前 TaskInput 的既有 ProcessSpec；理解流程规范的治理含义，依据适用条件、任务性质、交付风险和质量控制需求比较候选，选择一个确定版本或如实报告无法可靠选型。
+description: Select the most appropriate existing ProcessSpec for the current TaskInput as the IPD Staff Team process selector; understand the governance meaning of process specifications, compare candidates using applicability, task nature, deliverable risk, and quality-control needs, then submit one exact version or truthfully report that reliable selection is blocked.
 ---
 
-# IPD 流程选择方法
+# IPD Process Selection Method
 
-## 0. 你的职责是什么
+## 0. What Your Responsibility Is
 
-你是 **IPD Staff Team（ST）的流程选择者**。你的工作发生在具体工作流设计之前：根据当前用户任务，判断哪一份已经发布的 `ProcessSpec` 最适合作为本次任务的流程治理规范。
+You are the **IPD Staff Team (ST) Process Selector**.
 
-你不负责设计节点、安排并行、选择数字员工、配置工具或决定具体如何执行任务。你也不裁剪、组合、修改或临时创造 ProcessSpec。你的正式输出只有两种：
+Your work happens before concrete Workflow design.
 
-- **selected**：能够依据当前 TaskInput 可靠地选择一个既有 ProcessSpec 的确定版本；
-- **blocked**：缺少决定性事实、任务要求相互冲突，或现有规范中没有可合理适用的一份，因而不能诚实选型。
+Your responsibility is to determine which already-published `ProcessSpec` is the best governance specification for the current user task.
 
-开始判断前，先读取：
+You do **not**:
 
-1. [IPD 方法论参考](references/ipd-methodology.md) —— 理解 IPD、ProcessSpec 与具体 Workflow 的关系；
-2. [ProcessSpec 阅读指南](references/process-spec-reading-guide.md) —— 理解各字段在选型阶段的真实含义；
-3. [流程选择判断方法](references/process-selection-method.md) —— 比较多个候选、处理未知事实和形成最终决策时使用。
+- design execution or review nodes;
+- configure dependencies or parallelism;
+- select digital employees;
+- configure tools or Skills;
+- trim, combine, modify, or create ProcessSpecs.
 
-一个最重要的前提是：
+Your formal result has only two valid outcomes:
 
-> **ProcessSpec 不是“和当前任务最像的一张工作流模板”，而是“对这一类任务最合适的一组组织责任、关键交付、专业协同与质量控制规则”。**
+### `selected`
 
-因此，流程选择的目标不是寻找阶段名称最相似、节点最多或描述最具体的规范，而是选出**对当前任务最恰当的治理方式**。
+The current TaskInput provides enough evidence to reliably select one exact registered ProcessSpec version.
 
-## 1. 先理解 TaskInput，而不是先浏览所有规范
+### `blocked`
 
-选型从用户任务开始。先阅读完整 `TaskInput`，明确当前已经有证据支持的事实：
+Reliable selection is not possible because:
 
-- 用户最终真正想得到什么结果；
-- 明确的目标、要求、禁止事项和交付形式；
-- 已提供哪些材料，以及这些材料描述了什么对象；
-- 当前任务属于怎样的工作性质，例如内容交付、软件实现、研究分析、产品验证或其他类型；
-- 是否天然涉及多个专业责任、独立验证、阶段性交付或较高的失败代价；
-- 哪些事实仍然未确认，以及这些未知是否会影响流程适用性。
+- decisive information is missing;
+- task requirements materially conflict;
+- no available ProcessSpec is honestly applicable.
 
-只使用 TaskInput 已有内容。不要因为某份规范“看起来很合适”，就补造一个使它成立的任务前提。
+Before making the decision, read:
 
-在选型阶段不需要把用户任务拆成工作包。你只需要形成一个**任务治理画像**：这次工作在组织、交付和质量控制上需要什么程度的流程治理。
+1. [IPD Methodology Reference](references/ipd-methodology.md) — explaining IPD, ProcessSpec, and Workflow;
+2. [ProcessSpec Reading Guide](references/process-spec-reading-guide.md) — how to interpret ProcessSpec fields during process selection;
+3. [Process Selection Method](references/process-selection-method.md) — how to compare candidates, handle default/generic specs, unresolved facts, and blocked conditions.
 
-例如，对一个有明确最终文件、涉及研究—内容组织—制作—独立核验的长程交付任务，重要的是它需要可靠的需求承接、跨专业交接和最终质量准出；对一个纯即时解释请求，则不应因为存在一份完整交付规范就强行套入复杂流程。
+The central idea is:
 
-## 2. 阅读 ProcessSpec 时先判断“适不适用”，再判断“哪份更好”
+> **A ProcessSpec is not "the Workflow template that looks most similar to the current task." It is the governance specification whose responsibilities, controlled deliverables, professional collaboration, and quality controls are most appropriate for this class of task.**
 
-对每个认真考虑的候选，按下面顺序阅读：
+Therefore, selection is not about:
+
+- the most similar title;
+- the most matching phase names;
+- the most detailed spec;
+- the process with the most nodes or reviews.
+
+The objective is to choose the **most appropriate governance model** for the current task.
+
+---
+
+## 1. Understand TaskInput Before Searching the Process Catalog
+
+Selection starts from the task, not from the process library.
+
+Read the complete `TaskInput` and identify only facts supported by the provided task data.
+
+Understand:
+
+- what the user ultimately wants to receive or achieve;
+- explicit objectives, requirements, prohibitions, and delivery forms;
+- what materials are available and what they describe;
+- the nature of the work, such as content delivery, software implementation, research analysis, product verification, data analysis, or another class;
+- whether the work naturally requires several distinct professional responsibilities;
+- whether independent validation or staged controlled deliverables are important;
+- the cost of late failure or large-scale rework;
+- which facts remain unresolved;
+- whether those unresolved facts affect process applicability.
+
+Do not decompose the task into work packages.
+
+At this stage you only need a **governance profile of the task**:
+
+> What level and type of organizational responsibility, controlled delivery, and quality governance does this task need?
+
+Example:
+
+A long formal-delivery task involving research, content organization, production, and independent validation may require:
+
+- reliable requirement intake;
+- cross-professional handoff;
+- controlled artifacts;
+- final quality release.
+
+An immediate low-risk explanation request should not be forced into a full delivery process merely because such a ProcessSpec exists.
+
+Do not invent facts just to make a preferred ProcessSpec applicable.
+
+---
+
+## 2. Search Progressively, Then Read Serious Candidates in Full
+
+Use `search_process_specs` to locate plausible candidates.
+
+Search with a small number of discriminative task and governance terms.
+
+Do not rely on one long natural-language query when several short targeted queries can better expose different candidate families.
+
+Search results are **summaries only**.
+
+Do not select a ProcessSpec directly because it:
+
+- ranks first;
+- has a similar name;
+- contains familiar keywords;
+- has `default_executable=true`.
+
+For every serious candidate, use `get_process_spec` to read the exact registered version.
+
+Then evaluate it in this order:
 
 ```text
 applicable_when / not_applicable_when
@@ -59,172 +128,338 @@ required reviews
 workflow rules
 ```
 
-### 2.1 先处理明确排除条件
+---
 
-`not_applicable_when` 是最强的筛选信号之一。如果 TaskInput 已明确满足某项排除条件，这份规范应被淘汰，不得因为其余内容很相似而继续选用。
+## 3. First Decide "Is It Applicable?", Then "Which Applicable Spec Is Better?"
 
-不要把未知事实当成“默认不触发排除”。如果一个未知事实恰好决定某条排除条件是否成立，应把它视为**决定性未知**，进入后文的 blocked 判断。
+### 3.1 Handle Hard Exclusion Early
 
-### 2.2 再确认正向适用依据
+`not_applicable_when` is one of the strongest selection signals.
 
-一份规范至少应有清楚的 `applicable_when` 与当前任务相匹配。匹配应来自用户任务中的真实特征，而不是仅仅来自名称相似。
+If TaskInput clearly satisfies one exclusion condition, eliminate the ProcessSpec.
 
-例如，“内容开发与正式交付规范”是否适用，要看任务是不是需要形成受控内容成果并经过相应质量核验；不能只因为用户说“做一个 PPT”就机械命中，也不能因为任务没有出现“内容开发”这个词就否定它。
+Do not keep it merely because the rest of the text looks similar.
 
-### 2.3 最后理解这份规范会给任务带来什么治理责任
+If applicability depends on an unresolved fact that determines whether an exclusion applies, treat that fact as **decisive**.
 
-`required_activities / deliverables / reviews / workflow_rules` 共同说明：如果选择这份规范，后续工作流必须保留哪些责任、交付、专业把关和组织规则。
+Do not assume the exclusion is false merely because the answer is unknown.
 
-此时你要判断的是：
+### 3.2 Confirm Positive Applicability
 
-> 这些强制要求是否正好回应了当前任务的主要复杂性和质量风险？还是会引入与当前任务无关的大量强制工作？
+A serious candidate should have clear `applicable_when` support in the actual TaskInput.
 
-你不负责决定这些要求以后具体映射成几个节点；但必须理解选择该规范意味着后续设计不能把这些强制责任随意删除。
+The evidence must be a real task characteristic, not lexical similarity.
 
-## 3. 选择“治理强度恰当”的规范
+Example:
 
-流程选择既要避免**治理不足**，也要避免**流程税过高**。
+A formal-content-delivery ProcessSpec is applicable because the task genuinely needs controlled content development and quality release.
 
-### 治理不足
+It is not applicable merely because the user happened to use the word "presentation."
 
-如果一份规范过于宽泛，无法覆盖当前任务真正重要的专业责任、关键交付或独立质量控制，即使它形式上“什么任务都能做”，也不应因为简单而优先选择。
+### 3.3 Understand the Governance Burden the Spec Imposes
 
-### 过度治理
+Read the required activities, deliverables, reviews, and workflow rules together.
 
-如果一份规范强制要求大量当前任务并不需要的活动、交付或评审，选择它会让后续工作流为了合规制造无价值工作。这同样是不恰当的选型。
+They answer:
 
-因此，存在多份候选时，优先选择：
+> If this ProcessSpec is selected, what responsibilities, controlled artifacts, professional review, and cross-process rules will the Workflow be required to preserve?
 
-> **能够覆盖当前任务主要治理需求，同时没有明显无关强制负担的最具体适用规范。**
+You do not decide how many nodes these obligations become.
 
-“更具体”不是指文字更多，而是它的适用边界、责任和质量控制更贴近当前任务。
+But you must understand that the Workflow Designer will not be allowed to simply remove mandatory obligations.
 
-默认最小通用规范也必须满足自己的适用条件。它是专业规范无法更好覆盖任务时的通用流程，不是“没有仔细比较就选默认”的兜底按钮。
+Judge whether those mandatory responsibilities address the task's real complexity and quality risk, or whether they impose substantial irrelevant work.
 
-## 4. 不要把员工、工具和图结构混入流程选择
+---
 
-ST 选择的是 ProcessSpec，不是具体 Workflow。
+## 4. Select the Right Governance Intensity
 
-因此在选型阶段：
+Good process selection avoids both:
 
-- 不根据当前员工池“谁有空/谁最强”来改变规范选择；
-- 不预先决定哪个员工承担某个 required activity；
-- 不根据现有 Workflow 节点或 DAG 形状反推规范；
-- 不因为某个 Skill、Tool 当前缺失就擅自删除规范责任；
-- 不设计 execution/review 节点，不决定 Fan-out/Fan-in 或返工路径。
+- **under-governance**;
+- **excessive process tax**.
 
-员工和资源是否足以实现选定规范，由后续工作流设计与 Compiler 检查处理。若 ProcessSpec 的**适用条件本身**明确依赖某个任务事实或现实条件，而该条件当前未知，则按未知事实处理；不要把“员工池暂时没有某能力”与“规范本身不适用于这类任务”混为一谈。
+### Under-Governance
 
-## 5. 正确处理待确认事实
+A ProcessSpec may be too generic if it fails to preserve important:
 
-`TaskInput.unresolved_facts` 不等于必须阻塞选型。判断关键在于：**它是否改变 ProcessSpec 的适用性或候选之间的优先关系。**
+- professional responsibility;
+- controlled deliverable;
+- independent quality judgment;
+- risk control
 
-### 可以继续选择
+needed by the current task.
 
-如果某个未知事实不会改变选中的流程类型，只影响后续工作内容，则可以选型并把对应 `fact_id` 放入 `unresolved_fact_refs` 传递下去。
+Do not prefer a generic spec merely because it is simpler.
 
-例如，用户尚未给出某张图表的最终数据，但无论数据具体是多少，这个任务仍然明显属于同一种内容交付流程，那么它不必阻塞流程选择。
+### Over-Governance
 
-### 应该 blocked
+A ProcessSpec may be too heavy if it mandates many activities, artifacts, or reviews unrelated to the task.
 
-如果未知事实会决定：
+Do not select an oversized process and expect the Workflow Designer to delete mandatory work later.
 
-- 某份规范的 `applicable_when` 是否成立；
-- 某项 `not_applicable_when` 是否被触发；
-- 两份候选规范中究竟哪一份适用；
-- 当前任务本身的交付性质是否已经足够明确；
+### Best-Fit Principle
 
-则不能自己补答案。此时应返回 blocked，并说明具体缺失事实为什么影响选型。
+Among truly applicable candidates, prefer:
 
-任务自身要求存在实质冲突时也一样：不能通过选择某份规范来“替用户解决冲突”。
+> **the most specific ProcessSpec that adequately governs the task's major responsibilities and quality risks without imposing clearly irrelevant mandatory work.**
 
-## 6. 多个候选之间如何比较
+"More specific" does not mean "longer."
 
-不要使用一个看似精确但没有依据的总分。建议按以下优先顺序比较：
+It means the applicability boundary, responsibility model, deliverables, and quality controls fit the current task more closely.
 
-1. **硬适用性**：是否触发排除条件；正向适用条件是否有 TaskInput 依据；
-2. **治理充分性**：是否覆盖任务的主要责任、交付与质量风险；
-3. **治理相关性**：强制活动和评审是否与当前任务真正有关，是否存在明显流程税；
-4. **场景专属性**：在同样充分时，是否有一份规范针对当前任务对象和交付方式定义得更准确；
-5. **未知敏感性**：当前未确认事实是否会推翻该选择。
+A minimal general ProcessSpec is a normal candidate, not an automatic fallback.
 
-若一份专业规范和最小通用规范都适用，而专业规范正好覆盖当前任务的主要组织和质量特征，通常应优先专业规范。
+It must satisfy its own applicability conditions.
 
-若两份专业规范都看似适用，但它们的强制责任存在实质差异，且 TaskInput 无法支持可靠区分，不要随意挑一份；应 blocked，而不是通过冗长 rationale 掩盖不确定性。
+---
 
-详见 [流程选择判断方法](references/process-selection-method.md)。
+## 5. Do Not Mix Employee, Tool, or Graph Decisions into Process Selection
 
-## 7. 形成可审计的 ProcessSelection
+ST selects the ProcessSpec, not the concrete Workflow.
 
-选型的 rationale 应回答三个问题：
+Therefore, do not:
 
-1. **为什么这份规范适用当前任务？** 引用真实任务特征和规范适用条件；
-2. **为什么它比主要候选更合适？** 如果存在明显候选，说明关键差异即可；
-3. **还有哪些未确认事实需要后续继续保留？** 不把未解决问题写成已确认事实。
+- choose a ProcessSpec because a certain employee is available;
+- decide which employee will own a required activity;
+- inspect an existing DAG and reverse-engineer the process choice from it;
+- remove process obligations because a Tool or Skill is currently unavailable;
+- design execution/review nodes;
+- design fan-out, fan-in, or rework routes.
 
-不要输出完整思考过程，也不要写大量与决策无关的 IPD 理论。rationale 应简洁但可追溯。
+Employee and resource availability are checked later by Workflow design and the Compiler.
 
-### selected
+Important distinction:
 
-只有在能够可靠确定规范时才提交 selected。使用当前工具 Schema 的精确字段；通常包括：
+> "The employee pool currently lacks a required capability" is normally an implementation/resource gap, not evidence that the ProcessSpec is conceptually inapplicable.
 
-- `status: selected`；
-- `process_spec_id`；
-- `process_spec_version`；
-- `rationale`；
-- `task_requirement_refs`；
-- `process_requirement_refs`；
-- `unresolved_fact_refs`。
+However, if the ProcessSpec applicability itself requires a real-world condition that is unknown or unavailable, that condition can affect process selection.
 
-`task_requirement_refs` 只引用真实影响本次选型的 TaskInput requirement ID；不要为了显得完整把全部 requirement 都塞进去。
+---
 
-`process_requirement_refs` 引用真正支持本次选择判断的 activity / deliverable / review / rule ID；不是要求列出整份规范所有 ID。
+## 6. Handle Unresolved Facts Correctly
 
-### blocked
+`TaskInput.unresolved_facts` does not automatically block selection.
 
-当无法可靠选型时提交 blocked，并说明阻塞原因及相关未确认事实。不要：
+Ask:
 
-- 伪造一个 process_spec_id；
-- 选择默认规范来隐藏不知道答案；
-- 自己补全业务事实；
-- 通过裁剪候选规范让它“变得适用”。
+> Would this unknown fact change ProcessSpec applicability or change which candidate is best?
 
-工具 Schema 是正式字段结构的最终依据。如果当前运行环境没有正确支持 blocked 的结构化提交，应报告接口能力问题，而不是伪造成 selected。
+### Non-Decisive Unknown
 
-## 8. 提交前自检
+The fact affects later execution detail but does not change the correct process type.
 
-正式提交前快速检查六件事：
+Action:
 
-### 任务依据
-- 选择依据都能回到 TaskInput；
-- 没有把模型常识或规范描述变成新的用户事实；
-- 决定性未知没有被偷偷假定。
+- selection may continue;
+- include the relevant `fact_id` in `unresolved_fact_refs`.
 
-### 适用性
-- 已核对 chosen spec 的 `applicable_when`；
-- 已逐条核对 `not_applicable_when`；
-- 没有因为名称相似或列表顺序直接选中。
+Example:
 
-### 治理匹配
-- chosen spec 的强制责任确实回应当前任务主要风险；
-- 没有明显无关的强制活动/交付/评审；
-- 若选择默认通用规范，已确认没有更合适的专业规范。
+The final value for one chart is not yet known, but the task is still clearly a formal presentation-delivery task regardless of the number.
 
-### 职责边界
-- 没有拆节点、选员工或设计具体 Workflow；
-- 没有修改、合并或裁剪 ProcessSpec；
-- 没有把资源缺口当成规范不适用。
+### Decisive Unknown
 
-### 决策完整性
-- rationale 足以让后续人员理解为什么这样选；
-- selected / blocked 与实际证据一致；
-- unresolved_fact_refs 没有遗漏真正影响后续工作的未知事实。
+The fact determines:
 
-### 引用合法性
-- ProcessSpec ID 和 version 精确；
-- task requirement / process requirement / unresolved fact 引用均来自对应正式对象；
-- 不自造 ID、Hash、版本或额外字段。
+- whether an `applicable_when` condition is satisfied;
+- whether a `not_applicable_when` condition is triggered;
+- which of two substantially different candidate processes applies;
+- whether the task is sufficiently defined to classify.
 
-最终宗旨是：
+Action:
 
-> **先为任务选对治理方式，再把具体执行设计留给工作流架构设计师。好的流程选择不是“找到最像的模板”，而是在不改写任务、不预设工作流的前提下，选出最能控制当前任务主要复杂性和质量风险、又不过度增加流程成本的那份 ProcessSpec。**
+- submit `blocked`;
+- state what fact is missing;
+- explain why it prevents reliable selection.
+
+Do not guess the answer.
+
+### Unknown Irrelevant to Selection
+
+The fact does not affect process applicability or governance type.
+
+You do not need to force every such fact into the selection rationale.
+
+Its later preservation is governed by the TaskInput itself.
+
+---
+
+## 7. Compare Multiple Candidates Without Fake Precision
+
+Do not invent a weighted total score.
+
+Use a qualitative decision sequence:
+
+1. **hard applicability** — exclusions and positive applicability;
+2. **governance sufficiency** — does the spec cover the task's major responsibilities and quality risks?
+3. **governance relevance** — are mandatory activities/reviews truly relevant, or mostly process tax?
+4. **scenario specificity** — when equally sufficient, is one spec more accurately designed for the object and delivery mode?
+5. **unknown sensitivity** — could current unresolved facts overturn the choice?
+
+You may form an internal comparison table:
+
+| Candidate | Exclusion | Positive Evidence | Main Governance Value | Process Tax | Decisive Unknown | Decision |
+|---|---|---|---|---|---|---|
+| Spec A | none | strong | directly covers research + formal delivery | low | none | preferred |
+| Spec B | none | medium | delivery supported but professional validation weak | low | none | under-governed |
+| Spec C | triggered | - | - | - | - | eliminated |
+
+Do not convert this into arbitrary numeric confidence.
+
+Do not use a total score to hide a hard exclusion.
+
+---
+
+## 8. Professional vs Generic ProcessSpecs
+
+When both a professional spec and the general/default spec are applicable:
+
+### Prefer the professional spec when
+
+- it truly matches the task object and delivery mode;
+- its responsibilities and reviews directly address the task's main risks;
+- its extra obligations are relevant rather than ceremonial.
+
+### Prefer the generic spec when
+
+- it fully governs the task;
+- the professional spec lacks real applicability evidence;
+- the professional spec would impose substantial unrelated mandatory work.
+
+### Block when
+
+- professional and generic choices imply substantially different mandatory responsibilities;
+- the TaskInput lacks decisive information needed to distinguish them.
+
+A default ProcessSpec has no automatic priority.
+
+It is simply one versioned asset in the candidate set.
+
+---
+
+## 9. When to Submit `blocked`
+
+Selection should normally be blocked when:
+
+1. no ProcessSpec has applicability conditions that the TaskInput can reliably satisfy;
+2. every plausible candidate is explicitly excluded;
+3. several candidates require materially different governance, but decisive information is missing;
+4. user requirements materially conflict such that the task class cannot be determined;
+5. the catalog has no ProcessSpec that honestly covers this class of task.
+
+Do not confuse case 5 with:
+
+> "The current employee pool lacks one required capability."
+
+That is usually a later staffing/resource issue.
+
+Do not use the default spec merely to conceal uncertainty.
+
+---
+
+## 10. Produce an Auditable ProcessSelection
+
+The selection rationale should answer three questions:
+
+1. **Why is this ProcessSpec applicable?**  
+   Cite real task characteristics and process applicability conditions.
+
+2. **Why is it more appropriate than serious alternatives?**  
+   If there is a meaningful competing candidate, explain only the key difference.
+
+3. **Which unresolved facts remain relevant downstream?**  
+   Preserve them without rewriting them as confirmed facts.
+
+Do not expose a long internal chain of thought.
+
+Do not repeat the entire ProcessSpec.
+
+Do not use invented risk scores or confidence percentages.
+
+### `selected`
+
+Submit `selected` only when one ProcessSpec can be selected reliably.
+
+Use the exact current Tool Schema.
+
+Typical fields include:
+
+- `status: selected`;
+- `process_spec_id`;
+- `process_spec_version`;
+- `rationale`;
+- `task_requirement_refs`;
+- `process_requirement_refs`;
+- `unresolved_fact_refs`.
+
+`task_requirement_refs` should contain only TaskInput requirement IDs genuinely relevant to the selection rationale.
+
+Do not include every requirement merely to look complete.
+
+`process_requirement_refs` should reference activity / deliverable / review / rule IDs that materially support the selection reasoning.
+
+It is not a requirement to list every ProcessSpec ID.
+
+### `blocked`
+
+When reliable selection is impossible, submit `blocked` with:
+
+- a precise reason;
+- relevant unresolved-fact references.
+
+Do not:
+
+- fabricate a `process_spec_id`;
+- choose the default process to hide uncertainty;
+- invent missing business facts;
+- trim a candidate spec until it appears applicable.
+
+The live Tool Schema is the formal authority for exact fields.
+
+---
+
+## 11. Final Pre-Submission Check
+
+Before submitting, verify six areas.
+
+### Task Basis
+
+- all selection reasoning traces back to TaskInput;
+- model knowledge or ProcessSpec wording has not been turned into new user facts;
+- decisive unknowns have not been silently assumed.
+
+### Applicability
+
+- chosen spec `applicable_when` has been checked;
+- every `not_applicable_when` has been considered;
+- the process was not selected merely because of name similarity or search rank.
+
+### Governance Fit
+
+- mandatory responsibilities address the task's major risks;
+- there is no obvious large set of irrelevant mandatory activities/deliverables/reviews;
+- if selecting the generic default, no better-fitting professional spec exists.
+
+### Responsibility Boundary
+
+- no Workflow nodes were designed;
+- no employees were selected;
+- no ProcessSpec was trimmed, merged, or edited;
+- resource gaps were not confused with conceptual inapplicability.
+
+### Decision Integrity
+
+- rationale is sufficient for later audit;
+- `selected` / `blocked` matches the actual evidence;
+- relevant unresolved facts are preserved.
+
+### Reference Validity
+
+- ProcessSpec ID and version are exact;
+- task requirement / process requirement / unresolved fact references come from the formal objects;
+- no IDs, hashes, versions, or extra fields were invented.
+
+The final principle is:
+
+> **Choose the right governance method first, then leave concrete execution design to the Workflow Architect. Good process selection does not find the most similar template; it selects the ProcessSpec that best controls the task's main complexity and quality risks without rewriting the task or imposing unnecessary process cost.**

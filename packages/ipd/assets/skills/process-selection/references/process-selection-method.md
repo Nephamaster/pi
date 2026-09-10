@@ -1,133 +1,162 @@
-# 流程选择判断方法
+# Process Selection Decision Method
 
-这份参考用于候选较多、多个规范都可能适用，或存在未确认事实时进行系统比较。它不是一个固定打分公式。
+Use this reference when:
 
-## 1. 先构造任务治理画像
+- the ProcessSpec catalog contains many candidates;
+- several candidates appear applicable;
+- unresolved facts may affect the choice.
 
-从 TaskInput 中只提取有来源支持的特征。建议至少考虑：
+This is not a fixed scoring formula.
 
-| 维度 | 要问的问题 |
+## 1. Build a Task Governance Profile
+
+Extract only TaskInput characteristics supported by actual sources.
+
+Consider at least:
+
+| Dimension | Question |
 |---|---|
-| 任务性质 | 当前主要是在研究、内容交付、软件实现、产品验证、数据分析，还是其他类型？ |
-| 最终交付 | 用户需要文件、系统、分析结论、决策材料还是即时答案？是否存在明确验收？ |
-| 专业跨度 | 是否需要多个明显不同的专业责任共同参与？ |
-| 对象复杂性 | 纯文本/数据/软件/软硬件/物理产品等对象会带来什么不同治理需求？ |
-| 需求稳定性 | 目标和关键输入是否基本明确，还是存在会改变流程类型的未知？ |
-| 质量风险 | 错误是否难以及时发现，是否会在后期造成大范围返工？ |
-| 验证成本 | 成果是否需要独立核验、真实环境、专业测试或高成本验证？ |
-| 交付节奏 | 一次性交付、快速迭代还是长期分阶段成熟？ |
+| task nature | Is the primary work research, content delivery, software implementation, product verification, data analysis, or another class? |
+| final delivery | Does the user need a file, system, analytical conclusion, decision material, or immediate answer? Is acceptance explicit? |
+| professional breadth | Are several materially different professional responsibilities required? |
+| object complexity | Is the object text, data, software, software+hardware, a physical product, etc.? |
+| requirement stability | Are objectives and key inputs stable, or do unknowns still determine the process type? |
+| quality risk | Are errors difficult to detect early or expensive to fix late? |
+| verification cost | Does the result require independent verification, real environments, professional testing, or high-cost validation? |
+| delivery cadence | One-time delivery, rapid iteration, or long staged maturity? |
 
-这些维度用于理解任务，不需要产生一个数值分数。
+These dimensions are for understanding, not numeric scoring.
 
-## 2. 候选筛选分三层
+## 2. Use Three Selection Layers
 
 ### A. Hard Exclusion
 
-任何被 TaskInput 明确触发的 `not_applicable_when` 都是淘汰理由。
+Any `not_applicable_when` explicitly triggered by TaskInput eliminates the candidate.
 
-若一项决定性未知使你无法判断是否触发排除条件，把该候选标为“无法确认”，不要强行视为通过。
+If a decisive unknown prevents you from determining whether an exclusion applies, mark the candidate as unresolved rather than assuming it passes.
 
 ### B. Positive Applicability
 
-检查 `applicable_when` 是否有足够真实依据。至少应该能指出当前任务中的具体事实，而不是只说“语义相似”。
+Check whether `applicable_when` has concrete evidence in TaskInput.
+
+You should be able to identify actual task facts.
+
+"Semantic similarity" is not enough.
 
 ### C. Governance Fit
 
-对通过前两层的候选比较：
+For candidates that pass the first two layers, compare:
 
-- required activities 是否覆盖当前主要责任；
-- required deliverables 是否符合需要形成的受控成果；
-- required reviews 是否对应真正的质量风险；
-- workflow rules 是否适合当前任务组织方式；
-- 是否存在明显无关强制要求。
+- whether required activities cover the task's major responsibilities;
+- whether required deliverables match the controlled artifacts the task needs;
+- whether required reviews correspond to real quality risks;
+- whether workflow rules match the task's organization;
+- whether obvious irrelevant mandatory work exists.
 
-## 3. 候选比较表
+## 3. Candidate Comparison Table
 
-可以在内部形成如下简表，不需要原样提交：
+You may internally use:
 
-| 候选 | 排除条件 | 正向依据 | 主要治理价值 | 明显流程税 | 决定性未知 | 结论 |
+| Candidate | Exclusion | Positive Evidence | Main Governance Value | Obvious Process Tax | Decisive Unknown | Conclusion |
 |---|---|---|---|---|---|---|
-| Spec A | 无 | 强 | 正好覆盖研究+正式交付 | 低 | 无 | 优先 |
-| Spec B | 无 | 中 | 可交付但缺专业核验 | 低 | 无 | 治理不足 |
-| Spec C | 已触发 | - | - | - | - | 淘汰 |
+| Spec A | none | strong | directly covers research + formal delivery | low | none | preferred |
+| Spec B | none | medium | delivery covered, professional validation weak | low | none | under-governed |
+| Spec C | triggered | - | - | - | - | eliminated |
 
-不要将“结论”机械转成分值，也不要用加权总分掩盖一项硬排除条件。
+Do not convert this table into a fake total score.
 
-## 4. 专业规范与通用规范
+A hard exclusion cannot be outweighed by other positive points.
 
-当专业规范与默认通用规范都适用时：
+## 4. Professional Spec vs Generic Spec
 
-- 专业规范确实针对当前对象、交付和主要风险提供更合适的责任/评审 → 优先专业规范；
-- 专业规范带来大量当前任务无关强制活动 → 不能因为“专业”两个字就选它；
-- 通用规范能够充分覆盖任务，而专业规范不具备真实适用依据 → 选通用规范；
-- 关键事实不足以判断专业规范是否适用，而不同选择会显著改变后续强制责任 → blocked。
+When both a professional spec and a general/default spec are applicable:
 
-默认规范只是一个可选资产，不具备自动优先权或自动兜底权。
+- prefer the professional spec if it truly provides better-fit responsibility and review for the task object and risk;
+- do not prefer it merely because it is "professional" if it imposes large irrelevant mandatory work;
+- choose the generic spec when it sufficiently governs the task and the professional spec lacks real applicability;
+- block when decisive facts are missing and the two choices imply materially different mandatory governance.
 
-## 5. 未确认事实分级
+A default spec is an ordinary candidate, not an automatic fallback.
 
-### 非决定性未知
+## 5. Classify Unresolved Facts
 
-不会改变选中的流程类型，只影响后续执行细节。
+### Non-Decisive Unknown
 
-处理：可以 selected，同时放入 `unresolved_fact_refs`。
+Does not change the selected process type, only later execution detail.
 
-### 决定性未知
+Action:
 
-会改变：
+- selection may proceed;
+- include the fact in `unresolved_fact_refs` when relevant.
 
-- 是否满足某规范适用条件；
-- 是否触发排除条件；
-- 两个候选谁更合适；
-- 任务本身属于哪类流程。
+### Decisive Unknown
 
-处理：blocked，说明需要确认什么以及为什么会影响选型。
+Changes:
 
-### 与选型无关的未知
+- positive applicability;
+- exclusion applicability;
+- which candidate is better;
+- the task's process class.
 
-既不影响规范适用，也不影响后续流程治理类型。
+Action:
 
-处理：无需为了“完整”全部塞进选型 rationale；是否继续保留给后续由 TaskInput 自身决定。
+- `blocked`;
+- explain what must be known and why it changes the process decision.
 
-## 6. 何时 blocked
+### Selection-Irrelevant Unknown
 
-以下情况通常应 blocked：
+Does not affect process applicability or governance type.
 
-1. 没有任何 ProcessSpec 的适用条件能够被 TaskInput 可靠满足；
-2. 所有可能候选都被明确排除；
-3. 两份规范要求的治理方式差异很大，但决定差异的关键信息尚未知；
-4. 用户要求自身存在无法消解的实质冲突，导致流程类型无法确定；
-5. 当前资产中没有能诚实覆盖该类任务的规范。
+Action:
 
-不要把“当前员工池缺少某个能力”自动归为第 5 类。那通常是后续实现能力缺口，不是 ProcessSpec 不存在。
+- do not force it into the rationale for completeness;
+- TaskInput remains the source of truth for downstream handling.
 
-## 7. rationale 的推荐结构
+## 6. Typical `blocked` Conditions
 
-selected rationale 建议压缩成三段逻辑：
+Normally block when:
+
+1. no ProcessSpec applicability condition can be reliably supported by TaskInput;
+2. all plausible candidates are explicitly excluded;
+3. several candidates have materially different governance but decisive information is missing;
+4. user requirements conflict such that the process class cannot be determined;
+5. no current ProcessSpec honestly covers the task class.
+
+Do not automatically treat "the employee pool lacks a capability" as case 5.
+
+That is normally a later implementation gap.
+
+## 7. Recommended Rationale Structure
+
+For `selected`, compress the rationale into three logical parts:
 
 ```text
-任务特征：当前任务的交付、复杂性和质量控制需要是什么。
-规范匹配：chosen spec 的哪些 applicable 条件和强制责任正好覆盖这些需求。
-比较结论：若存在主要候选，为什么 chosen spec 更适合；还有哪些非决定性未知需要保留。
+Task characteristics:
+What delivery, complexity, and quality-control needs matter.
+
+Process fit:
+Which applicability conditions and mandatory responsibilities of the selected spec address those needs.
+
+Comparison:
+Why it is better than the main alternative, if one exists,
+and which non-decisive unresolved facts remain.
 ```
 
-blocked reason 建议回答：
+For `blocked`, answer:
 
 ```text
-缺少/冲突的事实是什么；
-它具体影响哪项适用或排除判断；
-为什么不能在不编造事实的情况下可靠选择。
+What fact is missing or conflicting;
+which applicability/exclusion judgment it affects;
+why reliable selection is impossible without inventing facts.
 ```
 
-避免：
+Avoid:
 
-- “综合考虑后选择 X”这种无法审计的空话；
-- 把完整 ProcessSpec 内容重新抄一遍；
-- 展示冗长内部推理过程；
-- 使用未定义的风险分数或置信概率制造伪精确。
+- "After comprehensive consideration, choose X";
+- reproducing the whole ProcessSpec;
+- exposing long internal reasoning;
+- invented risk scores or confidence percentages.
 
-## 8. 最终决策原则
+## 8. Final Decision Principle
 
-可以把整个方法压缩成一句话：
-
-> **先排除明确不适用的规范，再在真正适用的候选中选择能够充分控制当前任务主要复杂性与质量风险、同时没有明显无关流程税的那一份；如果关键信息不足以可靠区分，就停止猜测并 blocked。**
+> **Eliminate clearly inapplicable specs first. Among genuinely applicable candidates, choose the one that sufficiently controls the task's major complexity and quality risks without obvious irrelevant process tax. If decisive information is missing, stop guessing and return blocked.**

@@ -1,251 +1,478 @@
-# IPD 方法论参考：供流程选择与工作流设计使用
+# IPD Methodology Reference for Process Selection and Workflow Design
 
-> 用途：为 IPD 控制面中的流程选择者（ST）和工作流架构设计师提供共同的 IPD 心智模型。
+> Purpose: provide a shared IPD mental model for the Process Selector (ST) and Workflow Architect.
 >
-> 本文区分三类内容：**公开资料能够支持的 IPD 事实**、**从这些事实抽象出的设计原则**、**本项目的工程映射**。`ProcessSpec`、execution/review 节点、Compiler、Runtime 等均属于本项目术语，不是华为原始 IPD 术语。
+> This document distinguishes three categories:
+>
+> 1. IPD facts supported by public sources;
+> 2. design principles abstracted from those facts;
+> 3. engineering mappings used by this project.
+>
+> `ProcessSpec`, execution/review nodes, Compiler, Runtime, and similar terms are project-specific abstractions, not original Huawei IPD terminology.
 
-## 1. IPD 是什么
+## 1. Understand What IPD Is Before Memorizing Phase Names
 
-IPD（Integrated Product Development）首先是一套**端到端的产品开发与业务管理体系**，而不是单纯的项目排期方法，也不是一张固定流程图。华为公开白皮书将 IPD称为研发领域的核心流程，并说明华为在 1999 年引入 IPD，它融合了 PRTM 的 PACE 方法、IBM 咨询建议以及华为自身长期实践。华为公开材料中的 Market Management → IPD 图同时区分了“Do the right things”和“Do things right”：市场与业务管理决定做什么，IPD负责把已经决定要做的产品或 offering 以结构化方式做对、交付好。[S1]
+Integrated Product Development (IPD) is first an **end-to-end product-development and business-management system**, not merely a project schedule and not a fixed flowchart.
 
-这意味着，理解 IPD 时不能只看到“概念—计划—开发—验证—发布—生命周期”这些阶段。它更关心以下问题：
+Huawei public material describes IPD as a core R&D process and states that Huawei introduced it around 1999, combining:
 
-- 当前工作是否真正承接客户、市场和业务目标；
-- 哪些跨专业职责必须从早期就参与，而不是最后才接棒；
-- 每个阶段或工作域必须形成什么可以被下游使用的交付；
-- 谁负责生产，谁负责判断是否达到继续推进的条件；
-- 哪些要求必须被持续追溯到设计、实现、验证和交付；
-- 在信息不足、风险未关闭或结果不合格时，应当继续、补充、返工、改向还是停止。
+- PRTM's PACE methodology;
+- IBM consulting recommendations;
+- Huawei's own long-term practice. [S1]
 
-因此，IPD 的“流程”不是为了增加手续，而是为了在复杂、长周期、跨专业任务中，把关键责任、交付和决策提前显式化，减少错误在后期才暴露的概率。
-
-## 2. 华为公开材料中可以较确定地看到的核心结构
-
-### 2.1 端到端阶段是高层骨架，不是逐动作脚本
-
-华为公开白皮书中的 IPD 主流程采用 `Concept → Plan → Develop → Qualify → Launch → Lifecycle` 的高层阶段结构，并把安全、配置管理等专业要求嵌入不同阶段，而不是建立一条与主流程平行的独立流程。[S1]
-
-这给工作流设计一个重要启发：**阶段描述的是成熟度和责任边界，而不是要求把每个阶段机械映射成一个节点。** 当前任务可以在某个阶段内部并行展开多个专业工作，也可以把若干高度一致的通用活动合并到一个具体工作包；只要规范要求的责任、交付和评审没有丢失即可。
-
-### 2.2 IPD 是跨职能协作，而不是研发部门串行接力
-
-华为案例研究显示，IPD 推行后采用跨部门矩阵协作，成员覆盖开发、测试、研发、市场、技术服务、财务、供应、采购、质量等职能；管理层负责组合与投资治理，PDT负责具体项目执行。研究同时指出，并行工程让制造、采购、市场准备可以与产品测试等工作并行进行。[S2]
-
-IBM 的公开 IPD 培训材料也把“所有相关职能领域的代表和主动参与”称为 IPD 的 cornerstone，并用 IPMT（跨职能管理层）与 PDT（跨职能执行团队）的两层结构解释组织责任；PDT 的典型核心/扩展职能包括项目管理、产品市场、财务、开发、质量、测试、采购、销售等。[S3]
-
-这里最重要的不是照搬这些岗位名称，而是理解：**IPD 规范不仅规定“做哪些事情”，还会隐含或明确规定“哪些专业责任必须参与、哪些责任不能由同一主体自证完成”。**
-
-### 2.3 并行工程是 IPD 的重要特征，但并行必须建立在明确接口上
-
-“集成”并不意味着所有人一直一起讨论，而是让需要尽早介入的专业尽早介入，并通过明确输入、交付和评审接口协同。华为公开材料把安全设计、安全开发、安全测试分别嵌入概念、计划、开发、验证等阶段；配置管理、追溯、职责分离也贯穿多个阶段。[S1]
-
-因此，在本项目里，能够并行的工作应并行，但只有当它们真的不依赖彼此的未完成结果时才并行；需要多个成果共同支撑的工作，应该在明确的交付边界上汇聚。**并行不是为了让图看起来复杂，而是为了减少不必要等待，同时保持责任和版本可追溯。**
-
-### 2.4 IPD 的流程定义重“高层治理、角色和交付”，不必穷举底层动作
-
-IBM Research 对 IBM Software Group 的 IPD 定义有一个对本项目非常重要的观察：顶层 IPD 大量使用自然语言文档、图和清晰定义的交付物；重点是流程原则、业务目标、治理表达、高层结构和参与角色，而相对较少规定底层流程结构。[S4]
-
-这恰好解释了为什么 `ProcessSpec` 不应该变成一张巨大的、逐动作的 Workflow 模板：
-
-- ProcessSpec 应定义**必须承担的责任、关键交付、角色/能力要求、评审与交接规则**；
-- Workflow 才负责回答**这一次任务具体拆成哪些工作包、谁来做、哪些可以并行、输入输出如何绑定**；
-- Skill、工具调用和一次模型内部操作属于更低层执行方法，通常不应该上升为 ProcessSpec 的固定节点。
-
-换句话说，好的 ProcessSpec 应当约束“一族合法工作流”，而不是唯一一张工作流。
-
-## 3. 组织责任：IPMT/PDT 的启发，以及本项目不照搬的部分
-
-### 3.1 PDT：跨职能执行责任
-
-IBM IPD 材料将 PDT 定义为针对具体 offering 负责计划与执行的跨职能团队；PDT Leader 负责交付、跨职能团队管理、项目计划、风险及决策评审准备，各专业代表则对自己的职能活动和交付负责。[S3]
-
-对本项目的可迁移含义是：
-
-- 一个长程任务不应只有一个“万能 Agent”同时承担研究、设计、实现、验证和批准；
-- 需要不同专业判断时，应建立独立的责任工作包；
-- 每个工作包必须有明确的责任员工、输入、输出和验收依据；
-- 跨专业工作可以通过多个节点构成，而不是把多个身份塞进同一个 Agent 的提示词。
-
-### 3.2 IPMT / IRB：治理和投资决策责任
-
-IBM 材料把 IPMT/IRB 置于跨职能管理和投资/组合决策层，DCP 可以做 `Go / No-Go / Redirect` 决策，并涉及下一阶段资源承诺。[S3] 华为公开高管访谈也明确将 IPD 描述为研发过程和管理系统，并提到针对研发投资存在专门治理团队。[S5]
-
-**本项目首版不复刻这一完整投资治理层。** 当前 review/Gate 主要判断确定版本的交付是否满足固定质量标准，更接近“技术/质量准出”抽象，而不是企业层面的 DCP。不能因为使用了 IPD 的名字，就让一个 Reviewer 自行决定预算、投资终止或组织资源。
-
-未来若增加真正的组合管理、资源再分配或方向性决策，应当作为新的治理能力显式建模，而不是偷偷扩大 review 节点权限。
-
-## 4. DCP、TR 与本项目 Gate：三者不要混淆
-
-IBM 的 DCP 是带明确入口/出口条件的结构化项目决策检查点，其结果可以是 Go、No-Go、Redirect，并与是否继续投入资源相关。[S3]
-
-华为公开白皮书则可以看到 IPD 不同阶段存在 TR1、TR2/TR3、TR4/TR4A/TR5、TR6 等技术评审点，技术、安全、配置和验证工作在这些阶段中被逐步检查。[S1]
-
-本项目的首版 Gate 不应被描述成完整 DCP。更准确的理解是：
-
-- **执行节点**：负责形成某项明确交付；
-- **Review/Gate**：依据启动前固定的标准，对确定版本交付及证据做独立质量判断；
-- **Runtime**：根据评审结果放行、阻塞或触发正常返工；
-- **不会自动承担**：公司级投资批准、预算承诺、产品组合管理或企业发布授权。
-
-这种区分很重要，因为它防止工作流设计者看到“IPD 有 DCP”后，机械地为任何任务增加管理审批层。
-
-## 5. 需求和追溯不是前置文档，而是贯穿流程的主线
-
-华为公开资料把 Requirement Management 视为 IPD 的核心流程之一，并提供系统设备类、独立软件类等不同场景化需求模型。独立软件类需求生命周期允许需求在交付、验收不满足时返回规划或实现阶段，说明需求、实现、交付和验收之间是可追溯的闭环，而不是一次性前置确认。[S6][S7]
-
-对本项目而言，需求追溯至少意味着：
+Huawei's public Market Management → IPD framing also distinguishes:
 
 ```text
-用户明确要求 / ProcessSpec 强制项
+Do the right things
         ↓
-谁负责落实
-        ↓
-形成哪个输出
-        ↓
-依据什么标准和证据判断
-        ↓
-由哪个必要 Review 检查
+Do things right
 ```
 
-`requirement_coverage` 的意义就在这里。它不是让 ID 全部出现，而是证明每项要求在真实工作流中有责任、有成果、有验证。
+Market/business management determines what should be done.
 
-## 6. ProcessSpec 在本项目中到底是什么
+IPD structures how the chosen product or offering is developed and delivered correctly. [S1]
 
-结合以上公开资料和本项目架构，可以给出一个较稳健的定义：
+Therefore, IPD cannot be understood merely as:
 
-> **ProcessSpec 是面向一类任务的流程治理规范。它描述该类任务通常必须承担哪些活动与专业责任、形成哪些关键交付和证据、经过哪些评审与交接，以及哪些组织/质量规则必须始终成立。它定义的是合法工作流的边界，而不是当前任务的具体执行图。**
+```text
+Concept → Plan → Develop → Qualify → Launch → Lifecycle
+```
 
-ProcessSpec 至少有四类信息：
+It also addresses questions such as:
 
-| 规范内容 | 它解决的问题 | 工作流设计者需要做什么 |
+- Does the work actually serve customer, market, and business objectives?
+- Which professional responsibilities must participate early rather than arrive only at the end?
+- What deliverables must become reliable inputs for later work?
+- Who produces, and who independently decides whether the result is good enough to continue?
+- How are requirements traced through design, implementation, verification, and delivery?
+- When information is insufficient, risk remains open, or quality fails, should the work continue, add evidence, rework, redirect, or stop?
+
+The process exists not to add ceremony, but to make critical responsibility, deliverables, and decision points explicit early enough to reduce late discovery and expensive rework in complex cross-functional work.
+
+## 2. Core Structures Visible in Public Huawei / IPD Material
+
+### 2.1 End-to-End Phases Are a High-Level Skeleton, Not a Step-by-Step Script
+
+Huawei's public whitepaper presents a high-level IPD sequence:
+
+```text
+Concept → Plan → Develop → Qualify → Launch → Lifecycle
+```
+
+It also embeds specialized requirements such as security and configuration management across the phases rather than treating every specialty as an isolated parallel process. [S1]
+
+Important implication:
+
+> **A phase expresses maturity and responsibility boundaries; it does not require a one-phase-one-node implementation.**
+
+One current task may contain several parallel professional work packages within what the source framework would call one phase.
+
+Several closely aligned general activities may also be realized by one concrete task work package, as long as required responsibility, deliverables, and reviews remain intact.
+
+### 2.2 IPD Is Cross-Functional Collaboration, Not Serial Handoffs Between Departments
+
+Huawei case-study literature describes cross-functional matrix collaboration covering functions such as development, testing, R&D, marketing, technical service, finance, supply, procurement, and quality.
+
+It distinguishes portfolio/investment governance from project execution and describes concurrent engineering in which manufacturing, procurement, market preparation, and product testing may overlap rather than run strictly serially. [S2]
+
+IBM public IPD training likewise describes participation from all relevant functional areas as a cornerstone and distinguishes:
+
+- IPMT — cross-functional management/governance;
+- PDT — cross-functional project execution.
+
+Typical PDT functions include project management, product marketing, finance, development, quality, testing, procurement, sales, and others. [S3]
+
+The transferable lesson is not to copy exact job titles.
+
+It is:
+
+> **A process specification can require not only work to be performed, but also professional responsibilities to participate and certain responsibilities not to self-approve.**
+
+### 2.3 Concurrent Engineering Is Important, but Requires Explicit Interfaces
+
+"Integrated" does not mean everyone stays in one discussion.
+
+It means professional responsibilities that should be involved early are involved early, while collaboration occurs through explicit inputs, deliverables, and review interfaces.
+
+Huawei public material shows specialized security design, secure development, security testing, configuration management, traceability, and separation of responsibility embedded across multiple phases. [S1]
+
+For this project:
+
+- work that is truly independent should be allowed to run concurrently;
+- work that requires unfinished results must wait;
+- several results that together support one downstream task should converge at explicit controlled boundaries.
+
+Parallelism exists to reduce unnecessary waiting while preserving responsibility and version traceability.
+
+### 2.4 High-Level IPD Definitions Emphasize Governance, Roles, and Deliverables More Than Low-Level Actions
+
+IBM Research observed that high-level enterprise IPD definitions rely heavily on natural-language documentation, diagrams, and clearly defined deliverables, with emphasis on:
+
+- process principles;
+- business objectives;
+- governance;
+- high-level structure;
+- participating roles;
+
+and relatively less emphasis on enumerating every low-level process action. [S4]
+
+This supports the project's ProcessSpec / Workflow separation.
+
+A ProcessSpec should define:
+
+- required responsibilities;
+- key controlled deliverables;
+- role/capability expectations;
+- reviews and handoff rules.
+
+A Workflow answers:
+
+- how this particular task is split into work packages;
+- who performs each package;
+- what can run in parallel;
+- how concrete inputs and outputs are bound.
+
+Skill procedures, tool calls, and one model's internal operation are lower-level execution methods and normally should not become fixed ProcessSpec nodes.
+
+A good ProcessSpec constrains a **family of valid Workflows**, not one unique Workflow.
+
+## 3. Organizational Responsibility: What IPMT/PDT Teaches Us and What We Do Not Copy
+
+### 3.1 PDT: Cross-Functional Execution Responsibility
+
+IBM IPD material describes PDT as a cross-functional team responsible for planning and executing a specific offering.
+
+The PDT leader is responsible for:
+
+- delivery;
+- cross-functional team management;
+- project planning;
+- risk;
+- decision-review preparation.
+
+Functional representatives remain responsible for their own functional activities and deliverables. [S3]
+
+Transferable implications:
+
+- a long task should not rely on one universal Agent to research, design, implement, verify, and approve itself;
+- distinct professional judgment should create distinct accountable work packages where needed;
+- every package needs a clear responsible employee, inputs, outputs, and acceptance basis;
+- cross-functional collaboration is represented through several meaningful nodes rather than several identities in one prompt.
+
+### 3.2 IPMT / IRB: Governance and Investment Decision Responsibility
+
+IBM material places IPMT / IRB in cross-functional management and investment/portfolio governance.
+
+Decision Checkpoints can result in decisions such as:
+
+```text
+Go / No-Go / Redirect
+```
+
+and may be tied to committing resources for the next phase. [S3]
+
+Huawei public executive material also describes IPD as both an R&D process and management system and mentions specialized governance around R&D investment. [S5]
+
+**This project's first version does not replicate that complete investment-governance layer.**
+
+The current review/Gate abstraction primarily judges whether an exact artifact version satisfies frozen quality criteria.
+
+It is closer to technical/quality release control than to an enterprise DCP.
+
+Do not expand a Reviewer into authority over:
+
+- portfolio investment;
+- budgets;
+- project cancellation;
+- organizational resource allocation
+
+merely because the system is inspired by IPD.
+
+If true portfolio management or resource reallocation is added later, it should be modeled explicitly.
+
+## 4. DCP, TR, and the Project Gate Are Different Things
+
+IBM DCP is a structured project decision checkpoint with explicit entrance/exit criteria and may support decisions such as Go, No-Go, or Redirect tied to continued resource commitment. [S3]
+
+Huawei public material also shows technical review points such as TR1, TR2/TR3, TR4/TR4A/TR5, and TR6 distributed through the IPD phases. [S1]
+
+The current project's Gate should not be described as full DCP.
+
+A better mapping is:
+
+- **Execution node** — produces a defined deliverable;
+- **Review/Gate** — independently judges an exact version of that deliverable against frozen criteria;
+- **Runtime** — records approval, blocks, or initiates normal rework;
+- **not automatically included** — enterprise investment approval, portfolio control, budget commitment, or corporate release authority.
+
+This distinction prevents Workflow Designers from mechanically adding executive approval layers to ordinary tasks merely because IPD contains DCP concepts.
+
+## 5. Requirements and Traceability Are a Cross-Process Backbone
+
+Huawei public material treats Requirement Management as a core IPD process and exposes different structured requirement models for system-device and independent-software scenarios.
+
+The independent-software requirement lifecycle can return from delivery/acceptance back to earlier planning or implementation when requirements are not satisfied, illustrating an end-to-end traceability loop rather than one-time upfront confirmation. [S6][S7]
+
+For this project, traceability means at minimum:
+
+```text
+Explicit user requirement / mandatory ProcessSpec item
+        ↓
+Responsible node
+        ↓
+Actual output
+        ↓
+Acceptance criterion and evidence
+        ↓
+Required Review where applicable
+```
+
+This is the purpose of `requirement_coverage`.
+
+It is not an ID-completeness checklist.
+
+It must prove that requirements have real responsibility, artifacts, and verification.
+
+## 6. What ProcessSpec Means in This Project
+
+Based on the public methodology and the project architecture:
+
+> **A ProcessSpec is a process governance specification for a class of tasks. It states which activities and professional responsibilities must be present, which controlled deliverables and evidence must be produced, which reviews and handoffs are required, and which organizational or quality rules must remain true. It defines the boundary of valid Workflows, not the concrete execution graph for the current task.**
+
+A ProcessSpec contains four major categories:
+
+| ProcessSpec element | Problem it solves | Workflow Designer responsibility |
 |---|---|---|
-| Required Activity | 哪些责任不能漏 | 解释成当前任务中的真实工作包，可合理合并/拆分，但责任不能消失 |
-| Required Deliverable | 哪些成果必须形成 | 决定当前任务中具体是什么文件/数据/方案/实现/证据 |
-| Required Review | 哪些成果必须由什么专业独立把关 | 配置真实 review、固定标准、证据和受控下游 |
-| Workflow Rule | 哪些跨节点组织原则必须成立 | 落实为职责分离、输入/版本关系、完成条件或可检查规则 |
+| Required Activity | Which responsibilities must not be lost | Instantiate as real work in this task; merge/split where reasonable, but do not remove responsibility |
+| Required Deliverable | Which controlled artifacts must exist | Define the concrete file/data/design/implementation/evidence for this task |
+| Required Review | Which artifacts require independent professional judgment | Configure real review, frozen criteria, evidence, and controlled downstream use |
+| Workflow Rule | Which cross-node organizational principles must hold | Realize through responsibility separation, version/input binding, criteria, completion conditions, or other checkable structure |
 
-ProcessSpec **不是**：
+A ProcessSpec is **not**:
 
-- 一份可以直接执行的 DAG；
-- 一个固定节点数量的模板；
-- 一套必须照搬的阶段名称；
-- 一份给执行 Agent 阅读的操作手册；
-- 一组最后挂在 coverage 里就算完成的 ID。
+- an executable DAG;
+- a fixed node-count template;
+- a list of phase names that must appear literally;
+- an execution manual for business Agents;
+- a set of IDs that can be attached to coverage at the end.
 
-## 7. 工作流设计者应怎样使用 ProcessSpec
+## 7. How the Workflow Designer Should Use ProcessSpec
 
-### 7.1 第一步：读懂规范的“治理意图”
+### 7.1 First: Understand the Governance Intent
 
-不要先数 activity 数量，而要回答：
+Do not start by counting activities.
 
-- 这份规范试图防止什么典型失败？
-- 哪些专业必须提前介入？
-- 哪些交付必须成为后续工作的可靠基线？
-- 哪些成果不能由生产者自证？
-- 哪些整体属性只有多个成果汇聚后才能判断？
+Ask:
 
-例如，一份内容交付规范要求“需求基线—内容开发—独立核验—正式交付”，它的核心不是四个阶段名称，而是避免直接制作导致需求遗漏、事实错误和成品未验收。
+- What typical failure is this ProcessSpec trying to prevent?
+- Which professional responsibilities must participate early?
+- Which artifacts must become reliable baselines for downstream work?
+- Which results cannot be self-approved by the producer?
+- Which integrated properties can be judged only after multiple outputs converge?
 
-### 7.2 第二步：用当前 TaskInput 具体化规范
+Example:
 
-同一个 Required Activity 在不同任务中会变成不同工作：
+A content-delivery ProcessSpec may require:
 
-- “需求分析”在软件任务中可能是需求/接口基线；
-- 在报告任务中可能是受众、材料、内容边界和交付要求基线；
-- 在数据分析任务中可能是问题定义、数据口径和指标基线。
+```text
+requirements baseline → content development → independent validation → formal delivery
+```
 
-设计者应保持活动的**责任语义**，而不是保持原名称。
+Its point is not the phase names.
 
-### 7.3 第三步：只拆出有独立价值的工作包
+Its point is to avoid:
 
-出现以下任一情况时，拆节点通常有合理价值：
+- requirement loss from jumping directly into production;
+- factual errors;
+- unreviewed final artifacts.
 
-- 需要不同专业能力或权限；
-- 能够真实并行；
-- 会形成独立下游使用或独立评审的成果；
-- 希望失败时只局部返工；
-- 规范明确要求职责分离。
+### 7.2 Second: Instantiate the ProcessSpec for the Current Task
 
-否则优先合并。IPD 的目标是控制复杂性，而不是制造流程税。
+The same required activity becomes different concrete work in different tasks.
 
-### 7.4 第四步：把交付和评审设计成真实质量闭环
+"Requirements analysis" may become:
 
-先定义产物和验收标准，再选 Reviewer。标准应能回答：检查什么、什么算满足、凭什么判断。评审打回是正常返工，不是异常；返工回原责任节点，不需要建立新的“修复角色”。
+- requirement/interface baseline for software;
+- audience/material/delivery baseline for a report;
+- problem/data/metric baseline for data analysis.
 
-### 7.5 第五步：最后才优化依赖和并行
+Preserve the **responsibility semantics**, not the source label.
 
-只根据真实数据/产物依赖建立前向关系：有依赖就等待，没有依赖就允许并行；需要多个受控成果才能继续的地方显式汇聚。不要为了显示“多智能体”而并行，也不要因为规范写成阶段顺序就强行把所有专业串行化。
+### 7.3 Third: Split Only Work Packages with Independent Value
 
-## 8. 流程选择者未来应怎样理解 ProcessSpec
+A separate node is usually justified when at least one condition holds:
 
-流程选择发生在工作流设计之前。ST 的问题不是“哪份规范的节点最像这次任务”，而是：
+- different professional capability or permission is needed;
+- true parallelism exists;
+- the output has independent downstream use or independent review value;
+- local failure/rework isolation is useful;
+- the ProcessSpec requires responsibility separation.
 
-> **哪份规范对这类任务的组织责任、交付风险和质量控制最合适？**
+Otherwise, merge.
 
-华为云公开 CodeArts Req 已经体现“按场景选择不同 IPD 模型”的思想：系统设备类和独立软件类在软硬件耦合、需求稳定性、迭代频率、开发周期、质量/稳定性要求等方面不同，因此使用不同的结构化模型；官方文档明确建议根据企业规模、业务需求和应用场景选择适合的模板。[S6]
+IPD is intended to control complexity, not create process tax.
 
-未来流程选择 Skill 可重点比较以下维度：
+### 7.4 Fourth: Make Deliverables and Reviews a Real Quality Loop
 
-| 选择维度 | 典型问题 |
+Define the artifact and acceptance criteria first, then select the Reviewer.
+
+A criterion must answer:
+
+- what is checked;
+- what counts as satisfied;
+- what evidence supports the judgment.
+
+Review rejection is normal rework.
+
+It returns to the responsible execution node.
+
+Do not create a separate "fix role" for every rework case.
+
+### 7.5 Fifth: Optimize Dependencies and Parallelism Last
+
+Forward relationships come from real data/artifact dependencies.
+
+- if there is a dependency, wait;
+- if there is no dependency, allow concurrency;
+- if several approved results are needed, converge explicitly.
+
+Do not create parallelism merely to demonstrate multi-Agent behavior.
+
+Do not serialize every professional responsibility merely because the source methodology uses high-level phases.
+
+## 8. How the Process Selector Should Understand ProcessSpec
+
+Process selection happens before Workflow design.
+
+ST should not ask:
+
+> Which ProcessSpec has nodes that look most like this task?
+
+It should ask:
+
+> Which ProcessSpec provides the most appropriate governance responsibilities, deliverables, and quality controls for this class of task?
+
+Huawei Cloud CodeArts Req publicly illustrates scenario-specific IPD models, such as system-device and independent-software models with different characteristics around:
+
+- software/hardware coupling;
+- requirement stability;
+- iteration frequency;
+- development cycle;
+- quality/stability needs.
+
+The documentation recommends choosing an appropriate model based on enterprise scale, business needs, and application scenario. [S6]
+
+Useful process-selection dimensions include:
+
+| Dimension | Typical Question |
 |---|---|
-| 任务性质 | 是内容交付、软件实现、产品验证、研究探索，还是其他类型？ |
-| 最终交付 | 是否有明确文件/系统/分析结果，是否需要独立质量准出？ |
-| 专业跨度 | 是否需要研究、设计、实现、测试、制造等多个专业协同？ |
-| 对象复杂性 | 纯软件、软硬件一体、物理产品、数据/内容等？ |
-| 需求稳定性 | 输入基本冻结，还是可能在执行中频繁变化？ |
-| 验证成本与风险 | 出错是否容易发现/修复，是否涉及安全、合规、物理验证等高成本风险？ |
-| 交付节奏 | 一次性交付、快速迭代、长周期阶段性成熟？ |
-| 规范强制条件 | `applicable_when / not_applicable_when` 是否真正满足？ |
+| task nature | Is this content delivery, software implementation, product verification, research exploration, or another class? |
+| final deliverable | Is there a concrete file/system/analysis result? Does it require independent quality approval? |
+| professional breadth | Does the task require several distinct professional responsibilities? |
+| object complexity | Is the object software, software+hardware, a physical product, data, content, etc.? |
+| requirement stability | Are objectives and key inputs mostly stable or likely to change significantly? |
+| verification cost/risk | Are errors easy to detect and fix, or do they involve high-cost safety/compliance/physical validation? |
+| delivery cadence | One-time delivery, rapid iteration, or long staged maturity? |
+| mandatory conditions | Do `applicable_when` and `not_applicable_when` actually match? |
 
-当前首版 ST **只能选择已有完整 ProcessSpec，不裁剪、组合或修改**。因此，如果专业规范的强制活动明显不适合当前任务，就不应该“先选中再让设计师删掉”；应选择另一份更适合的规范，或者如实报告没有适用规范。
+The current first version allows ST only to select one existing complete ProcessSpec.
 
-默认最小通用规范只应作为真正符合其适用条件的兜底流程，而不是“搜索不到更像的流程就一定选默认”。
+ST does **not** trim, combine, or modify it.
 
-## 9. 十个常见误解
+Therefore, if a professional ProcessSpec contains mandatory work clearly unsuitable for the task, ST should not select it and expect the Workflow Designer to delete those obligations later.
 
-1. **“IPD 就是六阶段瀑布。”** 错。阶段是高层结构；IPD同时强调跨职能协作和并行工程。
-2. **“ProcessSpec 有 8 个 activity，就必须有 8 个 execution 节点。”** 错。活动是责任要求，不是节点数量要求。
-3. **“规范里的阶段名称必须原样出现在 Workflow。”** 错。要保留责任语义，不是名称。
-4. **“所有工作都应该并行以体现 Multi-Agent。”** 错。并行由真实依赖决定。
-5. **“每个中间成果都加 Review 才最符合 IPD。”** 错。只保留规范要求或真正能降低质量风险的独立评审。
-6. **“Review 通过就相当于 DCP。”** 错。当前 Gate 是质量准出，不具备完整商业投资决策权。
-7. **“员工很强，所以一个 Agent 可以把生产和验收都做掉。”** 通常不应如此；若规范要求独立性必须职责分离。
-8. **“coverage ID 齐全就说明符合规范。”** 错。必须有真实责任、产物和标准映射。
-9. **“ProcessSpec 是工作流模板，可以照搬。”** 错。它约束一族工作流，任务决定具体实例。
-10. **“为了不漏流程，节点越多越安全。”** 错。无价值节点增加交接、上下文和返工成本，也会制造新的失败点。
+Choose another ProcessSpec or report that no suitable one exists.
 
-## 10. 对本项目最重要的一句话
+A minimal default ProcessSpec should be selected only when it actually satisfies its own applicability conditions, not simply because no better search result appeared.
 
-> **IPD 给出的是“怎样组织一类复杂工作才更稳健”的通解；工作流设计者的任务，是在不丢失这种通解中的责任、交付和质量控制的前提下，把它翻译成当前用户任务最小充分、高效、可执行、可验证的具体工作流。**
+## 9. Ten Common Misunderstandings
 
-流程选择者负责先选对“通解”，工作流设计者负责把“通解”实例化。两者都不能把 ProcessSpec 当成一张直接执行的固定图，也不能把它降格成可有可无的参考文字。
+1. **"IPD is just a six-stage waterfall."**  
+   Wrong. The stages are high-level structure; IPD also emphasizes cross-functional collaboration and concurrent engineering.
+
+2. **"If a ProcessSpec has eight activities, the Workflow must have eight execution nodes."**  
+   Wrong. Activities are responsibility requirements, not node-count requirements.
+
+3. **"ProcessSpec phase names must appear literally in the Workflow."**  
+   Wrong. Preserve responsibility semantics, not labels.
+
+4. **"All work should be parallel to demonstrate Multi-Agent."**  
+   Wrong. Parallelism follows real independence.
+
+5. **"Adding a Review to every intermediate artifact is more IPD-compliant."**  
+   Wrong. Preserve required reviews and independent checks that genuinely reduce quality risk.
+
+6. **"A Review PASS is equivalent to a DCP."**  
+   Wrong. The current Gate is quality release, not full investment governance.
+
+7. **"A strong employee can produce and approve everything itself."**  
+   Usually wrong. When independence is required, production and review must be separated.
+
+8. **"Complete coverage IDs prove ProcessSpec compliance."**  
+   Wrong. Real responsibility, deliverables, criteria, and review mappings must exist.
+
+9. **"A ProcessSpec is an executable Workflow template."**  
+   Wrong. It constrains a family of Workflows.
+
+10. **"More nodes are safer."**  
+    Wrong. Valueless nodes add handoff, context, and rework cost and create more failure points.
+
+## 10. The Most Important Sentence for This Project
+
+> **IPD provides a general governance solution for organizing a class of complex work reliably. The Workflow Designer's job is to translate that general solution into the smallest sufficient, efficient, executable, and verifiable Workflow for the current user task without losing the responsibilities, deliverables, and quality controls that make the general solution valuable.**
+
+The Process Selector chooses the right general solution.
+
+The Workflow Designer instantiates it.
+
+Neither role should treat the ProcessSpec as a fixed executable graph, and neither should reduce it to optional background text.
 
 ---
 
-## 资料来源与可信边界
+## Sources and Confidence Boundaries
 
-**S1｜华为官方白皮书**：Huawei, *Cyber Security Perspectives: Making cyber security a part of a company's DNA* (2013), Section 7.5 / Figures 4–6. 支持：华为 1999 年引入 IPD；来源于 PACE、IBM 建议和华为实践；MM→IPD、高层阶段、TR、专业要求嵌入各阶段、追溯和职责分离。  
+**S1 | Huawei official whitepaper**  
+Huawei, *Cyber Security Perspectives: Making cyber security a part of a company's DNA* (2013), Section 7.5 / Figures 4–6.  
+Supports: Huawei introduced IPD around 1999; influence from PACE, IBM recommendations, and Huawei practice; MM→IPD framing; high-level phases; TR points; specialized requirements embedded across phases; traceability and separation of responsibility.  
 https://www-file.huawei.com/-/media/corporate/pdf/cyber-security/hw-cyber-security-wp-2013-en.pdf
 
-**S2｜同行评审案例研究**：*New product development paradigm from the perspective of consumer innovation: A case study of Huawei's integrated product development*, Journal of Innovation & Knowledge, 2024. 支持：华为跨部门矩阵协作、IPMT/IRB/PDT 责任、端到端协作和并行工程。  
+**S2 | Peer-reviewed Huawei case study**  
+*New product development paradigm from the perspective of consumer innovation: A case study of Huawei's integrated product development*, Journal of Innovation & Knowledge, 2024.  
+Supports: cross-department matrix collaboration, IPMT/IRB/PDT responsibilities, end-to-end collaboration, concurrent engineering.  
 https://doi.org/10.1016/j.jik.2024.100482
 
-**S3｜IBM Corporate IPD 公开培训材料**：*IBM Integrated Product Development (IPD)*, 2010/2011. 支持：结构化端到端过程、项目/品牌可定制、跨职能 IPMT/PDT、DCP 的 Go/No-Go/Redirect、活动/输入/交付/角色的组织方式。华为公开资料明确其 IPD 受到 IBM 咨询影响，因此该资料用于解释 IPD 源流和组织逻辑，不冒充华为内部现行模板。  
+**S3 | IBM Corporate IPD public training material**  
+*IBM Integrated Product Development (IPD)*, 2010/2011.  
+Supports: structured end-to-end process, project/brand tailoring, cross-functional IPMT/PDT, DCP Go/No-Go/Redirect decisions, activities/inputs/deliverables/roles. Huawei public material acknowledges IBM consulting influence; this source is used to explain IPD lineage and organizational logic, not as a Huawei internal template.  
 https://pmicv.org/static/uploaded/Files/Documents/2011%20Presentations/IBM_Corporate_IPD_Process_PMI-CV_Sept_14_2011.pdf
 
-**S4｜IBM Research**：Stanley M. Sutton Jr., *Concepts in the definition of an enterprise development process*, ICSSP 2011. 支持：顶层 IPD 重原则、业务目标、治理、高层结构、角色和交付，相对不强调底层活动结构。  
+**S4 | IBM Research**  
+Stanley M. Sutton Jr., *Concepts in the definition of an enterprise development process*, ICSSP 2011.  
+Supports: high-level IPD definitions emphasize principles, business objectives, governance, high-level structure, roles, and deliverables more than low-level action structure.  
 https://research.ibm.com/publications/concepts-in-the-definition-of-an-enterprise-development-process
 
-**S5｜华为官方高管访谈**：Eric Xu, Huawei UK media roundtable / Voices of Huawei. 支持：华为把 IPD 同时视为研发过程和管理系统，存在专门研发投资治理。年份表述与 2013 白皮书存在“1998 建立/1999 引入”的口径差异，本文统一只表述为 1998–1999 年间在 IBM 咨询帮助下引入/建立，不据此推导其他流程细节。  
+**S5 | Huawei official executive interview**  
+Eric Xu, Huawei UK media roundtable / *Voices of Huawei*.  
+Supports: Huawei treats IPD as both an R&D process and a management system and uses specialized governance for R&D investment. Public sources differ slightly between "established in 1998" and "introduced in 1999"; this reference treats the introduction/establishment period as 1998–1999 and does not infer additional process detail from that discrepancy.  
 https://www-file.huawei.com/-/media/corp/facts/pdf/on_the_record_huawei_executives_speak_to_the_public_volume_i_en.pdf
 
-**S6｜华为云官方 CodeArts Req**：*内置多种 IPD 需求模型*。支持：基于企业规模、业务需求、应用场景选择不同模板；系统设备类与独立软件类具有不同适用场景和研发特征。  
-https://support.huaweicloud.com/intl/zh-cn/productdesc-projectman/projectman_07_3001.html
+**S6 | Huawei Cloud CodeArts Req official documentation**  
+Built-in IPD requirement models.  
+Supports: choosing models based on enterprise scale, business needs, and application scenarios; system-device and independent-software models have different applicable characteristics.  
+https://support.huaweicloud.com/intl/en-us/productdesc-projectman/projectman_07_3001.html
 
-**S7｜华为云官方 CodeArts Req**：*IPD独立软件类原始需求流程介绍* 与 *研发需求流程介绍*。支持：需求从分析、规划、实现、交付到验收的闭环以及不满足时返工到前序阶段。  
-https://support.huaweicloud.com/intl/zh-cn/usermanual-projectman/codeartsreq_01_6106.html  
-https://support.huaweicloud.com/intl/zh-cn/usermanual-projectman/codeartsreq_01_8115_01.html
+**S7 | Huawei Cloud CodeArts Req official documentation**  
+Independent-software original requirement flow and R&D requirement flow.  
+Supports: requirement lifecycle from analysis/planning/implementation through delivery/acceptance and returning to earlier stages when acceptance is not satisfied.  
+https://support.huaweicloud.com/intl/en-us/usermanual-projectman/codeartsreq_01_6106.html  
+https://support.huaweicloud.com/intl/en-us/usermanual-projectman/codeartsreq_01_8115_01.html
 
-### 使用边界
+### Usage Boundary
 
-公开资料只能支撑 IPD 的总体原则、部分组织/阶段/评审及具体公开子流程。本文**不是华为内部几百份 IPD 流程规范的替代品，也不是华为正式培训教材**。以后拿到一手 ProcessSpec 时，应以一手规范中的适用条件、角色、活动、交付、评审和规则覆盖本参考中的概括；本参考保留作为选择/设计的共同方法论背景。
+Public sources support the general methodology and selected public organizational/phase/review structures.
+
+This document is **not** a substitute for Huawei's internal ProcessSpecs and is not an official Huawei training manual.
+
+When first-party internal ProcessSpecs become available, their applicability conditions, roles, activities, deliverables, reviews, and rules should override the generic summaries here.
+
+This reference remains useful as a shared methodological background for process selection and workflow design.

@@ -1,20 +1,20 @@
-# 项目预置衍生规范；非华为官方内部模板，非运行时裁剪。
-# 完整角色/阶段/交接指导保留在 description 中，兼容当前严格 ProcessSpec v2。
+# Project-published derived specification; not an official Huawei internal template and not Runtime trimming.
+# Full role/phase/handoff guidance remains in description while staying compatible with strict ProcessSpec v2.
 schema_version: 2
 process_spec_id: huawei-ptm-derived-api-release-assessment
 version: 2.0.0
-name: IPD-PTM 衍生规范：API 软件版本测试与发布准备评价
+name: 'IPD-PTM Derived Specification: API Software Release Testing and Release-Readiness Assessment'
 description: |-
-  来源：公开 IPD-PTM 的测试需求、策略、计划、特性设计、自动化、执行、缺陷分析和评价。该文件是项目明确发布的软件子型，不是华为官方原名模板，也不是 ST 对全范围规范的临场裁剪。
-  任务边界：评估一个确定 API 软件版本的质量和发布准备；包含功能/集成、性能/软件稳定和应用安全三条验证线。最终交付测试与评价材料，不默认改产品、真实上线或要求所有测试变绿。NOT_READY 可能是正确而完整的交付。
-  组织：测试专业由 API Tester、Performance Benchmarker、Application Security Engineer 和 Test Results Analyzer 分工；Project Shepherd 管测试计划与过程交接，不接管 Runtime；Software Architect、Code Reviewer、Security Architect、Product Manager 等按具体审查专长复核。原测试经理的组织责任被分解为专业整合及规划节点，非新增“万能测试经理”。这些是候选映射，设计师仍需按实际可用资产确定员工。
-  首版约束：每个作业节点单员工/持续 Session；独立 reviewer 不等于另一回合自检；受控输入只取确定提交和指定 Gate 批准；返工回原 Session，单 Run 不改变标准。业务估计不是计算预算；不加 HITL、自动裁剪或资产自演进。
-  图设计指导：S01→S02；S03 与 S04 可在总体策略准出后推进；S05/S06 后 S07 检查执行准备；S08/S09/S10 使用有效准备/方案并行；三条结果全部汇聚 S11→S12→S13→S14。该顺序是规范语义，由设计师填写真实 input/approval 关系，不假装当前 Compiler 会解析自然语言自动建边。
-  证据语义：实现/计划产物的准出证明可使用；执行报告的准出证明结果记录完整可信；产品是否满足质量线由 S13 专业意见陈述。缺证据时允许形成证据不足的合格报告，但不能用它绕过本任务明确要求必须实际执行的工作；环境根本不可用而三条验证未开展则 Run 应阻塞。
-  完整交付：所有必需活动和评审覆盖；S08—S10 有真实执行证据；S11—S14 完成；最终清单至少包括产品质量报告、发布准备评价、过程回顾和各专业证据索引。设计师在 Workflow completion 中表达必需节点和指定批准，不能只等待最后一份文件。
-  范围排除：不包含物理样机/制造 SVT/材料可靠性；软件长稳测试不冒充这些原概念。也不提供修复至可上线的保证；需要修改产品的任务应使用另行设计并发布的产品改进规范。
+  Source basis: public IPD-PTM practices for test requirements, strategy, planning, feature design, automation, execution, defect analysis, and evaluation. This file is an explicitly published software subtype created by the project. It is neither an official Huawei template under this name nor an ad-hoc Runtime trimming of the full-scope specification by ST.
+  Task boundary: evaluate the quality and release readiness of one exact API software version through three required verification lines: functional/integration, performance/software stability, and application security. The final delivery is testing and assessment evidence. The process does not implicitly modify the product, perform real production release, or require every test to be green. A NOT_READY conclusion may be a correct and complete delivery.
+  Organization: testing responsibilities are divided among API Tester, Performance Benchmarker, Application Security Engineer, and Test Results Analyzer. Project Shepherd manages testing plans and process handoffs without taking over Runtime. Software Architect, Code Reviewer, Security Architect, Product Manager, and others review according to specific expertise. The organizational responsibilities of the original Test Manager are decomposed into professional integration and planning work instead of introducing a universal test-manager Agent. These are candidate mappings only; the Workflow Designer must bind employees from actually available assets.
+  First-version constraints: one employee and one persistent Session per work node; an independent reviewer is not another self-check pass; controlled inputs use exact Submissions and the required Gate approvals; rework returns to the original Session; standards do not change within a Run. Business estimates are not compute budgets. HITL, automatic ProcessSpec trimming, and asset self-evolution are out of scope.
+  Graph-design guidance: S01→S02; S03 and S04 may proceed after the overall strategy is approved; S05/S06 lead to S07 execution-readiness checking; S08/S09/S10 run in parallel using valid preparation/strategy inputs; all three result lines converge through S11→S12→S13→S14. This sequence expresses process semantics. The Workflow Designer must create the real input/approval bindings; the current Compiler is not assumed to parse this natural-language text into edges automatically.
+  Evidence semantics: approval of implementation/planning artifacts proves those plans/artifacts are usable; approval of execution reports proves the result records are complete and trustworthy. Whether the product meets the quality bar is stated by the professional opinion in S13. A report may legitimately state that evidence is insufficient, but it cannot use that fact to bypass work that this task explicitly requires to be executed. If the environment is fundamentally unavailable and all three required verification lines cannot be performed, the Run should block.
+  Complete delivery: cover all mandatory activities and reviews; S08-S10 contain real execution evidence; S11-S14 are completed; the final set includes at least the product-quality report, release-readiness assessment, process retrospective, and evidence indexes for each professional line. Workflow completion must explicitly require the necessary nodes and approvals rather than waiting only for the final file.
+  Scope exclusions: no physical prototype/manufacturing SVT or material reliability testing. Long-running software stability testing must not be presented as those original physical concepts. The process also does not guarantee repair until production release; tasks that require product modification should use a separately designed and published product-improvement ProcessSpec.
 source: |-
-  项目工程转译自华为云 CodeArts TestPlan 公开 IPD-PTM；H1—H5 URL：
+  Project engineering translation of Huawei Cloud CodeArts TestPlan public IPD-PTM material; H1-H5 URLs:
   H1 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1502.html
   H2 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1503.html
   H3 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1504.html
@@ -22,521 +22,673 @@ source: |-
   H5 https://support.huaweicloud.com/usermanual-testman/cloudtest_01_1506.html
 default_executable: true
 applicable_when:
-- 任务明确要求对确定 API 软件版本开展功能/集成、性能/软件稳定和安全验证并交付质量与发布准备评价。
-- 已有可解析需求和接口、被测版本、授权测试环境及数据；缺少执行前必要项时允许如实阻塞，不模拟完成。
-- 能够匹配相应测试、安全、分析与审查员工，并在节点绑定实际工具/Skill/数据权限。
+- The task explicitly requires functional/integration, performance/software-stability, and security verification of one 
+  exact API software version and delivery of quality and release-readiness assessments.
+- Parsable requirements and interfaces, the tested version, an authorized test environment, and data are available. If a
+  pre-execution prerequisite is missing, the process may truthfully block rather than simulate completion.
+- Matching testing, security, analysis, and review employees are available, and the nodes can bind the actual tools, 
+  Skills, data, and permissions required for execution.
 not_applicable_when:
-- 只要求生成一份报告、PPT 或其他展示材料而不需要实际软件测试。
-- 任务要求制造验证、物理可靠性、临床验证、法定认证或企业投资决策。
-- 任务只需单一测试线，或要求修复产品直至上线；不可在 Run 中删除三线或添加隐式开发循环。
-- 无法提供真实测试条件，打算用模拟结果替代实际验证。
+- The task only asks for a report, PPT, or other presentation artifact and does not require actual software testing.
+- The task requires manufacturing verification, physical reliability, clinical validation, statutory certification, or 
+  enterprise investment decisions.
+- The task needs only one verification line or requires product repair until release. The three mandatory verification 
+  lines must not be deleted or replaced by an implicit development loop within the Run.
+- Real test conditions cannot be provided and simulated results would be used as substitutes for actual verification.
 required_activities:
 - activity_id: S01
   description: |-
-    测试需求与追溯
-    来源关系：P01。工作细化与员工映射均为项目转译。
-    专业责任：需 test-design；候选 agency-testing-api-tester，不是强制唯一员工。
-    前置工作：用户原始任务、需求/接口材料、被测版本与待确认事实。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：核对 API 需求、接口规格、质量要求和待评估版本；把测试对象、正常/负向行为和风险转为验证点。保留来源，未知预期不能由测试者自行补造。
-    交付：D-S01；后续由指定独立评审准出，不由生产者自批。
+    Test requirements and traceability
+    Source mapping: P01. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `test-design`; candidate `agency-testing-api-tester`, not the mandatory or only employee.
+    Prerequisites: original user task, requirement/interface materials, tested version, and unresolved facts. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: verify API requirements, interface specifications, quality requirements, and the version under assessment; convert target behavior, normal/negative behavior, and risks into verification points. Preserve sources, and do not invent unknown expected behavior.
+    Deliverable: D-S01; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - test-design
 - activity_id: S02
   description: |-
-    总体测试策略
-    来源关系：P02。工作细化与员工映射均为项目转译。
-    专业责任：需 test-strategy；候选 agency-testing-api-tester，不是强制唯一员工。
-    前置工作：S01。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：设计功能/集成、性能/稳定和应用安全三条必需专业线；定义环境、数据、观测、风险优先级及证据汇聚。冻结需求中已有阈值；方法性选择明确标注，不冒充用户事实。
-    交付：D-S02；后续由指定独立评审准出，不由生产者自批。
+    Overall test strategy
+    Source mapping: P02. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `test-strategy`; candidate `agency-testing-api-tester`, not the mandatory or only employee.
+    Prerequisites: S01. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: design three mandatory professional lines—functional/integration, performance/stability, and application security. Define environment, data, observability, risk priority, and evidence convergence. Preserve thresholds already fixed in the requirements and label methodological choices explicitly instead of presenting them as user facts.
+    Deliverable: D-S02; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - test-strategy
 - activity_id: S03
   description: |-
-    测试计划与职责分工
-    来源关系：P03。工作细化与员工映射均为项目转译。
-    专业责任：需 project-planning；候选 agency-project-management-project-shepherd，不是强制唯一员工。
-    前置工作：S02。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：把策略变成可交付 WBS：明确方法准备、用例、调试、各执行分支、缺陷汇聚和评价责任。安排可并行部分，不给节点设置 Token/时间预算，不自行调度。
-    交付：D-S03；后续由指定独立评审准出，不由生产者自批。
+    Test planning and responsibility allocation
+    Source mapping: P03. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `project-planning`; candidate `agency-project-management-project-shepherd`, not the mandatory or only employee.
+    Prerequisites: S02. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: turn the strategy into a deliverable-oriented WBS covering method preparation, cases, debugging, each execution branch, defect convergence, and assessment responsibilities. Arrange work that can proceed in parallel. Do not assign Token/time budgets to nodes or directly schedule execution.
+    Deliverable: D-S03; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - project-planning
 - activity_id: S04
   description: |-
-    特性分析与方案
-    来源关系：P04/P05/P06；纯软件阶段表达为项目转译。工作细化与员工映射均为项目转译。
-    专业责任：需 test-design；候选 agency-testing-api-tester，不是强制唯一员工。
-    前置工作：S01, S02。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：按特性细化状态、边缘、错误、对象/租户授权、兼容和依赖故障；定义阶段验证集合。可借用原型/系统验证思路，但不把软件测试写成制造 SVT。
-    交付：D-S04；后续由指定独立评审准出，不由生产者自批。
+    Feature analysis and test solution
+    Source mapping: P04/P05/P06; the software-only phase expression is a project translation. Work refinement and employee mapping are also project translations.
+    Professional responsibility: requires `test-design`; candidate `agency-testing-api-tester`, not the mandatory or only employee.
+    Prerequisites: S01 and S02. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: refine feature states, boundaries, errors, object/tenant authorization, compatibility, and dependency failures, and define the phase verification set. Prototype/system-verification concepts may be borrowed where useful, but software testing must not be represented as manufacturing SVT.
+    Deliverable: D-S04; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - test-design
 - activity_id: S05
   description: |-
-    自动化方案与工具适配
-    来源关系：P07/P08。工作细化与员工映射均为项目转译。
-    专业责任：需 contract-testing；候选 agency-testing-api-tester，不是强制唯一员工。
-    前置工作：S04。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：评估可自动化部分及维护价值；优先使用已授权可用工具。必要适配仅围绕当前测试，验证参数、错误、输出与重跑，不新建无必要框架。
-    交付：D-S05；后续由指定独立评审准出，不由生产者自批。
+    Automation plan and tool adaptation
+    Source mapping: P07/P08. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `contract-testing`; candidate `agency-testing-api-tester`, not the mandatory or only employee.
+    Prerequisites: S04. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: assess automatable scope and maintenance value, prioritizing authorized existing tools. Necessary adaptation is limited to the current tests and must validate parameters, errors, outputs, and rerun behavior without creating unnecessary infrastructure.
+    Deliverable: D-S05; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - contract-testing
 - activity_id: S06
   description: |-
-    用例、脚本与测试数据
-    来源关系：P09/P10。工作细化与员工映射均为项目转译。
-    专业责任：需 api-testing；候选 agency-testing-api-tester，不是强制唯一员工。
-    前置工作：S04, S05。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：实现正常、负向、幂等/并发和契约用例，准备合成或授权数据、fixture 和清理。锁定脚本及数据，不修改产品让测试变绿。
-    交付：D-S06；后续由指定独立评审准出，不由生产者自批。
+    Cases, scripts, and test data
+    Source mapping: P09/P10. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `api-testing`; candidate `agency-testing-api-tester`, not the mandatory or only employee.
+    Prerequisites: S04 and S05. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: implement positive, negative, idempotency/concurrency, and contract cases; prepare synthetic or authorized data, fixtures, and cleanup. Lock script/data versions and do not modify the product merely to make tests pass.
+    Deliverable: D-S06; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - api-testing
 - activity_id: S07
   description: |-
-    调试与执行准备
-    来源关系：P11。工作细化与员工映射均为项目转译。
-    专业责任：需 api-testing；候选 agency-testing-api-tester，不是强制唯一员工。
-    前置工作：S03, S06。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：对可用版本验证工具、用例、身份、数据和结果采集链；覆盖至少一个能确认链路工作的正向和负向条件。产品错误、脚本错误、环境故障分开，不修改预期掩盖故障。
-    交付：D-S07；后续由指定独立评审准出，不由生产者自批。
+    Debugging and execution readiness
+    Source mapping: P11. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `api-testing`; candidate `agency-testing-api-tester`, not the mandatory or only employee.
+    Prerequisites: S03 and S06. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: verify the tools, cases, identity, data, and result-collection chain against an available version, including at least one positive and one negative condition that demonstrate the execution path works. Distinguish product errors, script errors, and environment faults; do not change expected behavior merely to hide a failure.
+    Deliverable: D-S07; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - api-testing
 - activity_id: S08
   description: |-
-    功能与集成验证
-    来源关系：P12 的 API 专业分解。工作细化与员工映射均为项目转译。
-    专业责任：需 api-testing；候选 agency-testing-api-tester，不是强制唯一员工。
-    前置工作：S07, S04。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：在确定版本和环境执行功能、错误、契约、权限和依赖行为用例；维护状态与缺陷。原始请求响应脱敏，报告实际运行和未运行范围。
-    交付：D-S08；后续由指定独立评审准出，不由生产者自批。
+    Functional and integration verification
+    Source mapping: API-specific decomposition of P12. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `api-testing`; candidate `agency-testing-api-tester`, not the mandatory or only employee.
+    Prerequisites: S07 and S04. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: execute functional, error, contract, authorization, and dependency-behavior cases on the exact version and environment; maintain status and defect records. Sanitize raw requests/responses and report both the executed and unexecuted scope.
+    Deliverable: D-S08; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - api-testing
 - activity_id: S09
   description: |-
-    性能与软件稳定性验证
-    来源关系：P12 的性能分解；不替代 P13 物理试验。工作细化与员工映射均为项目转译。
-    专业责任：需 performance-testing；候选 agency-testing-performance-benchmarker，不是强制唯一员工。
-    前置工作：S07, S02。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：按批准目标和负载测量吞吐、延迟分布、错误和资源；适用时执行突发、耐久和恢复。限定环境及停止条件，保留基线与原始结果。
-    交付：D-S09；后续由指定独立评审准出，不由生产者自批。
+    Performance and software-stability verification
+    Source mapping: performance decomposition of P12; this does not replace P13 physical reliability testing. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `performance-testing`; candidate `agency-testing-performance-benchmarker`, not the mandatory or only employee.
+    Prerequisites: S07 and S02. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: measure throughput, latency distributions, errors, and resources against approved targets and loads; when applicable, run burst, endurance, and recovery tests. Bound the environment and stop conditions and retain baseline and raw measurements.
+    Deliverable: D-S09; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - performance-testing
 - activity_id: S10
   description: |-
-    应用安全验证
-    来源关系：P12 的安全分解。工作细化与员工映射均为项目转译。
-    专业责任：需 security-testing；候选 agency-security-appsec-engineer，不是强制唯一员工。
-    前置工作：S07, S02。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：围绕明确授权的 API 和代码做对象/租户授权、认证、输入、秘密和依赖安全检查。保留静态风险与实证发现的区别，不执行未授权攻击。
-    交付：D-S10；后续由指定独立评审准出，不由生产者自批。
+    Application security verification
+    Source mapping: security decomposition of P12. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `security-testing`; candidate `agency-security-appsec-engineer`, not the mandatory or only employee.
+    Prerequisites: S07 and S02. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: within the explicitly authorized API/code scope, verify object/tenant authorization, authentication, input handling, secrets, and dependency security. Distinguish static risks from empirically observed findings and do not perform unauthorized attacks.
+    Deliverable: D-S10; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - security-testing
 - activity_id: S11
   description: |-
-    缺陷汇聚与影响分析
-    来源关系：P14。工作细化与员工映射均为项目转译。
-    专业责任：需 defect-analysis；候选 agency-testing-test-results-analyzer，不是强制唯一员工。
-    前置工作：S08, S09, S10。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：整合三条线的确定版本结果，去重缺陷而不丢失受影响用例；区分症状、根因证据、影响和修复建议。无修复节点时不得在本规范中擅自改产品。
-    交付：D-S11；后续由指定独立评审准出，不由生产者自批。
+    Defect convergence and impact analysis
+    Source mapping: P14. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `defect-analysis`; candidate `agency-testing-test-results-analyzer`, not the mandatory or only employee.
+    Prerequisites: S08, S09, and S10. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: integrate exact-version results from all three verification lines, deduplicate defects without losing affected cases, and distinguish symptoms, evidenced root causes, impact, and fix recommendations. If this ProcessSpec has no repair node, do not modify the product implicitly.
+    Deliverable: D-S11; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - defect-analysis
 - activity_id: S12
   description: |-
-    产品质量测试报告
-    来源关系：P15。工作细化与员工映射均为项目转译。
-    专业责任：需 test-results-analysis；候选 agency-testing-test-results-analyzer，不是强制唯一员工。
-    前置工作：S11。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：以冻结要求汇总产品当前质量，将每项要求连接到用例、证据与缺陷。清楚说明发布要求满足、不满足和无法判断部分，不把过程总结混为产品证明。
-    交付：D-S12；后续由指定独立评审准出，不由生产者自批。
+    Product quality test report
+    Source mapping: P15. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `test-results-analysis`; candidate `agency-testing-test-results-analyzer`, not the mandatory or only employee.
+    Prerequisites: S11. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: summarize current product quality against frozen requirements, linking each requirement to cases, evidence, and defects. Clearly distinguish release requirements that are satisfied, unsatisfied, or indeterminate; do not confuse process summary with proof of product quality.
+    Deliverable: D-S12; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - test-results-analysis
 - activity_id: S13
   description: |-
-    发布准备评价
-    来源关系：P16；输出格式为项目新增。工作细化与员工映射均为项目转译。
-    专业责任：需 release-assessment；候选 agency-testing-test-results-analyzer，不是强制唯一员工。
-    前置工作：S12。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：对产品是否满足本次规定的发布要求形成有条件意见：READY、NOT_READY 或 UNDETERMINED 是报告内容，不是 Runtime 枚举。只有资料足以支持时给 READY；已证缺陷或重要缺口明确反映。
-    交付：D-S13；后续由指定独立评审准出，不由生产者自批。
+    Release-readiness assessment
+    Source mapping: P16; the output format is a project addition. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `release-assessment`; candidate `agency-testing-test-results-analyzer`, not the mandatory or only employee.
+    Prerequisites: S12. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: provide a conditional opinion on whether the product satisfies the release requirements defined for this task. READY, NOT_READY, and UNDETERMINED are report semantics, not Runtime enums. Use READY only when evidence is sufficient; confirmed defects and important gaps must remain explicit.
+    Deliverable: D-S13; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - release-assessment
 - activity_id: S14
   description: |-
-    测试过程回顾
-    来源关系：H5 过程经验总结；独立产物为项目新增。工作细化与员工映射均为项目转译。
-    专业责任：需 project-planning；候选 agency-project-management-project-shepherd，不是强制唯一员工。
-    前置工作：S13。使用对应已准出的确定提交，必要输入未齐不得假装就绪。
-    作业：整理方法、环境、协作和返工中已观察到的有效/低效环节，为后续规范版本提出改进依据。本 Run 不改标准、角色或图以追认成功。
-    交付：D-S14；后续由指定独立评审准出，不由生产者自批。
+    Test-process retrospective
+    Source mapping: H5 process-experience summary; the separate artifact is a project addition. Work refinement and employee mapping are project translations.
+    Professional responsibility: requires `project-planning`; candidate `agency-project-management-project-shepherd`, not the mandatory or only employee.
+    Prerequisites: S13. Use the corresponding approved exact Submissions; do not pretend readiness when mandatory inputs are missing.
+    Work: summarize observed effective and ineffective aspects of methods, environment, collaboration, and rework, providing evidence for future ProcessSpec improvement. Do not change standards, roles, or the graph within this Run to retroactively justify success.
+    Deliverable: D-S14; downstream use requires the designated independent review, not producer self-approval.
   required_capabilities:
   - project-planning
 required_deliverables:
 - deliverable_id: D-S01
   activity_id: S01
   artifact_type: test-management-artifact
-  description: 要求—接口—风险—验证点矩阵；待确认事实及其阻塞范围。
+  description: Requirement-interface-risk-verification matrix, including unresolved facts and the scope they block.
   evidence_requirements:
   - evidence_requirement_id: D-S01.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S01.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S01.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S02
   activity_id: S02
   artifact_type: test-management-artifact
-  description: 总体测试策略；分层覆盖、环境与权限、固定判断依据、技术与业务结果区分。
+  description: Overall test strategy covering layered verification, environments and permissions, frozen decision basis,
+    and separation of technical versus business outcomes.
   evidence_requirements:
   - evidence_requirement_id: D-S02.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S02.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S02.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S03
   activity_id: S03
   artifact_type: test-management-artifact
-  description: 测试与验证计划、责任表、依赖/并行/汇聚、环境/数据清单与等待条件。
+  description: Test and verification plan, responsibility table, dependency/parallel/convergence structure, 
+    environment/data inventory, and waiting conditions.
   evidence_requirements:
   - evidence_requirement_id: D-S03.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S03.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S03.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S04
   activity_id: S04
   artifact_type: test-management-artifact
-  description: 特性测试设计、专项接口和阶段计划；用例选择依据与通过/失败解释。
+  description: Feature test design, specialized interfaces, and phase plan, including case-selection rationale and 
+    pass/fail interpretation.
   evidence_requirements:
   - evidence_requirement_id: D-S04.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S04.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S04.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S05
   activity_id: S05
   artifact_type: test-management-artifact
-  description: 自动化分析、工具/依赖清单、适配代码或复用说明、最小自检结果。
+  description: Automation analysis, tool/dependency inventory, adaptation code or reuse explanation, and minimum 
+    self-check results.
   evidence_requirements:
   - evidence_requirement_id: D-S05.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S05.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S05.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S06
   activity_id: S06
   artifact_type: test-management-artifact
-  description: 用例集、脚本、数据与配置；要求覆盖、执行说明及数据独立性。
+  description: Test cases, scripts, data, and configuration, including requirement coverage, execution instructions, and
+    data isolation.
   evidence_requirements:
   - evidence_requirement_id: D-S06.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S06.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S06.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S07
   activity_id: S07
   artifact_type: test-management-artifact
-  description: 执行准备记录：版本/环境、调试回执、可运行范围、故障分类与缺口。
+  description: 'Execution-readiness record: version/environment, debugging acknowledgements, executable scope, fault classification,
+    and gaps.'
   evidence_requirements:
   - evidence_requirement_id: D-S07.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S07.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S07.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S08
   activity_id: S08
   artifact_type: test-management-artifact
-  description: 功能/集成执行台账、原始结果、缺陷、覆盖与限制。
+  description: Functional/integration execution ledger with raw results, defects, coverage, and limitations.
   evidence_requirements:
   - evidence_requirement_id: D-S08.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S08.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S08.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S09
   activity_id: S09
   artifact_type: test-management-artifact
-  description: 性能/稳定报告、脚本配置、环境/负载、原始度量、瓶颈与局限。
+  description: Performance/stability report with script configuration, environment/load, raw measurements, bottlenecks, 
+    and limitations.
   evidence_requirements:
   - evidence_requirement_id: D-S09.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S09.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S09.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S10
   activity_id: S10
   artifact_type: test-management-artifact
-  description: 安全验证范围、发现与证据、严重性依据、复现/修复建议和未测面。
+  description: Security verification scope, findings and evidence, severity basis, reproduction/fix recommendations, and
+    untested areas.
   evidence_requirements:
   - evidence_requirement_id: D-S10.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S10.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S10.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S11
   activity_id: S11
   artifact_type: test-management-artifact
-  description: 缺陷索引、重复/根因关系、需求影响、严重性、建议和残余风险。
+  description: Defect index with duplicate/root-cause relationships, requirement impact, severity, recommendations, and 
+    residual risks.
   evidence_requirements:
   - evidence_requirement_id: D-S11.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S11.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S11.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S12
   activity_id: S12
   artifact_type: test-management-artifact
-  description: 产品质量报告、覆盖与结果矩阵、关键风险、证据索引和未验证部分。
+  description: Product quality report with coverage/result matrix, key risks, evidence index, and unverified areas.
   evidence_requirements:
   - evidence_requirement_id: D-S12.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S12.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S12.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S13
   activity_id: S13
   artifact_type: test-management-artifact
-  description: 发布准备评价：逐标准状态、支持证据、适用版本、未满足项、限制及建议；不产生真实发布授权。
+  description: Release-readiness assessment with per-standard status, supporting evidence, applicable version, 
+    unsatisfied items, limitations, and recommendations; it does not create actual release authorization.
   evidence_requirements:
   - evidence_requirement_id: D-S13.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S13.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S13.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 - deliverable_id: D-S14
   activity_id: S14
   artifact_type: test-management-artifact
-  description: 阶段回顾：事实时间线、问题/影响、证据、有效修复、候选流程改进与未来验证。
+  description: Phase retrospective with factual timeline, issues/impact, evidence, effective fixes, candidate process 
+    improvements, and future verification.
   evidence_requirements:
   - evidence_requirement_id: D-S14.evidence.1
-    description: 输入版本、来源/路径、被测对象、采用方法和已执行范围清楚。
+    description: Input versions, source/path, tested object, methods used, and executed scope are clear.
   - evidence_requirement_id: D-S14.evidence.2
-    description: 每个结论关联可定位记录；真实结果、模拟、自述和计划分别标注。
+    description: Every conclusion is tied to a locatable record; real results, simulations, self-reports, and plans are 
+      labeled distinctly.
   - evidence_requirement_id: D-S14.evidence.3
-    description: 不删除失败或阻塞；秘密脱敏，原始证据完整引用而非无界复制对话。
+    description: Failures and blockers are not removed; secrets are sanitized, and raw evidence is referenced completely
+      without copying unbounded conversation history.
 required_reviews:
 - review_id: G-S01
   deliverable_id: D-S01
-  description: 项目新增专业准出：测试需求与追溯。候选 agency-engineering-software-architect，要求 technical-feasibility；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Test requirements and traceability. Candidate `agency-engineering-software-architect`;
+    requires `technical-feasibility` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - technical-feasibility
   independent_agent: true
   criteria:
   - process_criterion_id: G-S01.criterion.1
-    description: 用户明确要求与测试要求逐项对应，范围和版本明确。
+    description: Explicit user requirements map item by item to test requirements, with clear scope and version.
   - process_criterion_id: G-S01.criterion.2
-    description: 可观察结果与来源一致，未虚构目标或放宽要求。
+    description: Observable results are consistent with their sources, with no invented target or relaxed requirement.
   - process_criterion_id: G-S01.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S02
   deliverable_id: D-S02
-  description: 项目新增专业准出：总体测试策略。候选 agency-testing-test-results-analyzer，要求 test-evidence-review；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Overall test strategy. Candidate `agency-testing-test-results-analyzer`;
+    requires `test-evidence-review` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - test-evidence-review
   independent_agent: true
   criteria:
   - process_criterion_id: G-S02.criterion.1
-    description: 三类专业验证均有适用方法和边界，没有用单元测试替代全部验证。
+    description: All three professional verification lines have appropriate methods and boundaries; unit tests do not 
+      substitute for all verification.
   - process_criterion_id: G-S02.criterion.2
-    description: 缺少数据、环境、授权或指标导致的限制显式，不能默认可测。
+    description: Limitations caused by missing data, environment, authorization, or metrics are explicit and are not 
+      assumed testable.
   - process_criterion_id: G-S02.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S03
   deliverable_id: D-S03
-  description: 项目新增专业准出：测试计划与职责分工。候选 agency-testing-api-tester，要求 test-strategy；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Test planning and responsibility allocation. Candidate `agency-testing-api-tester`;
+    requires `test-strategy` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - test-strategy
   independent_agent: true
   criteria:
   - process_criterion_id: G-S03.criterion.1
-    description: 各专业工作有能力匹配与明确交付，输入和汇聚可落实为图。
+    description: Each professional work item has capability fit and a clear deliverable, and inputs/convergence can be 
+      represented in the Workflow graph.
   - process_criterion_id: G-S03.criterion.2
-    description: 估计不是自动准出线；冻结条件、正常返工与资源缺口表达清楚。
+    description: Estimates are not automatic release thresholds; frozen conditions, normal rework, and resource gaps are
+      explicit.
   - process_criterion_id: G-S03.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S04
   deliverable_id: D-S04
-  description: 项目新增专业准出：特性分析与方案。候选 agency-engineering-code-reviewer，要求 test-review；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Feature analysis and solution. Candidate `agency-engineering-code-reviewer`;
+    requires `test-review` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - test-review
   independent_agent: true
   criteria:
   - process_criterion_id: G-S04.criterion.1
-    description: 每个关键验证点有方法、数据、预期和证据要求。
+    description: Every key verification point has a method, data, expectation, and evidence requirement.
   - process_criterion_id: G-S04.criterion.2
-    description: 失败路径与跨特性作用被覆盖，未改动冻结的需求和标准。
+    description: Failure paths and cross-feature interactions are covered without changing frozen requirements or 
+      standards.
   - process_criterion_id: G-S04.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S05
   deliverable_id: D-S05
-  description: 项目新增专业准出：自动化方案与工具适配。候选 agency-engineering-devops-automator，要求 ci-cd；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Automation plan and tool adaptation. Candidate `agency-engineering-devops-automator`;
+    requires `ci-cd` and must be different from the producing employee. Check whether the report/plan is trustworthy, complete,
+    and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only the sealed
+    Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - ci-cd
   independent_agent: true
   criteria:
   - process_criterion_id: G-S05.criterion.1
-    description: 工具和依赖实际存在，不能以专业技能标签代替安装与权限。
+    description: Tools and dependencies actually exist; professional capability labels do not substitute for 
+      installation and permission.
   - process_criterion_id: G-S05.criterion.2
-    description: 适配能输出可区分产品失败和工具错误的结果，重复运行行为明确。
+    description: Adaptation produces results that distinguish product failure from tool error and has clear rerun 
+      behavior.
   - process_criterion_id: G-S05.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S06
   deliverable_id: D-S06
-  description: 项目新增专业准出：用例、脚本与测试数据。候选 agency-engineering-code-reviewer，要求 test-review；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Cases, scripts, and test data. Candidate `agency-engineering-code-reviewer`;
+    requires `test-review` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - test-review
   independent_agent: true
   criteria:
   - process_criterion_id: G-S06.criterion.1
-    description: 断言真正检查目标行为，错误码、数据与副作用可验证。
+    description: Assertions actually check the target behavior, and error codes, data, and side effects are verifiable.
   - process_criterion_id: G-S06.criterion.2
-    description: 数据/配置没有泄密或共享污染，未把 mock 结果当真实系统。
+    description: Data/configuration does not leak secrets or create shared contamination, and mock results are not 
+      treated as the real system.
   - process_criterion_id: G-S06.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S07
   deliverable_id: D-S07
-  description: 项目新增专业准出：调试与执行准备。候选 agency-testing-test-results-analyzer，要求 test-evidence-review；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Debugging and execution readiness. Candidate `agency-testing-test-results-analyzer`;
+    requires `test-evidence-review` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - test-evidence-review
   independent_agent: true
   criteria:
   - process_criterion_id: G-S07.criterion.1
-    description: 存在实际链路证据，无法连接或缺凭据不得宣称已准备好。
+    description: Actual end-to-end execution-path evidence exists; inability to connect or missing credentials must not 
+      be reported as ready.
   - process_criterion_id: G-S07.criterion.2
-    description: 工具能正确报告被测失败，调试通过不等于全部质量通过。
+    description: Tools correctly report failure of the tested system; debugging success does not imply all quality 
+      requirements pass.
   - process_criterion_id: G-S07.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S08
   deliverable_id: D-S08
-  description: 项目新增专业准出：功能与集成验证。候选 agency-testing-test-results-analyzer，要求 test-evidence-review；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Functional and integration verification. Candidate `agency-testing-test-results-analyzer`;
+    requires `test-evidence-review` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - test-evidence-review
   independent_agent: true
   criteria:
   - process_criterion_id: G-S08.criterion.1
-    description: 每项结果可回到用例、输入与实际响应，失败/跳过/阻塞不计通过。
+    description: Each result traces back to the case, input, and actual response; failed, skipped, blocked, and not-run 
+      outcomes do not count as passed.
   - process_criterion_id: G-S08.criterion.2
-    description: 有效报告允许发现产品缺陷；测试者不得为了报告过审修改产品或断言。
+    description: A valid report may identify product defects; testers must not modify the product or assertions merely 
+      to make the report pass review.
   - process_criterion_id: G-S08.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S09
   deliverable_id: D-S09
-  description: 项目新增专业准出：性能与软件稳定性验证。候选 agency-testing-api-tester，要求 api-test-review；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Performance and software-stability verification. Candidate `agency-testing-api-tester`;
+    requires `api-test-review` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - api-test-review
   independent_agent: true
   criteria:
   - process_criterion_id: G-S09.criterion.1
-    description: 负载、环境、采样和分位计算正确，不能用并发总时间除数量代替响应分布。
+    description: Load, environment, sampling, and percentile calculations are correct; response distributions are not 
+      replaced by dividing total concurrent duration by count.
   - process_criterion_id: G-S09.criterion.2
-    description: 结论不越过实际测量范围；失败性能结果可作为有效证据报告。
+    description: Conclusions do not exceed the measured scope; failed performance results may still be valid reported 
+      evidence.
   - process_criterion_id: G-S09.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S10
   deliverable_id: D-S10
-  description: 项目新增专业准出：应用安全验证。候选 agency-security-architect，要求 security-design-review；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Application security verification. Candidate `agency-security-architect`;
+    requires `security-design-review` and must be different from the producing employee. Check whether the report/plan is
+    trustworthy, complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference
+    only the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - security-design-review
   independent_agent: true
   criteria:
   - process_criterion_id: G-S10.criterion.1
-    description: 证据与主张匹配，扫描工具输出未直接冒充全部安全结论。
+    description: Evidence matches the claim, and scanner/tool output is not represented as the complete security 
+      conclusion by itself.
   - process_criterion_id: G-S10.criterion.2
-    description: 范围和权限正确；未发现漏洞不等于没有漏洞，残余风险说明充分。
+    description: Scope and authorization are correct; finding no vulnerability does not prove none exists, and residual 
+      risk is adequately stated.
   - process_criterion_id: G-S10.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S11
   deliverable_id: D-S11
-  description: 项目新增专业准出：缺陷汇聚与影响分析。候选 agency-engineering-code-reviewer，要求 correctness-analysis；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Defect convergence and impact analysis. Candidate `agency-engineering-code-reviewer`;
+    requires `correctness-analysis` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - correctness-analysis
   independent_agent: true
   criteria:
   - process_criterion_id: G-S11.criterion.1
-    description: 三条必需验证线均被覆盖，缺陷去重保留血缘和影响。
+    description: All three mandatory verification lines are covered, and defect deduplication preserves lineage and 
+      impact.
   - process_criterion_id: G-S11.criterion.2
-    description: 假设未写成已证根因，修复和复测状态没有被建议替代。
+    description: Hypotheses are not presented as proven root causes, and recommended fixes do not substitute for actual 
+      fix/retest status.
   - process_criterion_id: G-S11.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S12
   deliverable_id: D-S12
-  description: 项目新增专业准出：产品质量测试报告。候选 agency-engineering-software-architect，要求 architecture-review；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Product quality test report. Candidate `agency-engineering-software-architect`;
+    requires `architecture-review` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - architecture-review
   independent_agent: true
   criteria:
   - process_criterion_id: G-S12.criterion.1
-    description: 结论与三个专业验证包和缺陷分析一致，未将漏测隐藏在总通过率中。
+    description: Conclusions are consistent with the three professional verification packages and defect analysis; 
+      untested scope is not hidden inside an overall pass rate.
   - process_criterion_id: G-S12.criterion.2
-    description: 报告质量与产品质量分开，产品未达标时报告不得被迫写 PASS。
+    description: Report quality is separate from product quality; when the product does not meet requirements, the 
+      report must not be forced to say PASS.
   - process_criterion_id: G-S12.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S13
   deliverable_id: D-S13
-  description: 项目新增专业准出：发布准备评价。候选 agency-product-manager，要求 product-review；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Release-readiness assessment. Candidate `agency-product-manager`;
+    requires `product-review` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - product-review
   independent_agent: true
   criteria:
   - process_criterion_id: G-S13.criterion.1
-    description: 评价不越过原始要求、专业证据或实际验证范围。
+    description: The assessment does not exceed original requirements, professional evidence, or the actual verification
+      scope.
   - process_criterion_id: G-S13.criterion.2
-    description: 意见、报告准出与真实上线权区分；不存在“报告通过即产品发布通过”。
+    description: Professional opinion and report approval remain separate from real production-release authority; report
+      approval does not imply product release approval.
   - process_criterion_id: G-S13.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 - review_id: G-S14
   deliverable_id: D-S14
-  description: 项目新增专业准出：测试过程回顾。候选 agency-testing-test-results-analyzer，要求 test-evidence-review；须与生产员工不同。检查报告/方案是否可信、完整和符合固定契约，不强制其专业结论为乐观。仅引用本轮封存提交和规定证据。
+  description: 'Project-added professional release review: Test-process retrospective. Candidate `agency-testing-test-results-analyzer`;
+    requires `test-evidence-review` and must be different from the producing employee. Check whether the report/plan is trustworthy,
+    complete, and compliant with the frozen contract without forcing an optimistic professional conclusion. Reference only
+    the sealed Submission and specified evidence from the current round.'
   reviewer_capabilities:
   - test-evidence-review
   independent_agent: true
   criteria:
   - process_criterion_id: G-S14.criterion.1
-    description: 过程经验来自真实记录而非想象，原因与相关现象区分。
+    description: Process lessons come from actual records rather than imagination, and causal claims are distinguished 
+      from correlated observations.
   - process_criterion_id: G-S14.criterion.2
-    description: 改进建议仅供后续版本，不偷偷改变当前验收。
+    description: Improvement recommendations apply only to future versions and do not silently change acceptance for the
+      current Run.
   - process_criterion_id: G-S14.criterion.3
-    description: 逐项给出结论、对应证据与未查部分；缺陷位置和要求修改的对象明确。
+    description: Provide a criterion-level conclusion, corresponding evidence, and unverified scope; defect locations 
+      and the object that requires modification are explicit.
 workflow_rules:
 - rule_id: R-SOFTWARE-SCOPE
-  description: 本文件是已发布的软件测试评价子型。ST 只选择，不删除必需工作；设计师不能将 NOT_READY 任务结论改成必须修产品的隐含新目标。 本条作为设计/语义评审责任；当前引擎未新增专门规则执行器。
+  description: This file is a published software test-assessment subtype. ST only selects it and does not delete 
+    mandatory work. The Workflow Designer must not convert a NOT_READY task conclusion into an implicit new objective to
+    repair the product. This is a design/semantic-review responsibility; the current engine has no dedicated rule 
+    executor for it.
   enforced_by: review
 - rule_id: R-ROLE-ASSIGNMENT
-  description: 按专业能力选员工并在设计时绑定版本；一个节点一个员工。候选角色只是能力匹配示例，不代表资源或授权已经可用。 本条作为设计/语义评审责任；当前引擎未新增专门规则执行器。
+  description: Select employees by professional capability and bind exact versions during design; one employee per node.
+    Candidate roles are capability-matching examples only and do not prove that resources or authorization are 
+    available. This is a design/semantic-review responsibility; the current engine has no dedicated rule executor for 
+    it.
   enforced_by: review
 - rule_id: R-FORWARD-DEPENDENCIES
-  description: 将各活动的前置与指定准出写成真实输入/approval 绑定；前向图保持 DAG，返工单列。不得用工作区路径存在来判定输入有效。 本条作为设计/语义评审责任；当前引擎未新增专门规则执行器。
+  description: Express each activity's prerequisites and required release conditions through real input/approval 
+    bindings. Keep the forward graph a DAG and model rework separately. File existence in the workspace does not prove 
+    that an input is valid. This is a design/semantic-review responsibility; the current engine has no dedicated rule 
+    executor for it.
   enforced_by: review
 - rule_id: R-PARALLEL-JOIN
-  description: 功能、性能和安全三线在条件满足后并行；缺陷/质量评价必须汇聚三线各自准确版本，不能因其中一条通过而跳过另一条。 本条作为设计/语义评审责任；当前引擎未新增专门规则执行器。
+  description: The functional, performance, and security lines run in parallel once their prerequisites are satisfied. 
+    Defect and quality assessment must converge the exact valid version from all three lines; one passing line must not 
+    skip another. This is a design/semantic-review responsibility; the current engine has no dedicated rule executor for
+    it.
   enforced_by: review
 - rule_id: R-EVIDENCE-LINEAGE
-  description: 要求、方案、用例、实际执行、缺陷、报告和评价保持引用；原始响应/日志可定位并脱敏。输入失效则相关下游批准不得沿用。 本条作为设计/语义评审责任；当前引擎未新增专门规则执行器。
+  description: Maintain traceability among requirements, strategies, cases, actual execution, defects, reports, and 
+    assessment. Raw responses/logs remain locatable and sanitized. If an input becomes invalid, downstream approvals 
+    that depend on it must not be reused. This is a design/semantic-review responsibility; the current engine has no 
+    dedicated rule executor for it.
   enforced_by: review
 - rule_id: R-REWORK-NORMAL
-  description: 评审 REWORK 是正常作业；反馈指出不合格提交和标准，原 Session 修订复审。局部打回不自动拒绝未受影响分支，旧轮次结果不得重新放行。 本条作为设计/语义评审责任；当前引擎未新增专门规则执行器。
+  description: Review REWORK is normal work. Feedback identifies the nonconforming Submission and standard, and the 
+    original Session revises the work for re-review. Local rework does not automatically reject unaffected branches, and
+    results from an old round must not regain release authority. This is a design/semantic-review responsibility; the 
+    current engine has no dedicated rule executor for it.
   enforced_by: review
 - rule_id: R-SEMANTIC-SEPARATION
-  description: 结构化补正、测试框架故障、产品缺陷、质量返工与输入缺失分开。产品有缺陷的真实报告可以过审；未开展必需测试却写报告不得冒充完成。 本条作为设计/语义评审责任；当前引擎未新增专门规则执行器。
+  description: Keep structured-submission correction, test-framework failure, product defect, quality rework, and 
+    missing input semantically separate. A truthful report showing product defects may pass review; a report that 
+    pretends completion when mandatory tests were never run may not. This is a design/semantic-review responsibility; 
+    the current engine has no dedicated rule executor for it.
   enforced_by: review
 - rule_id: R-IMMUTABLE-STANDARDS
-  description: 固定用户验收及本轮准出标准，不以来源示例值/角色偏好覆盖；过程经验只为下一版本提供建议。 本条作为设计/语义评审责任；当前引擎未新增专门规则执行器。
+  description: Freeze user acceptance requirements and current-run release criteria. Source examples or role preferences
+    must not override them; process lessons may only recommend changes for future versions. This is a 
+    design/semantic-review responsibility; the current engine has no dedicated rule executor for it.
   enforced_by: review
 - rule_id: R-AUTHORIZED-EXECUTION
-  description: 所有测试限定批准目标/流量/数据；生产、云、外部副作用须明确授权。Runtime 工具隔离和 Gate 控制不能由提示词声明替代。 本条作为设计/语义评审责任；当前引擎未新增专门规则执行器。
+  description: All testing is limited to approved targets, traffic, and data; production, cloud, or external side 
+    effects require explicit authorization. Prompt statements cannot replace Runtime tool isolation or Gate control. 
+    This is a design/semantic-review responsibility; the current engine has no dedicated rule executor for it.
   enforced_by: review
 - rule_id: R-COMPLETION
-  description: Workflow 完成条件包含必需执行/评审及最终 D-S12/D-S13/D-S14。Run 成功只表示约定测试评价工作完成，不代表真实上线或企业 ADCP 通过。 本条作为设计/语义评审责任；当前引擎未新增专门规则执行器。
+  description: Workflow completion includes all mandatory execution/review work and final D-S12/D-S13/D-S14 outputs. Run
+    success means the agreed testing-assessment work is complete; it does not mean actual production release or 
+    enterprise ADCP approval. This is a design/semantic-review responsibility; the current engine has no dedicated rule 
+    executor for it.
   enforced_by: review
