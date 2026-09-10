@@ -9,8 +9,20 @@ import type { WorkflowDefinition } from "./workflow.ts";
 export type RunPhase = "intake" | "selection" | "design" | "compile" | "execute" | "closed";
 export type RunStatus = "running" | "blocked" | "succeeded" | "failed";
 export type NodeStatus = "waiting" | "ready" | "active" | "waiting_review" | "waiting_rework" | "succeeded" | "blocked";
-export type RoundStatus = "active" | "submitted" | "completed" | "invalidated" | "failed";
+export type RoundStatus = "active" | "submitted" | "completed" | "blocked" | "invalidated" | "failed";
 export type SubmissionStatus = "candidate" | "approved" | "rejected" | "stale";
+
+export interface NodeBlockRecord {
+	blockId: string;
+	roundId: string;
+	reason: string;
+	missingConditions: string[];
+	affectedRequirementIds: string[];
+	attemptedActions: string[];
+	evidence: JsonValue;
+	neededToResume: string[];
+	createdAt: number;
+}
 
 export interface NodeRuntimeRecord {
 	nodeId: string;
@@ -18,6 +30,7 @@ export interface NodeRuntimeRecord {
 	status: NodeStatus;
 	nextRound: number;
 	activeRoundId?: string;
+	block?: NodeBlockRecord;
 }
 
 export interface RoundRecord {

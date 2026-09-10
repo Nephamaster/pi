@@ -13,9 +13,10 @@ import {
 import { renderCurrentRoundContext, renderNodeContextFiles } from "./node-context.ts";
 import { NodeSessionAdapter } from "./node-session-adapter.ts";
 import { type PiNodeSessionCreateInput, PiNodeSessionFactory } from "./pi-node-session-factory.ts";
-import type { SubmitArtifact, SubmitReview } from "./structured-submissions.ts";
+import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "./structured-submissions.ts";
 import {
 	createSubmissionTool,
+	ReportNodeBlockedSchema,
 	SubmissionCapture,
 	SubmitArtifactSchema,
 	SubmitReviewSchema,
@@ -27,7 +28,8 @@ interface WorkerBinding {
 	participantId: string;
 	kind: "execution" | "review";
 	capture: SubmissionCapture<SubmitArtifact> | SubmissionCapture<SubmitReview>;
-	tool: ToolDefinition;
+	blockedCapture?: SubmissionCapture<ReportNodeBlocked>;
+	tools: ToolDefinition[];
 	currentContext?: string;
 	additionalReadRoots: string[];
 	deniedReadRoots: string[];
@@ -62,11 +64,16 @@ export class PiNodeWorker implements NodeWorker {
 		);
 	}
 
-	async runExecution(work: NodeRoundWork): Promise<SubmitArtifact> {
+	async runExecution(work: NodeRoundWork): Promise<SubmitArtifact | { kind: "blocked"; report: ReportNodeBlocked }> {
 		const binding = this.binding(work, "execution");
 		binding.capture.beginRound();
+		binding.blockedCapture?.beginRound();
 		await this.dispatch(work, binding);
 		const value = binding.capture.value;
+		const blocked = binding.blockedCapture?.value;
+		if (value && blocked)
+			throw new NodeSubmissionProtocolError("Execution node submitted both an Artifact and a block");
+		if (blocked) return { kind: "blocked", report: blocked };
 		if (!value) throw new NodeSubmissionProtocolError("Execution node did not call submit_artifact");
 		return value as SubmitArtifact;
 	}
@@ -94,7 +101,7 @@ export class PiNodeWorker implements NodeWorker {
 		}
 		const capture =
 			kind === "execution" ? new SubmissionCapture<SubmitArtifact>() : new SubmissionCapture<SubmitReview>();
-		const tool =
+		const submissionTool =
 			kind === "execution"
 				? createSubmissionTool({
 						name: "submit_artifact",
@@ -112,6 +119,19 @@ export class PiNodeWorker implements NodeWorker {
 						parameters: SubmitReviewSchema,
 						capture: capture as SubmissionCapture<SubmitReview>,
 					});
+		const blockedCapture = kind === "execution" ? new SubmissionCapture<ReportNodeBlocked>() : undefined;
+		const tools: ToolDefinition[] = [submissionTool];
+		if (blockedCapture)
+			tools.push(
+				createSubmissionTool({
+					name: "report_node_blocked",
+					label: "Report Node Blocked",
+					description:
+						"Report a business block when required facts, materials, access, authorization, or another necessary condition is unavailable and no valid Artifact can be produced. Do not use this for malformed submissions or transient technical failures. Runtime records the block and its recovery conditions.",
+					parameters: ReportNodeBlockedSchema,
+					capture: blockedCapture,
+				}),
+			);
 		const participant = work.node.agents[0];
 		const binding = {
 			runId: work.runId,
@@ -119,7 +139,8 @@ export class PiNodeWorker implements NodeWorker {
 			participantId: participant.participantId,
 			kind,
 			capture,
-			tool,
+			blockedCapture,
+			tools,
 			additionalReadRoots: [],
 			deniedReadRoots: [],
 		};
@@ -162,7 +183,7 @@ export class PiNodeWorker implements NodeWorker {
 					participant,
 					runDefaultModel: this.options.model,
 					runDefaultThinkingLevel: this.options.thinkingLevel,
-					controlTools: [binding.tool],
+					controlTools: binding.tools,
 				},
 			});
 			await this.sessions.dispatch(

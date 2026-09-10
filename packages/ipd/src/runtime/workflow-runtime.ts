@@ -1,5 +1,5 @@
 // 调度冻结工作流并实施提交、检查、评审、返工和收口。
-import type { SubmitReview } from "../adapter/structured-submissions.ts";
+import type { ReportNodeBlocked, SubmitReview } from "../adapter/structured-submissions.ts";
 import { ArtifactValidationError } from "../artifact/manifest.ts";
 import type { EffectiveNode, ExecutionBaseline } from "../contracts/baseline.ts";
 import type { JsonValue } from "../contracts/primitives.ts";
@@ -149,6 +149,7 @@ export class WorkflowRuntime {
 			const current = draft.nodes.find((item) => item.nodeId === node.definition.node_id)!;
 			bindings = resolveInputBindings(node, draft);
 			const submissionIds = [...new Set(bindings.map((item) => item.submissionId))];
+			delete current.block;
 			current.status = "active";
 			current.activeRoundId = roundId;
 			current.nextRound++;
@@ -194,6 +195,35 @@ export class WorkflowRuntime {
 		}
 	}
 
+	private async recordExecutionBlock(work: NodeRoundWork, report: ReportNodeBlocked): Promise<void> {
+		const blockId = `${work.roundId}:block`;
+		await this.store.mutate(work.runId, `business-blocked:${work.roundId}`, toJsonValue(report), (draft, event) => {
+			const node = draft.nodes.find((item) => item.nodeId === work.node.definition.node_id)!;
+			const round = draft.rounds.find((item) => item.roundId === work.roundId)!;
+			if (node.activeRoundId !== work.roundId || !roundInputsAreValid(work.node, round, draft)) {
+				event.emit("late_block_ignored", { blockId }, node.nodeId, work.roundId);
+				return false;
+			}
+			node.status = "blocked";
+			node.activeRoundId = undefined;
+			node.block = {
+				blockId,
+				roundId: work.roundId,
+				reason: report.reason,
+				missingConditions: [...report.missing_conditions],
+				affectedRequirementIds: [...report.affected_requirement_ids],
+				attemptedActions: [...report.attempted_actions],
+				evidence: toJsonValue(report.evidence),
+				neededToResume: [...report.needed_to_resume],
+				createdAt: Date.now(),
+			};
+			round.status = "blocked";
+			round.finishedAt = Date.now();
+			event.emit("node_blocked", toJsonValue({ blockId, ...report }), node.nodeId, work.roundId);
+			return true;
+		});
+	}
+
 	private async blockRound(work: NodeRoundWork, error: unknown): Promise<void> {
 		const failure =
 			error instanceof NodeWorkerError
@@ -231,6 +261,10 @@ export class WorkflowRuntime {
 		for (let correction = 0; correction < 10; correction++) {
 			try {
 				const submitted = await this.worker.runExecution(correctionWork);
+				if ("report" in submitted) {
+					await this.recordExecutionBlock(work, submitted.report);
+					return;
+				}
 				record = await this.submissions.seal({
 					run: this.directory,
 					runId: work.runId,

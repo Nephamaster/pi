@@ -41,6 +41,20 @@ describe("PiNodeWorker", () => {
 			},
 			response("first"),
 			response("revised"),
+			(context) => {
+				contexts.push(JSON.stringify(context));
+				return fauxAssistantMessage(
+					fauxToolCall("report_node_blocked", {
+						reason: "Required source access is unavailable",
+						missing_conditions: ["Source credentials"],
+						affected_requirement_ids: ["deliver-result"],
+						attempted_actions: ["Checked supplied materials"],
+						evidence: [],
+						needed_to_resume: ["Provide source credentials"],
+					}),
+					{ stopReason: "toolUse" },
+				);
+			},
 		]);
 		try {
 			const modelRuntime = await ModelRuntime.create({ modelsPath: null, refreshOnCreate: false });
@@ -84,8 +98,20 @@ describe("PiNodeWorker", () => {
 				forbiddenMutableReadPaths: [],
 				feedback: [{ type: "quality_rework", issue: "revise" }],
 			});
+			const blocked = await worker.runExecution({
+				...firstRound,
+				roundId: "round-3",
+			});
+			if ("report" in first || "report" in second) throw new Error("Expected Artifact submissions");
 			expect([first.summary, second.summary]).toEqual(["first", "revised"]);
-			expect(faux.state.callCount).toBe(3);
+			expect(blocked).toMatchObject({
+				kind: "blocked",
+				report: {
+					reason: "Required source access is unavailable",
+					needed_to_resume: ["Provide source credentials"],
+				},
+			});
+			expect(faux.state.callCount).toBe(4);
 			expect(contexts[0]).toContain("Authoritative Node Contract");
 			expect(contexts[0]).toContain("ipd_current_round");
 			expect(contexts[0]).toContain("round-1");
@@ -103,6 +129,7 @@ describe("PiNodeWorker", () => {
 			expect(contexts[0]).not.toContain("system_prompt_addendum");
 			expect(contexts[0]).not.toContain("task_context");
 			expect(contexts[0]).toContain("submit_artifact");
+			expect(contexts[0]).toContain("report_node_blocked");
 		} finally {
 			faux.unregister();
 		}

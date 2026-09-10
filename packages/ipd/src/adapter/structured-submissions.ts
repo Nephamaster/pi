@@ -42,6 +42,20 @@ export const SubmitArtifactSchema = Type.Object(
 
 export type SubmitArtifact = Static<typeof SubmitArtifactSchema>;
 
+export const ReportNodeBlockedSchema = Type.Object(
+	{
+		reason: NonEmptyStringSchema,
+		missing_conditions: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+		affected_requirement_ids: Type.Array(IdentifierSchema, { uniqueItems: true }),
+		attempted_actions: Type.Array(NonEmptyStringSchema),
+		evidence: Type.Array(SubmittedEvidenceSchema),
+		needed_to_resume: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+	},
+	{ additionalProperties: false },
+);
+
+export type ReportNodeBlocked = Static<typeof ReportNodeBlockedSchema>;
+
 const ReviewDecisionSchema = Type.Union([Type.Literal("PASS"), Type.Literal("REWORK"), Type.Literal("BLOCKED")]);
 const CriterionDecisionSchema = Type.Union([Type.Literal("PASS"), Type.Literal("FAIL"), Type.Literal("BLOCKED")]);
 
