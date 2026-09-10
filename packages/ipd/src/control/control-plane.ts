@@ -108,6 +108,7 @@ export class IpdControlPlane {
 	}
 
 	async prepareAccepted(input: PrepareRunInput, directory: RunDirectory): Promise<PrepareRunResult> {
+		await this.setPreparationPhase(input.runId, "selection", "selection");
 		let selection: ProcessSelection;
 		try {
 			selection = await this.selector.select(input.runId, input.taskInput, input.processSpecs);
@@ -133,6 +134,7 @@ export class IpdControlPlane {
 		});
 		let diagnostics: string[] = [];
 		for (let revision = 1; revision <= 10; revision++) {
+			await this.setPreparationPhase(input.runId, "design", `design:${revision}`);
 			const workflow = await this.designer.design(input.runId, input.taskInput, selection, spec, diagnostics);
 			const workflowHash = hashJson(workflow);
 			await this.store.mutate(
@@ -180,6 +182,13 @@ export class IpdControlPlane {
 			diagnostics = compiled.report.diagnostics.map((item) => `${item.path}: ${item.message}`);
 		}
 		return this.block(input.runId, directory, diagnostics);
+	}
+
+	private async setPreparationPhase(runId: string, phase: "selection" | "design", operationId: string): Promise<void> {
+		await this.store.mutate(runId, `prepare-phase:${operationId}`, { phase }, (draft) => {
+			draft.phase = phase;
+			return true;
+		});
 	}
 
 	private async block(runId: string, directory: RunDirectory, diagnostics: string[]): Promise<PrepareRunResult> {
