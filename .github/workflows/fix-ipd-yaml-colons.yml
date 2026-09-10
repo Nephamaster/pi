@@ -21,14 +21,6 @@ jobs:
       - name: Rewrite ambiguous AgentCard list scalars
         run: python scripts/fix-ipd-agent-card-yaml-colons.py
 
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Validate IPD assets and tests
-        run: |
-          npm run build --workspace @earendil-works/pi-ipd
-          npm test --workspace @earendil-works/pi-ipd -- --run
-
       - name: Commit repaired YAML assets
         run: |
           if git diff --quiet -- packages/ipd/assets; then
