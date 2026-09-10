@@ -10,6 +10,7 @@ import {
 	WorkflowNodeSchema,
 } from "../contracts/workflow.ts";
 import { hashJson } from "../ir/hash.ts";
+import { wrapPromptBlock } from "../prompt/block.ts";
 import type { WorkflowDraftManager, WorkflowDraftOperation } from "./workflow-draft.ts";
 
 const HeaderSchema = Type.Object(
@@ -60,7 +61,10 @@ export function createWorkflowDraftTools(manager: WorkflowDraftManager, runId: s
 			executionMode: "sequential",
 			async execute() {
 				const state = await manager.open(runId);
-				return { content: [{ type: "text", text: JSON.stringify(state) }], details: state };
+				return {
+					content: [{ type: "text", text: wrapPromptBlock("workflow_draft_state", JSON.stringify(state)) }],
+					details: state,
+				};
 			},
 		}),
 		defineTool({
@@ -71,7 +75,10 @@ export function createWorkflowDraftTools(manager: WorkflowDraftManager, runId: s
 			executionMode: "sequential",
 			async execute() {
 				const state = await manager.read();
-				return { content: [{ type: "text", text: JSON.stringify(state) }], details: state };
+				return {
+					content: [{ type: "text", text: wrapPromptBlock("workflow_draft_state", JSON.stringify(state)) }],
+					details: state,
+				};
 			},
 		}),
 		defineTool({
@@ -96,7 +103,15 @@ export function createWorkflowDraftTools(manager: WorkflowDraftManager, runId: s
 					input.operations as WorkflowDraftOperation[],
 				);
 				return {
-					content: [{ type: "text", text: `Draft revision ${state.revision} saved.` }],
+					content: [
+						{
+							type: "text",
+							text: wrapPromptBlock(
+								"workflow_draft_operation_result",
+								`Draft revision ${state.revision} saved.`,
+							),
+						},
+					],
 					details: { draftId: state.draftId, revision: state.revision },
 				};
 			},
@@ -109,7 +124,10 @@ export function createWorkflowDraftTools(manager: WorkflowDraftManager, runId: s
 			executionMode: "sequential",
 			async execute(_toolCallId, input) {
 				const result = await manager.validate(input.expected_revision);
-				return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+				return {
+					content: [{ type: "text", text: wrapPromptBlock("workflow_draft_validation", JSON.stringify(result)) }],
+					details: result,
+				};
 			},
 		}),
 		defineTool({
@@ -121,7 +139,15 @@ export function createWorkflowDraftTools(manager: WorkflowDraftManager, runId: s
 			async execute(_toolCallId, input) {
 				submitted = await manager.submit(input.expected_revision);
 				return {
-					content: [{ type: "text", text: "Workflow Draft captured for independent Compiler validation." }],
+					content: [
+						{
+							type: "text",
+							text: wrapPromptBlock(
+								"workflow_draft_submission_result",
+								"Workflow Draft captured for independent Compiler validation.",
+							),
+						},
+					],
 					details: { workflowHash: hashJson(submitted), revision: input.expected_revision },
 					terminate: true,
 				};

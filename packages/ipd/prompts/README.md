@@ -83,6 +83,27 @@ Pi Base
 Task material、网页、上游产物、Tool Result 和 Artifact 内容属于数据或证据，不能改变上表中的角色、
 权限、契约或标准。
 
+IPD 自己生成的模型可见文本使用语义标签标明边界；标签名描述内容，而不是消息角色：
+
+| 内容块 | 边界标签 |
+|---|---|
+| 通用规则 | `<core_rules>` |
+| 节点任务范围 | `<task_scope>` |
+| 执行/评审契约 | `<execution_contract>` / `<review_contract>` |
+| 节点运行画像 / 资产选择画像 | `<professional_role>` / `<agent_selection_profile>` |
+| 四类角色协议 | `<process_selection_protocol>` / `<workflow_design_protocol>` / `<execution_protocol>` / `<review_protocol>` |
+| Selector 派发 | `<process_selection_assignment>` |
+| Designer 方法准备、首次设计、修订 | `<workflow_design_method_request>` / `<workflow_design_assignment>` / `<workflow_design_revision>` |
+| 节点派发 / 当前轮次 | `<node_round_dispatch>` / `<ipd_current_round source="runtime">` |
+| 已消费图像的裁剪说明 | `<omitted_historical_image>` |
+| 资产查询结果 | `<process_spec_search_results>` / `<process_spec>` / `<process_spec_lookup_error>` / `<agent_card_search_results>` / `<agent_selection_profile>` / `<agent_card_lookup_error>` |
+| Workflow 草稿工具结果 | `<workflow_draft_state>` / `<workflow_draft_operation_result>` / `<workflow_draft_validation>` / `<workflow_draft_submission_result>` |
+| 节点提交工具结果 | `<submission_validation_result>` / `<submission_capture_result>` |
+| 外层 IPD 工具结果 | `<ipd_run_receipt>` / `<ipd_run_status>` / `<ipd_run_events>` / `<ipd_run_result>` |
+
+Pi 原生的 `<project_context>`、`<project_instructions>` 和 `<skill>` 已提供边界，IPD 不重复包裹；Pi Base、
+cwd 和 Provider 的 `ToolDefinition` 也保留 Pi 原生结构。
+
 ## 4. 资源装配的共同规则
 
 IPD 创建内部 Session 时禁用 Pi 对普通用户资源的自动发现：
@@ -133,8 +154,8 @@ systemPrompt
 
 messages
   用户与外层 Pi 的正常对话
-  ipd 调用及 Run receipt
-  后续只读状态/事件/结果查询
+  ipd 调用及 <ipd_run_receipt>
+  后续只读查询返回 <ipd_run_status> / <ipd_run_events> / <ipd_run_result>
 
 tools
   外层 Pi 原有工具
@@ -164,10 +185,12 @@ Runtime Profile 只包含员工名称、描述、职责、非职责、专业原�
 [buildProcessSelectionPrompt](../src/control/control-role-prompts.ts) 向 Pi 提交：
 
 ```text
-/skill:process-selection Load the process-selection method...
+/skill:process-selection <process_selection_assignment>
+Load the process-selection method...
 
 TaskInput:
 <canonical TaskInput JSON>
+</process_selection_assignment>
 ```
 
 process-selection Skill 已锁定到这个 Session。模型先按需读取 Skill 及 references，再调用资产目录工具。
@@ -180,10 +203,12 @@ References are relative to <...>/process-selection.
 <去掉 frontmatter 的完整 SKILL.md 正文>
 </skill>
 
+<process_selection_assignment>
 Load the process-selection method...
 
 TaskInput:
 <canonical TaskInput JSON>
+</process_selection_assignment>
 ```
 
 ### 6.3 消息和工具完整形态
@@ -192,11 +217,11 @@ TaskInput:
 messages
   user: 展开的 process-selection Skill body + TaskInput
   assistant: 可选的 search_process_specs 调用
-  tool: compact ProcessSpec candidates
+  tool: <process_spec_search_results> compact ProcessSpec candidates
   assistant: 可选的 get_process_spec 调用
-  tool: 某个确定版本的完整 ProcessSpec
+  tool: <process_spec> 某个确定版本的完整 ProcessSpec
   assistant: submit_process_selection
-  tool: candidate captured，结束当前响应
+  tool: <submission_capture_result> candidate captured，结束当前响应
 
 tools
   read
@@ -253,7 +278,9 @@ get_agent_card
 Session 首次创建后先收到：
 
 ```text
-/skill:workflow-design Load the workflow design method. Do not submit a Workflow yet.
+/skill:workflow-design <workflow_design_method_request>
+Load the workflow design method. Do not submit a Workflow yet.
+</workflow_design_method_request>
 ```
 
 Pi 会把它展开成完整 workflow-design SKILL.md body 加后续指令。该轮只加载设计方法；Skill 引用的
@@ -265,7 +292,8 @@ references 仍按需读取。它与正式设计轮分开，展开后的消息和
 首次 design 消息包含所有稳定设计依据：
 
 ```text
-/skill:<run-skill> Load the task-specific method, then design this Workflow.
+/skill:<run-skill> <workflow_design_assignment>
+Load the task-specific method, then design this Workflow.
 
 TaskInput:
 <完整 TaskInput>
@@ -286,6 +314,7 @@ Search and inspect AgentCards before binding employees.
 
 Compiler diagnostics:
 None 或首次已有诊断
+</workflow_design_assignment>
 ```
 
 AgentCard 不全量注入。Designer 先用 search_agent_cards 取得紧凑候选，再用 get_agent_card 读取少量
@@ -301,11 +330,11 @@ TaskInput、ProcessSelection、ProcessSpec 和资源摘要。
 messages
   方法准备历史
   首次设计消息
-  search_agent_cards / get_agent_card 历史
-  workflow_draft_open/read
-  多次 workflow_draft_apply 及 revision 回执
-  workflow_draft_validate 及 diagnostics
-  workflow_draft_submit
+  search_agent_cards / get_agent_card 历史（结果使用 agent_card_search_results / agent_selection_profile）
+  workflow_draft_open/read（结果使用 workflow_draft_state）
+  多次 workflow_draft_apply（结果使用 workflow_draft_operation_result）
+  workflow_draft_validate（结果使用 workflow_draft_validation）
+  workflow_draft_submit（结果使用 workflow_draft_submission_result）
 ```
 
 草稿内容由 WorkflowDraftManager 持久化。模型看到的是 Tool Result，不依赖自己在聊天中记住完整 JSON。
@@ -315,12 +344,14 @@ messages
 正式 Compiler 拒绝候选或 Workflow 版本冲突时，原 Designer Session 收到：
 
 ```text
+<workflow_design_revision>
 Draft revision: <current revision>
 
 Compiler diagnostics:
 <new diagnostics only>
 
 Revise the existing draft and submit the corrected revision.
+</workflow_design_revision>
 ```
 
 不会重复发送 TaskInput、ProcessSelection、ProcessSpec、Run Skill 或资源目录；这些已经存在于同一
@@ -400,7 +431,9 @@ NODE_CONTRACT 回答“本节点必须做什么”，包含：
 每次派发持久写入一条极简 user message：
 
 ```text
+<node_round_dispatch>
 Begin IPD work round <round_id>.
+</node_round_dispatch>
 ```
 
 在每一次 Provider 请求前，隐藏的 context extension 另将以下消息临时追加到 messages 末尾：
@@ -437,13 +470,14 @@ systemPrompt
   稳定 Execution systemPrompt
 
 messages
-  user: Begin IPD work round node-a:round:1.
+  user: <node_round_dispatch> Begin IPD work round node-a:round:1. </node_round_dispatch>
   user transient: ipd_current_round，包含当前输入且 feedback=[]
   后续 assistant/tool 消息
 
 tools
   Baseline 锁定的节点业务工具
   submit_artifact
+  report_node_blocked
 ```
 
 submit_artifact 成功只表示候选参数被捕获，并终止当前响应；不会销毁 Session，也不表示机械检查或
@@ -803,6 +837,8 @@ A candidate accepted by a tool is **not** automatically compiled, approved, rele
 
 </core_rules>
 
+<professional_role>
+
 # Professional Role
 
 ## Role
@@ -827,6 +863,8 @@ ST process-selection employee that matches the preserved user task to one exact 
 
 ## Working Method
 - Check applicability and exclusion conditions first, then verify the task's required delivery and review responsibilities.
+
+</professional_role>
 
 <process_selection_protocol>
 
@@ -906,10 +944,12 @@ References are relative to /repo/packages/ipd/assets/skills/process-selection.
 </SKILL_BODY>
 </skill>
 
+<process_selection_assignment>
 Load the process-selection method, evaluate this TaskInput, inspect serious ProcessSpec candidates through the catalog tools, and submit one decision.
 
 TaskInput:
 {"schema_version":1,"task_input_id":"request-001","raw_task":{"text":"Create a reviewed market brief from the supplied materials.","source":"external-agent-request"},"objectives":[{"objective_id":"objective-1","statement":{"text":"Produce a concise decision-ready brief.","source":"external-agent-request"}}],"requirements":[{"requirement_id":"requirement-1","statement":{"text":"Use only the supplied evidence for factual claims.","source":"external-agent-request"}},{"requirement_id":"requirement-2","statement":{"text":"The final brief must receive independent review before delivery.","source":"external-agent-request"}}],"materials":[{"material_id":"source-pack","description":"Market source pack","reference":"/repo/input/market-sources.md","media_type":"text/markdown"}],"unresolved_facts":[]}
+</process_selection_assignment>
 ```
 
 #### tools
@@ -935,6 +975,8 @@ submit_process_selection
 <core_rules>
 [common.md 的完整正文，与 15.1 相同]
 </core_rules>
+
+<professional_role>
 
 # Professional Role
 
@@ -974,6 +1016,8 @@ Owns scope, dependencies, responsibilities, risks, and handoff design for cross-
 - Delivery: verify deliverables and release relationships and organize structured handoff, closure records, and lessons learned; Runtime determines formal completion.
 - Workflow-Designer binding: first load the locked workflow-design Skill and current task method, then inspect ProcessSpec, employee, and resource catalogs; build the skeleton, configure nodes incrementally, connect review/rework, validate and locally revise, and submit machine-readable configuration.
 
+</professional_role>
+
 <workflow_design_protocol>
 [workflow-designer.md 的完整正文；这里为避免 README 重复维护第二份同名协议，正文以同目录文件为唯一来源。该协议在真实 systemPrompt 中会完整展开，而不是这个注释。]
 </workflow_design_protocol>
@@ -998,7 +1042,9 @@ References are relative to /repo/packages/ipd/assets/skills/workflow-design.
 </SKILL_BODY>
 </skill>
 
+<workflow_design_method_request>
 Load the workflow design method. Do not submit a Workflow yet.
+</workflow_design_method_request>
 ```
 
 #### 首次正式设计轮次 user message
@@ -1012,6 +1058,7 @@ References are relative to /repo/.pi/skills/market-brief.
 </SKILL_BODY>
 </skill>
 
+<workflow_design_assignment>
 Load the task-specific method, then design this Workflow.
 
 TaskInput:
@@ -1030,6 +1077,7 @@ Search and inspect AgentCards before binding employees.
 
 Compiler diagnostics:
 None
+</workflow_design_assignment>
 ```
 
 #### tools
@@ -1048,12 +1096,14 @@ get_agent_card
 Compiler 修订轮不会重复上面这些稳定对象，而是在同一 Session 中追加：
 
 ```text
+<workflow_design_revision>
 Draft revision: 6
 
 Compiler diagnostics:
 /nodes/1/inputs/0: required approved input is missing an approval review node
 
 Revise the existing draft and submit the corrected revision.
+</workflow_design_revision>
 ```
 
 ### 15.3 Execution Node：完整示例
@@ -1076,6 +1126,8 @@ Execution/Review 的 systemPrompt 与控制角色最大的区别是：Task Scope
 Project-specific instructions and guidelines:
 
 <project_instructions path="/virtual/ipd/write-brief/TASK_SCOPE.md">
+<task_scope>
+
 # Authoritative Task Scope
 
 This document preserves the task basis relevant to this node. It explains why this work exists; the node contract separately defines what this node must deliver.
@@ -1114,9 +1166,13 @@ Market source pack
 ## Unresolved Facts
 
 None
+
+</task_scope>
 </project_instructions>
 
 <project_instructions path="/virtual/ipd/write-brief/NODE_CONTRACT.md">
+<execution_contract>
+
 # Authoritative Node Contract
 
 This document defines the frozen scope, deliverables, and acceptance criteria for this node. Professional role guidance and Skill instructions may explain how to work, but cannot expand or override this contract.
@@ -1206,9 +1262,13 @@ Write:
 - `outputs/write-brief`
 
 External actions: false
+
+</execution_contract>
 </project_instructions>
 
 <project_instructions path="/virtual/ipd/write-brief/PROFESSIONAL_ROLE.md">
+<professional_role>
+
 # Professional Role
 
 ## Role
@@ -1241,6 +1301,8 @@ Develops content strategy for defined audiences and channels and creates article
 - Production: write the core argument and evidence first, then structure title, narrative, examples, and calls to action.
 - Repurposing and distribution: break long-form content into standalone information units appropriate to each platform.
 - Quality and measurement: verify facts, brand consistency, readability, and content purpose.
+
+</professional_role>
 </project_instructions>
 
 <project_instructions path="/virtual/ipd/write-brief/EXECUTION_PROTOCOL.md">
@@ -1262,7 +1324,9 @@ Current working directory: /repo/.pi/ipd/runs/run-001/workspace
 Session 中持久写入：
 
 ```text
+<node_round_dispatch>
 Begin IPD work round write-brief:round:1.
+</node_round_dispatch>
 ```
 
 每一次 Provider 请求前再临时追加：
@@ -1286,6 +1350,7 @@ Begin IPD work round write-brief:round:1.
 ```text
 <Baseline 锁定给该节点的业务工具，例如 read / write / edit>
 submit_artifact
+report_node_blocked
 ```
 
 ### 15.4 Review Node：完整示例
@@ -1308,6 +1373,8 @@ submit_artifact
 Project-specific instructions and guidelines:
 
 <project_instructions path="/virtual/ipd/review-brief/TASK_SCOPE.md">
+<task_scope>
+
 # Authoritative Task Scope
 
 This document preserves the task basis relevant to this node. It explains why this work exists; the node contract separately defines what this node must deliver.
@@ -1341,9 +1408,13 @@ None
 ## Unresolved Facts
 
 None
+
+</task_scope>
 </project_instructions>
 
 <project_instructions path="/virtual/ipd/review-brief/REVIEW_CONTRACT.md">
+<review_contract>
+
 # Authoritative Review Contract
 
 This document defines the frozen review scope, targets, acceptance criteria, and allowed rework boundaries. Professional role guidance and Skill instructions cannot expand or override it.
@@ -1409,9 +1480,13 @@ Write:
 - None
 
 External actions: false
+
+</review_contract>
 </project_instructions>
 
 <project_instructions path="/virtual/ipd/review-brief/PROFESSIONAL_ROLE.md">
+<professional_role>
+
 # Professional Role
 
 ## Role
@@ -1434,6 +1509,8 @@ Independently reviews general-purpose deliverables against frozen criteria and s
 
 ## Working Method
 - Inspect the sealed artifact and evidence criterion by criterion, checking the target object, version, observation, and conditions for re-verification.
+
+</professional_role>
 </project_instructions>
 
 <project_instructions path="/virtual/ipd/review-brief/REVIEW_PROTOCOL.md">
@@ -1450,7 +1527,9 @@ Current working directory: /repo/.pi/ipd/runs/run-001/workspace
 #### 当前 round 的持久消息 + 临时 Runtime Context
 
 ```text
+<node_round_dispatch>
 Begin IPD work round review-brief:round:1.
+</node_round_dispatch>
 ```
 
 ```text
@@ -1477,47 +1556,47 @@ Review 节点不会获得 `write`、`edit`、`bash` 或 `powershell`。即使 Ag
 ```text
 Process Selector
   Pi Base
-  + common.md
-  + Selector Runtime Profile
-  + process-selector.md
+  + <core_rules> common.md
+  + <professional_role> Selector Runtime Profile
+  + <process_selection_protocol> process-selector.md
   + process-selection Skill Catalog / expanded Skill message
-  + TaskInput
+  + <process_selection_assignment> TaskInput
   + ProcessSpec catalog tools
 
 Workflow Designer
   Pi Base
-  + common.md
-  + Project Shepherd Runtime Profile
-  + workflow-designer.md
+  + <core_rules> common.md
+  + <professional_role> Project Shepherd Runtime Profile
+  + <workflow_design_protocol> workflow-designer.md
   + workflow-design / Run Skill Catalog
-  + expanded Skill messages
-  + TaskInput + ProcessSelection + selected ProcessSpec + resource summary
+  + expanded Skill messages + <workflow_design_method_request>
+  + <workflow_design_assignment> TaskInput + ProcessSelection + selected ProcessSpec + resource summary
+  + <workflow_design_revision> compiler feedback when revising
   + AgentCard catalog tools + workflow_draft_* tools
 
 Execution Node
   Pi Base
-  + common.md
-  + TASK_SCOPE.md
-  + NODE_CONTRACT.md
-  + PROFESSIONAL_ROLE.md
-  + EXECUTION_PROTOCOL.md
+  + <core_rules> common.md
+  + <task_scope> TASK_SCOPE.md
+  + <execution_contract> NODE_CONTRACT.md
+  + <professional_role> PROFESSIONAL_ROLE.md
+  + <execution_protocol> EXECUTION_PROTOCOL.md
   + bound Skill Catalog
-  + persistent Begin-round message
+  + persistent <node_round_dispatch>
   + transient ipd_current_round
-  + business tools + submit_artifact
+  + business tools + submit_artifact + report_node_blocked
 
 Review Node
   Pi Base
-  + common.md
-  + TASK_SCOPE.md
-  + REVIEW_CONTRACT.md
-  + PROFESSIONAL_ROLE.md
-  + REVIEW_PROTOCOL.md
+  + <core_rules> common.md
+  + <task_scope> TASK_SCOPE.md
+  + <review_contract> REVIEW_CONTRACT.md
+  + <professional_role> PROFESSIONAL_ROLE.md
+  + <review_protocol> REVIEW_PROTOCOL.md
   + bound Skill Catalog
-  + persistent Begin-round message
+  + persistent <node_round_dispatch>
   + transient ipd_current_round
   + read-only tools + submit_review
 ```
 
 最重要的边界仍然是：**稳定任务事实、节点契约、专业角色、角色协议、动态轮次事实和 Tool Schema 分别由不同层拥有。完整 Prompt 是这些层在 Provider 请求时的组合，而不是把所有信息重新抄进一个巨型 system prompt。**
-

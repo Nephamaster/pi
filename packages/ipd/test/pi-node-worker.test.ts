@@ -114,6 +114,7 @@ describe("PiNodeWorker", () => {
 			expect(faux.state.callCount).toBe(4);
 			expect(contexts[0]).toContain("Authoritative Node Contract");
 			expect(contexts[0]).toContain("ipd_current_round");
+			expect(contexts[0]).toContain("<node_round_dispatch>");
 			expect(contexts[0]).toContain("round-1");
 			expect(contexts[2]).toContain("round-2");
 			expect(contexts[2]).toContain("revise");

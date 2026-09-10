@@ -6,6 +6,7 @@ import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import { NonEmptyStringSchema, VersionSchema } from "../contracts/primitives.ts";
 import type { ProcessSpec } from "../contracts/process-spec.ts";
 import { canonicalJson } from "../ir/hash.ts";
+import { wrapPromptBlock } from "../prompt/block.ts";
 
 function searchTerms(query: string): string[] {
 	return query
@@ -74,7 +75,9 @@ export function createProcessSpecCatalogTools(specs: readonly ProcessSpec[]): To
 						required_review_count: spec.required_reviews.length,
 					}));
 				return {
-					content: [{ type: "text", text: canonicalJson(results) }],
+					content: [
+						{ type: "text", text: wrapPromptBlock("process_spec_search_results", canonicalJson(results)) },
+					],
 					details: { results },
 				};
 			},
@@ -91,12 +94,20 @@ export function createProcessSpecCatalogTools(specs: readonly ProcessSpec[]): To
 				);
 				if (!spec)
 					return {
-						content: [{ type: "text", text: `ProcessSpec not found: ${input.id}@${input.version}` }],
+						content: [
+							{
+								type: "text",
+								text: wrapPromptBlock(
+									"process_spec_lookup_error",
+									`ProcessSpec not found: ${input.id}@${input.version}`,
+								),
+							},
+						],
 						details: { found: false },
 						isError: true,
 					};
 				return {
-					content: [{ type: "text", text: canonicalJson(spec) }],
+					content: [{ type: "text", text: wrapPromptBlock("process_spec", canonicalJson(spec)) }],
 					details: { found: true, spec },
 				};
 			},
@@ -147,7 +158,7 @@ export function createAgentCardCatalogTools(cards: readonly CompiledAgentCard[])
 						capabilities: card.capabilities,
 					}));
 				return {
-					content: [{ type: "text", text: canonicalJson(results) }],
+					content: [{ type: "text", text: wrapPromptBlock("agent_card_search_results", canonicalJson(results)) }],
 					details: { results },
 				};
 			},
@@ -163,7 +174,15 @@ export function createAgentCardCatalogTools(cards: readonly CompiledAgentCard[])
 				const card = cards.find((candidate) => candidate.id === input.id && candidate.version === input.version);
 				if (!card)
 					return {
-						content: [{ type: "text", text: `AgentCard not found: ${input.id}@${input.version}` }],
+						content: [
+							{
+								type: "text",
+								text: wrapPromptBlock(
+									"agent_card_lookup_error",
+									`AgentCard not found: ${input.id}@${input.version}`,
+								),
+							},
+						],
 						details: { found: false },
 						isError: true,
 					};

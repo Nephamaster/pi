@@ -21,6 +21,10 @@ describe("control-role asset catalog tools", () => {
 			{} as never,
 		);
 		expect(searched.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("delivery-process") });
+		expect(searched.content[0]).toMatchObject({
+			type: "text",
+			text: expect.stringMatching(/^<process_spec_search_results>[\s\S]*<\/process_spec_search_results>$/),
+		});
 		const loaded = await read.execute(
 			"read-1",
 			{ id: "delivery-process", version: "1.0.0" },
@@ -29,6 +33,10 @@ describe("control-role asset catalog tools", () => {
 			{} as never,
 		);
 		expect(loaded.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("required_activities") });
+		expect(loaded.content[0]).toMatchObject({
+			type: "text",
+			text: expect.stringMatching(/^<process_spec>[\s\S]*<\/process_spec>$/),
+		});
 	});
 
 	it("returns compact AgentCard search results and a rich selection profile only on read", async () => {
@@ -48,6 +56,7 @@ describe("control-role asset catalog tools", () => {
 		);
 		const searchText = searched.content[0]?.type === "text" ? searched.content[0].text : "";
 		expect(searchText).toContain("producer");
+		expect(searchText).toMatch(/^<agent_card_search_results>[\s\S]*<\/agent_card_search_results>$/);
 		expect(searchText).not.toContain("# Agent Selection Profile");
 		const loaded = await read.execute(
 			"read-1",
