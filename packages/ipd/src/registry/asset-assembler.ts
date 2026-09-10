@@ -48,14 +48,19 @@ function parseDocument(content: string, path: string): unknown {
 	return extname(path) === ".json" ? JSON.parse(content) : parseYaml(content);
 }
 
-function allowedTools(content: string): string[] {
+function frontmatterToolList(content: string, field: "allowed-tools" | "required-tools"): string[] {
 	if (!content.startsWith("---")) return [];
 	const end = content.indexOf("\n---", 3);
 	if (end < 0) return [];
 	const parsed = parseYaml(content.slice(3, end));
 	if (typeof parsed !== "object" || parsed === null) return [];
-	const value = (parsed as Record<string, unknown>)["allowed-tools"];
-	return typeof value === "string" ? [...new Set(value.split(/\s+/).filter(Boolean))] : [];
+	const value = (parsed as Record<string, unknown>)[field];
+	const tools = Array.isArray(value)
+		? value.filter((item): item is string => typeof item === "string")
+		: typeof value === "string"
+			? value.split(/\s+/).filter(Boolean)
+			: [];
+	return [...new Set(tools.map((item) => item.trim()).filter(Boolean))];
 }
 
 async function assetFiles(directories: readonly string[]): Promise<string[]> {
@@ -133,10 +138,18 @@ export class AssetAssembler {
 		const skills = await Promise.all(
 			options.skills.map(async (skill): Promise<LockedSkill> => {
 				const content = await readFile(skill.filePath, "utf8");
-				const declaredTools = allowedTools(content);
-				const missing = declaredTools.filter((name) => !knownTools.has(name));
+				const declaredTools = frontmatterToolList(content, "allowed-tools");
+				const requiredTools = frontmatterToolList(content, "required-tools");
+				const missing = [...new Set([...declaredTools, ...requiredTools])].filter((name) => !knownTools.has(name));
 				if (missing.length > 0)
 					throw new Error(`Skill ${skill.name} declares unavailable tools: ${missing.join(", ")}`);
+				if (declaredTools.length > 0) {
+					const notAllowed = requiredTools.filter((name) => !declaredTools.includes(name));
+					if (notAllowed.length > 0)
+						throw new Error(
+							`Skill ${skill.name} requires tools outside allowed-tools: ${notAllowed.join(", ")}`,
+						);
+				}
 				return {
 					id: skill.name,
 					hash: await hashSkillPackage(skill.baseDir),
@@ -145,6 +158,7 @@ export class AssetAssembler {
 					baseDir: skill.baseDir,
 					description: skill.description,
 					allowedTools: declaredTools,
+					requiredTools,
 				};
 			}),
 		);
