@@ -8,7 +8,7 @@ import type { ProcessSelection, ProcessSpec } from "../contracts/process-spec.ts
 import type { RunState } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
-import { hashJson } from "../ir/hash.ts";
+import { hashJson, toJsonValue } from "../ir/hash.ts";
 import type { WorkflowAssetStore } from "../registry/workflow-asset-store.ts";
 import { WorkflowAssetWriteError } from "../registry/workflow-asset-store.ts";
 import { prepareRunDirectory, type RunDirectory } from "../runtime/run-directory.ts";
@@ -180,13 +180,14 @@ export class IpdControlPlane {
 				workflow = await this.designer.design(input.runId, input.taskInput, selection, spec, diagnostics);
 			} catch (error) {
 				if (!(error instanceof WorkflowDesignBlockedError)) throw error;
+				const blockJson = toJsonValue(error.block);
 				await this.store.mutate(
 					input.runId,
 					`workflow-design-blocked:${hashJson(error.block)}`,
-					{ block: error.block },
+					{ block: blockJson },
 					(draft, event) => {
 						draft.workflowDesignBlock = structuredClone(error.block);
-						event.emit("workflow_design_blocked", error.block);
+						event.emit("workflow_design_blocked", blockJson);
 						return true;
 					},
 				);
