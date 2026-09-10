@@ -26,6 +26,15 @@ export interface WorkflowDraftTrustedReferences {
 	process_selection_ref: WorkflowDefinition["process_selection_ref"];
 }
 
+export interface WorkflowDraftDiagnostic {
+	code?: string;
+	path: string;
+	message: string;
+	nodeId?: string;
+	processRequirementId?: string;
+	category?: string;
+}
+
 export type WorkflowDraftOperation =
 	| { kind: "set_header"; header: WorkflowDraftHeader }
 	| { kind: "upsert_node"; node: WorkflowNode }
@@ -44,33 +53,42 @@ export interface WorkflowDraftState {
 	criteria: CriterionDefinition[];
 	requirementCoverage: Static<typeof RequirementCoverageSchema>[];
 	completion?: Static<typeof WorkflowCompletionSchema>;
+	lastValidation?: {
+		revision: number;
+		valid: boolean;
+		diagnostics: WorkflowDraftDiagnostic[];
+	};
 	operations: Record<string, { requestHash: string; revision: number }>;
 }
 
 export interface WorkflowDraftValidation {
+	revision: number;
 	valid: boolean;
-	diagnostics: Array<{ path: string; message: string }>;
+	diagnostics: WorkflowDraftDiagnostic[];
 	workflow?: WorkflowDefinition;
 }
 
-export type WorkflowDraftValidator = (workflow: WorkflowDefinition) => Array<{ path: string; message: string }>;
+export type WorkflowDraftValidator = (workflow: WorkflowDefinition) => WorkflowDraftDiagnostic[];
 
 export interface WorkflowDraftManagerOptions {
 	file: string;
 	trustedReferences: WorkflowDraftTrustedReferences;
 	validator?: WorkflowDraftValidator;
+	onValidation?: (validation: Omit<WorkflowDraftValidation, "workflow">) => Promise<void> | void;
 }
 
 export class WorkflowDraftManager {
 	private readonly file: string;
 	private readonly trustedReferences: WorkflowDraftTrustedReferences;
 	private readonly validator?: WorkflowDraftValidator;
+	private readonly onValidation?: WorkflowDraftManagerOptions["onValidation"];
 	private queue: Promise<void> = Promise.resolve();
 
 	constructor(options: WorkflowDraftManagerOptions) {
 		this.file = options.file;
 		this.trustedReferences = structuredClone(options.trustedReferences);
 		this.validator = options.validator;
+		this.onValidation = options.onValidation;
 	}
 
 	async open(runId: string): Promise<WorkflowDraftState> {
@@ -128,6 +146,7 @@ export class WorkflowDraftManager {
 				throw new Error(`Draft revision conflict: expected ${expectedRevision}, current ${state.revision}`);
 			for (const operation of operations) this.applyOperation(state, operation);
 			state.revision++;
+			state.lastValidation = undefined;
 			state.operations[operationId] = { requestHash, revision: state.revision };
 			await this.write(state);
 			result = state;
@@ -137,18 +156,34 @@ export class WorkflowDraftManager {
 	}
 
 	async validate(expectedRevision: number): Promise<WorkflowDraftValidation> {
-		const state = await this.read();
-		if (state.revision !== expectedRevision)
-			throw new Error(`Draft revision conflict: expected ${expectedRevision}, current ${state.revision}`);
-		const candidate = this.materialize(state);
-		const parsed = validateSchema<WorkflowDefinition>(WorkflowDefinitionSchema, candidate, this.file);
-		if (!parsed.ok)
-			return {
-				valid: false,
-				diagnostics: parsed.diagnostics.map((item) => ({ path: item.path, message: item.message })),
-			};
-		const diagnostics = this.validator?.(parsed.value) ?? [];
-		return { valid: diagnostics.length === 0, diagnostics, workflow: parsed.value };
+		let result: WorkflowDraftValidation | undefined;
+		let persisted: Omit<WorkflowDraftValidation, "workflow"> | undefined;
+		await this.enqueue(async () => {
+			const state = await this.read();
+			if (state.revision !== expectedRevision)
+				throw new Error(`Draft revision conflict: expected ${expectedRevision}, current ${state.revision}`);
+			const candidate = this.materialize(state);
+			const parsed = validateSchema<WorkflowDefinition>(WorkflowDefinitionSchema, candidate, this.file);
+			if (!parsed.ok) {
+				const diagnostics: WorkflowDraftDiagnostic[] = parsed.diagnostics.map((item) => ({
+					code: item.code,
+					path: item.path,
+					message: item.message,
+					category: "schema",
+				}));
+				persisted = { revision: state.revision, valid: false, diagnostics };
+				result = { ...persisted };
+			} else {
+				const diagnostics = this.validator?.(parsed.value) ?? [];
+				persisted = { revision: state.revision, valid: diagnostics.length === 0, diagnostics };
+				result = persisted.valid ? { ...persisted, workflow: parsed.value } : { ...persisted };
+			}
+			state.lastValidation = structuredClone(persisted);
+			await this.write(state);
+		});
+		if (!result || !persisted) throw new Error("Workflow Draft validation produced no result");
+		await this.onValidation?.(structuredClone(persisted));
+		return result;
 	}
 
 	async submit(expectedRevision: number): Promise<WorkflowDefinition> {
