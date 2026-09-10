@@ -70,13 +70,18 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 			async execute(_toolCallId, input, _signal, _onUpdate, context) {
 				const service = await serviceProvider(context);
 				const receipt = await service.createRun(input.request_id, taskInput(input), input.skill_name);
+				const lines = [
+					`IPD Run ${receipt.runId} accepted=${receipt.accepted}; phase=${receipt.phase}; status=${receipt.status}`,
+				];
+				if (receipt.visualization) {
+					lines.push(`Visualization: ${receipt.visualization.url}`);
+					lines.push(`Snapshot: ${receipt.visualization.snapshotUrl}`);
+					if (receipt.visualization.shareHint) lines.push(receipt.visualization.shareHint);
+				} else if (receipt.visualizationError) {
+					lines.push(`Visualization unavailable: ${receipt.visualizationError}`);
+				}
 				return {
-					content: [
-						{
-							type: "text",
-							text: `IPD Run ${receipt.runId} accepted=${receipt.accepted}; phase=${receipt.phase}; status=${receipt.status}`,
-						},
-					],
+					content: [{ type: "text", text: lines.join("\n") }],
 					details: receipt,
 				};
 			},
