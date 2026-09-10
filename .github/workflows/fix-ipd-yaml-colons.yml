@@ -1,0 +1,42 @@
+name: Fix IPD YAML colon scalars
+
+on:
+  push:
+    branches: [fix/ipd-yaml-colon-scalars]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/ipd-yaml-colon-scalars
+          fetch-depth: 0
+
+      - name: Rewrite ambiguous AgentCard list scalars
+        run: python scripts/fix-ipd-agent-card-yaml-colons.py
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Validate IPD assets and tests
+        run: |
+          npm run build --workspace @earendil-works/pi-ipd
+          npm test --workspace @earendil-works/pi-ipd -- --run
+
+      - name: Commit repaired YAML assets
+        run: |
+          if git diff --quiet -- packages/ipd/assets; then
+            echo "No YAML changes required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/ipd/assets
+          git commit -m "fix(ipd): encode colon-bearing AgentCard strings as block scalars"
+          git push origin HEAD:fix/ipd-yaml-colon-scalars
