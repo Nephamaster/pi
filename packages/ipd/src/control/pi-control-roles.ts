@@ -2,7 +2,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Static, TSchema } from "typebox";
+import Type, { type Static, type TSchema } from "typebox";
 import { NodeSessionAdapter } from "../adapter/node-session-adapter.ts";
 import { PiNodeSessionFactory } from "../adapter/pi-node-session-factory.ts";
 import { loadPrompt } from "../adapter/prompt-loader.ts";
@@ -10,13 +10,19 @@ import { renderAgentRuntimeProfile } from "../adapter/render-agent-profile.ts";
 import { createSubmissionTool, SubmissionCapture } from "../adapter/structured-submissions.ts";
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { LockedSkill, LockedTool } from "../contracts/baseline.ts";
-import type { JsonValue } from "../contracts/primitives.ts";
+import { IdentifierSchema, type JsonValue, NonEmptyStringSchema } from "../contracts/primitives.ts";
 import { type ProcessSelection, ProcessSelectionDecisionSchema, type ProcessSpec } from "../contracts/process-spec.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
 import { hashJson } from "../ir/hash.ts";
 import { createAgentCardCatalogTools, createProcessSpecCatalogTools } from "./asset-catalog-tools.ts";
-import { ProcessSelectionBlockedError, type ProcessSelector, type WorkflowDesigner } from "./control-plane.ts";
+import {
+	ProcessSelectionBlockedError,
+	type ProcessSelector,
+	WorkflowDesignBlockedError,
+	type WorkflowDesignBlock,
+	type WorkflowDesigner,
+} from "./control-plane.ts";
 import {
 	buildInitialWorkflowDesignPrompt,
 	buildProcessSelectionPrompt,
@@ -25,6 +31,33 @@ import {
 } from "./control-role-prompts.ts";
 import type { WorkflowDraftManager } from "./workflow-draft.ts";
 import { createWorkflowDraftTools, type WorkflowDraftToolset } from "./workflow-draft-tools.ts";
+
+const WorkflowDesignBlockSchema = Type.Object(
+	{
+		type: Type.Union([
+			Type.Literal("resource_gap"),
+			Type.Literal("expressiveness_gap"),
+			Type.Literal("task_blocker"),
+			Type.Literal("other"),
+		]),
+		reason: NonEmptyStringSchema,
+		missing_conditions: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+		task_requirement_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),
+		process_requirement_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),
+		diagnostics: Type.Array(
+			Type.Object(
+				{
+					code: Type.Optional(NonEmptyStringSchema),
+					path: Type.Optional(NonEmptyStringSchema),
+					message: NonEmptyStringSchema,
+				},
+				{ additionalProperties: false },
+			),
+		),
+		needed_to_resume: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+	},
+	{ additionalProperties: false },
+);
 
 export interface PiControlRoleOptions {
 	agentDir: string;
@@ -200,6 +233,22 @@ function validateProcessSelectionDecision(
 	return diagnostics;
 }
 
+function validateWorkflowDesignBlock(block: WorkflowDesignBlock, task: TaskInput, spec: ProcessSpec): string[] {
+	const diagnostics: string[] = [];
+	const taskRequirementIds = new Set(task.requirements.map((item) => item.requirement_id));
+	const processRequirementIds = new Set([
+		...spec.required_activities.map((item) => item.activity_id),
+		...spec.required_deliverables.map((item) => item.deliverable_id),
+		...spec.required_reviews.map((item) => item.review_id),
+		...spec.workflow_rules.map((item) => item.rule_id),
+	]);
+	for (const id of block.task_requirement_refs)
+		if (!taskRequirementIds.has(id)) diagnostics.push(`Unknown task_requirement_ref: ${id}`);
+	for (const id of block.process_requirement_refs)
+		if (!processRequirementIds.has(id)) diagnostics.push(`Unknown process_requirement_ref: ${id}`);
+	return diagnostics;
+}
+
 export class PiWorkflowDesigner implements WorkflowDesigner {
 	private readonly optionsForRun: (runId: string) => PiControlRoleOptions;
 	private readonly managerForRun: (
@@ -217,6 +266,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 		{
 			adapter: NodeSessionAdapter<Parameters<PiNodeSessionFactory["create"]>[0]>;
 			tools: WorkflowDraftToolset;
+			blockCapture: SubmissionCapture<WorkflowDesignBlock>;
 			initialized: boolean;
 		}
 	>();
@@ -254,9 +304,20 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 		if (!active) {
 			const options = this.optionsForRun(runId);
 			const tools = createWorkflowDraftTools(manager, runId);
+			const blockCapture = new SubmissionCapture<WorkflowDesignBlock>();
+			const blockTool = createSubmissionTool({
+				name: "report_workflow_design_blocked",
+				label: "Report Workflow Design Blocked",
+				description:
+					"Report a genuine task, resource, or workflow-expressiveness gap that prevents a legal WorkflowDefinition. Use this only after verifying that the gap cannot be solved by a different valid employee/resource binding without weakening TaskInput or ProcessSpec requirements.",
+				parameters: WorkflowDesignBlockSchema,
+				capture: blockCapture,
+				validate: (value) => validateWorkflowDesignBlock(value as WorkflowDesignBlock, task, spec),
+			});
 			active = {
 				adapter: new NodeSessionAdapter(new PiNodeSessionFactory(options)),
 				tools,
+				blockCapture,
 				initialized: false,
 			};
 			await active.adapter.create({
@@ -276,7 +337,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 					},
 					runDefaultModel: options.model,
 					runDefaultThinkingLevel: options.thinkingLevel,
-					controlTools: [...tools.tools, ...createAgentCardCatalogTools(this.agentCards)],
+					controlTools: [...tools.tools, ...createAgentCardCatalogTools(this.agentCards), blockTool],
 				},
 			});
 			await active.adapter.dispatch(
@@ -289,6 +350,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 			this.active.set(runId, active);
 		}
 		active.tools.resetSubmitted();
+		active.blockCapture.beginRound();
 		const prompt = active.initialized
 			? buildWorkflowDesignRevisionPrompt(draft.revision, compilerDiagnostics)
 			: buildInitialWorkflowDesignPrompt(
@@ -308,7 +370,9 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 		);
 		active.initialized = true;
 		const submitted = active.tools.getSubmitted();
-		if (!submitted) throw new Error("Workflow Designer did not submit a valid Draft");
-		return submitted;
+		if (submitted) return submitted;
+		const blocked = active.blockCapture.value;
+		if (blocked) throw new WorkflowDesignBlockedError(blocked);
+		throw new Error("Workflow Designer did not submit a valid Draft or structured blocked result");
 	}
 }
