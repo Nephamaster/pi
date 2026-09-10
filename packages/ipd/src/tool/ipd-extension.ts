@@ -10,19 +10,26 @@ const CreateRunSchema = Type.Object(
 	{
 		request_id: NonEmptyStringSchema,
 		skill_name: NonEmptyStringSchema,
-		task: NonEmptyStringSchema,
-		objectives: Type.Optional(Type.Array(NonEmptyStringSchema)),
-		requirements: Type.Array(NonEmptyStringSchema),
-		unresolved_facts: Type.Optional(Type.Array(NonEmptyStringSchema)),
-		materials: Type.Array(
-			Type.Object(
+		task: Type.String({
+			minLength: 1,
+			description:
+				"The user's complete task request copied verbatim. Do not summarize, rewrite, expand, interpret, or add Skill instructions.",
+		}),
+		materials: Type.Optional(
+			Type.Array(
+				Type.Object(
+					{
+						material_id: NonEmptyStringSchema,
+						description: NonEmptyStringSchema,
+						reference: NonEmptyStringSchema,
+						media_type: Type.Optional(NonEmptyStringSchema),
+					},
+					{ additionalProperties: false },
+				),
 				{
-					material_id: NonEmptyStringSchema,
-					description: NonEmptyStringSchema,
-					reference: NonEmptyStringSchema,
-					media_type: Type.Optional(NonEmptyStringSchema),
+					description:
+						"Task materials explicitly supplied or referenced by the user. Never include Skill files, Skill scripts, or inferred materials.",
 				},
-				{ additionalProperties: false },
 			),
 		),
 	},
@@ -36,20 +43,10 @@ function taskInput(input: CreateRunInput): TaskInput {
 		schema_version: 1,
 		task_input_id: input.request_id,
 		raw_task: { text: input.task, source: "external-agent-request" },
-		objectives: (input.objectives ?? []).map((text, index) => ({
-			objective_id: `objective-${index + 1}`,
-			statement: { text, source: "external-agent-request" },
-		})),
-		requirements: input.requirements.map((text, index) => ({
-			requirement_id: `requirement-${index + 1}`,
-			statement: { text, source: "external-agent-request" },
-		})),
-		materials: input.materials,
-		unresolved_facts: (input.unresolved_facts ?? []).map((description, index) => ({
-			fact_id: `fact-${index + 1}`,
-			description,
-			source: "external-agent-request",
-		})),
+		objectives: [],
+		requirements: [],
+		materials: input.materials ?? [],
+		unresolved_facts: [],
 	};
 }
 
@@ -62,9 +59,12 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 			label: "IPD",
 			description:
 				"Create one governed IPD Run from the user's preserved task. Internal planning and execution continue without outer-agent orchestration.",
-			promptSnippet: "Use IPD create_run for long tasks that require structured delivery and independent review.",
+			promptSnippet:
+				"Use IPD create_run for long tasks that require structured delivery and independent review. Pass request_id, skill_name, the user's verbatim task, and only user-supplied task materials when present.",
 			promptGuidelines: [
-				"Preserve the user's original task and explicit requirements; do not invent missing business facts.",
+				"Copy the user's complete task request verbatim into task. Do not summarize, rewrite, expand, interpret, or add content from Skills or other context.",
+				"skill_name binds the task Skill separately. Do not repeat Skill instructions, files, scripts, inferred requirements, materials, or unresolved facts in task.",
+				"materials is optional and contains only task materials explicitly supplied or referenced by the user. Never include the bound Skill, Skill files, Skill scripts, or Agent-inferred materials.",
 				"This Tool only creates a Run. It cannot approve outputs, answer internal roles, skip review, or mutate Run state.",
 			],
 			parameters: CreateRunSchema,

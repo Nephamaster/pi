@@ -1,4 +1,13 @@
 {
+  "defaultTools": [
+    "read",
+    "bash",
+    "edit",
+    "write",
+    "grep",
+    "find",
+    "ls"
+  ],
   "packages": [
     "npm:pi-web-access@0.27.0"
   ]

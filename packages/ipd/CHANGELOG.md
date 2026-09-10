@@ -30,6 +30,8 @@
 - Changed Process Selector startup to bind and explicitly load the packaged `process-selection` Skill.
 - Changed default Tool asset discovery to use only ToolDefinitions exposed by the active Pi registry.
 - Changed review-node permissions to reject write, edit, Bash, and PowerShell tools.
+- Reduced IPD Run creation input to request ID, Skill name, the verbatim user task, and optional user-supplied task
+  materials; derived objectives, requirements, and unresolved facts now start empty instead of being authored by the outer Agent.
 
 ### Fixed
 
