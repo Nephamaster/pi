@@ -53,3 +53,6 @@ export * from "./runtime/submission-store.ts";
 export * from "./runtime/workflow-runtime.ts";
 export * from "./tool/default-ipd-extension.ts";
 export * from "./tool/ipd-extension.ts";
+export * from "./visualization/dashboard-model.ts";
+export * from "./visualization/dashboard-page.ts";
+export * from "./visualization/dashboard-server.ts";

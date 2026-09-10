@@ -24,6 +24,7 @@ import { RetryingNodeWorker } from "../runtime/node-worker.ts";
 import { FileRunStore } from "../runtime/run-store.ts";
 import { SubmissionStore } from "../runtime/submission-store.ts";
 import { WorkflowRuntime } from "../runtime/workflow-runtime.ts";
+import { IpdDashboardServer } from "../visualization/dashboard-server.ts";
 import { registerIpdCreateRunTool } from "./ipd-extension.ts";
 
 const BUILTIN_TOOLS = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"]);
@@ -33,6 +34,15 @@ function executableTools(pi: ExtensionAPI): ToolDefinition[] {
 		throw new Error("Current Pi build does not expose executable Tool definitions required by IPD");
 	const provider = pi as ExtensionAPI & { getToolDefinitions(): ToolDefinition[] };
 	return provider.getToolDefinitions();
+}
+
+function dashboardPort(): number {
+	const raw = process.env.PI_IPD_DASHBOARD_PORT?.trim();
+	if (!raw) return 0;
+	const port = Number(raw);
+	if (!Number.isInteger(port) || port < 0 || port > 65_535)
+		throw new Error(`Invalid PI_IPD_DASHBOARD_PORT: ${raw}`);
+	return port;
 }
 
 async function modelRuntime(context: ExtensionContext): Promise<ModelRuntime> {
@@ -128,12 +138,20 @@ async function createDefaultService(
 		model: { provider: model.provider, id: model.id },
 		thinkingLevel: context.thinkingLevel ?? "off",
 	});
+	const dashboard = new IpdDashboardServer({
+		projectRoot: context.cwd,
+		processSpecs: assembled.processSpecs,
+		getRun: (runId) => store.read(runId),
+		host: process.env.PI_IPD_DASHBOARD_HOST ?? "127.0.0.1",
+		port: dashboardPort(),
+	});
 	return new IpdService({
 		store,
 		projectRoot: context.cwd,
 		processSpecs: assembled.processSpecs,
 		assets,
 		executionIdentity,
+		visualizer: dashboard,
 		createControlPlane: (runId, runSkill) => {
 			return new IpdControlPlane(
 				store,

@@ -13,6 +13,18 @@ import type { FileRunStore } from "./run-store.ts";
 import { finalApprovedSubmissionIds } from "./runtime-state.ts";
 import type { WorkflowRuntime } from "./workflow-runtime.ts";
 
+export interface IpdVisualizationLink {
+	url: string;
+	snapshotUrl: string;
+	bindHost: string;
+	port: number;
+	shareHint?: string;
+}
+
+export interface IpdRunVisualizer {
+	registerRun(runId: string): Promise<IpdVisualizationLink>;
+}
+
 export interface IpdServiceOptions {
 	store: FileRunStore;
 	processSpecs: readonly ProcessSpec[];
@@ -21,6 +33,7 @@ export interface IpdServiceOptions {
 	executionIdentity?: JsonValue;
 	createControlPlane(runId: string, runSkill: LockedSkill): IpdControlPlane;
 	createRuntime(directory: RunDirectory): WorkflowRuntime;
+	visualizer?: IpdRunVisualizer;
 	idFactory?: () => string;
 }
 
@@ -29,6 +42,8 @@ export interface CreateRunReceipt {
 	accepted: boolean;
 	phase: RunState["phase"];
 	status: RunState["status"];
+	visualization?: IpdVisualizationLink;
+	visualizationError?: string;
 }
 
 export function createRunId(now = Date.now(), uuid = randomUUID()): string {
@@ -100,7 +115,19 @@ export class IpdService {
 		const directory = await controlPlane.accept(input);
 		this.startBackground(runId, controlPlane.prepareAccepted(input, directory));
 		const state = await this.getRun(runId);
-		return { runId, accepted: true, phase: state.phase, status: state.status };
+		const visualization = await this.visualizationReceipt(runId);
+		return { runId, accepted: true, phase: state.phase, status: state.status, ...visualization };
+	}
+
+	private async visualizationReceipt(
+		runId: string,
+	): Promise<Pick<CreateRunReceipt, "visualization" | "visualizationError">> {
+		if (!this.options.visualizer) return {};
+		try {
+			return { visualization: await this.options.visualizer.registerRun(runId) };
+		} catch (error) {
+			return { visualizationError: error instanceof Error ? error.message : String(error) };
+		}
 	}
 
 	private startBackground(runId: string, preparation: Promise<PrepareRunResult>): void {
