@@ -2,7 +2,7 @@
 import type { ArtifactManifest } from "../artifact/manifest.ts";
 import type { ExecutionBaseline, LockedSkill } from "./baseline.ts";
 import type { JsonValue } from "./primitives.ts";
-import type { ProcessSelection } from "./process-spec.ts";
+import type { ProcessSelection, ProcessSpec } from "./process-spec.ts";
 import type { TaskInput } from "./task-input.ts";
 import type { WorkflowDefinition } from "./workflow.ts";
 
@@ -11,6 +11,30 @@ export type RunStatus = "running" | "blocked" | "succeeded" | "failed";
 export type NodeStatus = "waiting" | "ready" | "active" | "waiting_review" | "waiting_rework" | "succeeded" | "blocked";
 export type RoundStatus = "active" | "submitted" | "completed" | "blocked" | "invalidated" | "failed";
 export type SubmissionStatus = "candidate" | "approved" | "rejected" | "stale";
+
+export interface PreparationDiagnosticRecord {
+	code?: string;
+	path?: string;
+	message: string;
+	nodeId?: string;
+	processRequirementId?: string;
+	category?: string;
+}
+
+export interface ProcessSpecStaffingReport {
+	ok: boolean;
+	diagnostics: Array<{ code: string; path: string; message: string }>;
+}
+
+export interface WorkflowDesignBlockRecord {
+	type: "resource_gap" | "expressiveness_gap" | "task_blocker" | "other";
+	reason: string;
+	missing_conditions: string[];
+	task_requirement_refs: string[];
+	process_requirement_refs: string[];
+	diagnostics: Array<{ code?: string; path?: string; message: string }>;
+	needed_to_resume: string[];
+}
 
 export interface NodeBlockRecord {
 	blockId: string;
@@ -150,6 +174,14 @@ export interface RunState {
 	taskInput?: TaskInput;
 	runSkill?: LockedSkill;
 	processSelection?: ProcessSelection;
+	selectedProcessSpec?: ProcessSpec;
+	staffingReport?: ProcessSpecStaffingReport;
+	workflowDesignBlock?: WorkflowDesignBlockRecord;
+	lastWorkflowValidation?: {
+		revision: number;
+		valid: boolean;
+		diagnostics: PreparationDiagnosticRecord[];
+	};
 	workflowCandidate?: WorkflowDefinition;
 	baseline?: ExecutionBaseline;
 	nodes: NodeRuntimeRecord[];
