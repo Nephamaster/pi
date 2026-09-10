@@ -12,7 +12,7 @@ describe("AssetAssembler", () => {
 	const roots: string[] = [];
 	afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
-	it("associates Skill allowed-tools with the Pi Tool Registry", async () => {
+	it("associates Skill allowed-tools and required-tools with the Pi Tool Registry", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-assets-"));
 		roots.push(root);
 		const skillDir = join(root, "skills", "analysis");
@@ -21,7 +21,7 @@ describe("AssetAssembler", () => {
 		await Promise.all([skillDir, cardDir, specDir].map((path) => mkdir(path, { recursive: true })));
 		await writeFile(
 			join(skillDir, "SKILL.md"),
-			"---\nname: analysis\ndescription: Analyze inputs.\nallowed-tools: read custom_search\n---\n\nUse the available evidence.\n",
+			"---\nname: analysis\ndescription: Analyze inputs.\nallowed-tools: read custom_search\nrequired-tools: custom_search\n---\n\nUse the available evidence.\n",
 		);
 		await writeFile(
 			join(cardDir, "analyst.json"),
@@ -56,7 +56,11 @@ describe("AssetAssembler", () => {
 			hasModel: () => true,
 		});
 		expect(result.skillTools.analysis).toEqual(["read", "custom_search"]);
-		expect(result.skills[0]).toMatchObject({ id: "analysis", filePath: join(skillDir, "SKILL.md") });
+		expect(result.skills[0]).toMatchObject({
+			id: "analysis",
+			filePath: join(skillDir, "SKILL.md"),
+			requiredTools: ["custom_search"],
+		});
 		expect(result.skills[0].hash).not.toBe("4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945");
 		const lockedHash = result.skills[0].hash;
 		await mkdir(join(skillDir, "__pycache__"));
@@ -88,7 +92,7 @@ describe("AssetAssembler", () => {
 			hasModel: () => true,
 		});
 		expect(result.unavailableAgentCards).toEqual([]);
-		expect(result.agentCards).toHaveLength(43);
+		expect(result.agentCards).toHaveLength(46);
 		expect(result.agentCards).toContainEqual(
 			expect.objectContaining({ id: "agency-project-management-project-shepherd" }),
 		);
@@ -97,6 +101,21 @@ describe("AssetAssembler", () => {
 			expect.objectContaining({
 				id: "agency-research-synthesist",
 				tools: expect.arrayContaining(["web_search", "get_search_content", "source_check"]),
+			}),
+		);
+		expect(result.agentCards).toContainEqual(
+			expect.objectContaining({
+				id: "agency-design-visual-storyteller",
+				capabilities: expect.arrayContaining(["narrative-design", "presentation-production"]),
+			}),
+		);
+		expect(result.agentCards).toContainEqual(
+			expect.objectContaining({ id: "agency-product-trend-researcher", capabilities: expect.arrayContaining(["evidence-review"]) }),
+		);
+		expect(result.agentCards).toContainEqual(
+			expect.objectContaining({
+				id: "agency-testing-evidence-collector",
+				capabilities: expect.arrayContaining(["presentation-review"]),
 			}),
 		);
 		const spec = result.processSpecs.find(
