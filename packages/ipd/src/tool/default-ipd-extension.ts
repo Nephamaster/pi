@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { PiNodeWorker } from "../adapter/pi-node-worker.ts";
 import { compileWorkflow } from "../compiler/compiler.ts";
+import type { CompilerDiagnostic } from "../contracts/baseline.ts";
 import { IpdControlPlane } from "../control/control-plane.ts";
 import { type PiControlRoleOptions, PiProcessSelector, PiWorkflowDesigner } from "../control/pi-control-roles.ts";
 import { WorkflowDraftManager } from "../control/workflow-draft.ts";
@@ -43,6 +44,26 @@ function dashboardPort(): number {
 	if (!Number.isInteger(port) || port < 0 || port > 65_535)
 		throw new Error(`Invalid PI_IPD_DASHBOARD_PORT: ${raw}`);
 	return port;
+}
+
+function diagnosticCategory(diagnostic: CompilerDiagnostic): string {
+	if (
+		diagnostic.code.includes("capability") ||
+		diagnostic.code.includes("staff") ||
+		diagnostic.code === "process_activity_unsatisfied" ||
+		diagnostic.code === "process_review_unsatisfied"
+	)
+		return "staffing";
+	if (
+		diagnostic.code.startsWith("asset_") ||
+		diagnostic.code.startsWith("skill_") ||
+		diagnostic.code.includes("permission") ||
+		diagnostic.code.includes("knowledge_base")
+	)
+		return "resource";
+	if (diagnostic.code.startsWith("process_")) return "process";
+	if (diagnostic.code.includes("criterion") || diagnostic.code.includes("review")) return "quality";
+	return "workflow";
 }
 
 async function modelRuntime(context: ExtensionContext): Promise<ModelRuntime> {
@@ -129,6 +150,7 @@ async function createDefaultService(
 			id: skill.id,
 			description: skill.description,
 			associatedTools: assembled.skillTools[skill.id] ?? [],
+			requiredTools: skill.requiredTools,
 		})),
 		tools: assembled.tools.map((tool) => tool.id),
 		unavailableAgentCards: assembled.unavailableAgentCards,
@@ -180,9 +202,29 @@ async function createDefaultService(
 								return result.ok
 									? []
 									: result.report.diagnostics.map((diagnostic) => ({
+											code: diagnostic.code,
 											path: diagnostic.path,
 											message: diagnostic.message,
+											nodeId: diagnostic.nodeId,
+											processRequirementId: diagnostic.processRequirementId,
+											category: diagnosticCategory(diagnostic),
 										}));
+							},
+							onValidation: async (validation) => {
+								await store.mutate(
+									runId,
+									`workflow-validation:${validation.revision}:${hashJson(validation.diagnostics)}`,
+									{ revision: validation.revision, valid: validation.valid },
+									(draft, event) => {
+										draft.lastWorkflowValidation = structuredClone(validation);
+										event.emit("workflow_draft_validated", {
+											revision: validation.revision,
+											valid: validation.valid,
+											diagnosticCount: validation.diagnostics.length,
+										});
+										return true;
+									},
+								);
 							},
 						});
 						managerByRun.set(runId, manager);

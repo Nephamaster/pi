@@ -93,18 +93,27 @@ export function validateNodeAgent(
 			node.node_id,
 		);
 	}
-	for (const skill of agent.skills) {
-		if (
-			catalog.skills.some((item) => item.id === skill.id) &&
-			!agent.tools.some((tool) => tool.id === "read" || tool.id === "bash")
-		)
+	for (const skillRef of agent.skills) {
+		const skill = catalog.skills.find((item) => item.id === skillRef.id);
+		if (skill && !agent.tools.some((tool) => tool.id === "read" || tool.id === "bash"))
 			addDiagnostic(
 				diagnostics,
 				"skill_unreadable",
 				`${path}/skills`,
-				`Skill ${skill.id} requires read or bash for Pi-native disclosure`,
+				`Skill ${skillRef.id} requires read or bash for Pi-native disclosure`,
 				node.node_id,
 			);
+		if (!skill) continue;
+		for (const requiredTool of skill.requiredTools ?? []) {
+			if (agent.tools.some((tool) => tool.id === requiredTool)) continue;
+			addDiagnostic(
+				diagnostics,
+				"skill_required_tool_missing",
+				`${path}/skills`,
+				`Skill ${skill.id} requires bound tool ${requiredTool}`,
+				node.node_id,
+			);
+		}
 	}
 	for (const [field, paths, allowed] of [
 		["read_paths", agent.permissions.read_paths, card.permissions.readScopes],

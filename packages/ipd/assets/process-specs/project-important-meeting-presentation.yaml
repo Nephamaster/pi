@@ -1,6 +1,6 @@
 schema_version: 2
 process_spec_id: project-important-meeting-presentation-simple
-version: 1.0.1
+version: 1.0.2
 name: Important Meeting Presentation - Simple
 description: >-
   A simplified PPT development process for important meetings, management presentations, project reviews, and formal proposal
@@ -55,7 +55,7 @@ required_activities:
     Produce the complete PPT, including slide content, charts, images, visual styling, and layout. Preserve factual and numerical
     consistency throughout production, and use visual expression to reinforce information hierarchy and speaking priorities.
   required_capabilities:
-  - artifact-production
+  - presentation-production
 
 - activity_id: final-validation
   description: >-
@@ -64,7 +64,7 @@ required_activities:
     usability. Correct discovered issues, revalidate affected content, and form the release candidate for independent final
     review.
   required_capabilities:
-  - artifact-production
+  - presentation-production
 
 required_deliverables:
 - deliverable_id: presentation-brief
@@ -183,7 +183,7 @@ required_reviews:
     Independent final PPT comprehensive review of the exact finalized candidate. Confirms that content, data, visual
     presentation, file integrity, and actual speaking conditions meet formal meeting-use requirements.
   reviewer_capabilities:
-  - artifact-review
+  - presentation-review
   independent_agent: true
   criteria:
   - process_criterion_id: final-deck-review.criterion.1

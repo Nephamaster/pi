@@ -67,4 +67,34 @@ describe("control-role asset catalog tools", () => {
 		);
 		expect(loaded.content[0]).toMatchObject({ type: "text", text: renderAgentSelectionProfile(producer) });
 	});
+
+	it("filters employees by exact capability and tool intersection before ranking", async () => {
+		const fixture = createCompilerFixture();
+		const producer = fixture.assets.agentCards.find((card) => card.id === "producer");
+		const reviewer = fixture.assets.agentCards.find((card) => card.id === "reviewer");
+		if (!producer || !reviewer) throw new Error("Fixture cards are missing");
+		producer.tools.push("bash");
+		const tools = createAgentCardCatalogTools([producer, reviewer]);
+		const search = tools.find((tool) => tool.name === "search_agent_cards");
+		if (!search) throw new Error("AgentCard search tool is missing");
+		const matched = await search.execute(
+			"search-filtered",
+			{ query: "*", capabilities_all: ["production"], tools_all: ["bash"] },
+			undefined,
+			undefined,
+			{} as never,
+		);
+		const matchedText = matched.content[0]?.type === "text" ? matched.content[0].text : "";
+		expect(matchedText).toContain("producer");
+		expect(matchedText).not.toContain('"id":"reviewer"');
+		const none = await search.execute(
+			"search-none",
+			{ query: "*", capabilities_all: ["review"], tools_all: ["bash"] },
+			undefined,
+			undefined,
+			{} as never,
+		);
+		const noneText = none.content[0]?.type === "text" ? none.content[0].text : "";
+		expect(noneText).toContain("producer");
+	});
 });
