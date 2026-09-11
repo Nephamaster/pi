@@ -1,0 +1,38 @@
+name: IPD P0 verify
+
+on:
+  push:
+    branches:
+      - fix/ipd-p0-runtime-safety-delivery
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ipd-p0-runtime-safety-delivery
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies for verification
+        run: npm ci --ignore-scripts --force
+      - name: Build IPD
+        run: npm run build --workspace @earendil-works/pi-ipd
+      - name: Test IPD
+        run: npm test --workspace @earendil-works/pi-ipd
+      - name: Remove one-shot workflow on success
+        if: success()
+        shell: bash
+        run: |
+          rm .github/workflows/ipd-p0-verify.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/ipd-p0-verify.yml
+          git commit -m 'chore(ipd): remove one-shot P0 verifier'
+          git push origin HEAD:fix/ipd-p0-runtime-safety-delivery

@@ -15,6 +15,7 @@ import type { NodePermissionsSchema } from "../contracts/workflow.ts";
 import { hashSkillPackage } from "../registry/skill-package.ts";
 import { createCurrentRoundContextExtension, type VirtualContextFile } from "./node-context.ts";
 import { createNodeFileScopeExtension } from "./node-file-scope.ts";
+import { createNodeSandboxedBashTool } from "./node-sandbox.ts";
 import type { NodeSessionFactory, NodeSessionHandle } from "./node-session-adapter.ts";
 
 export interface PiNodeSessionCreateInput {
@@ -25,6 +26,7 @@ export interface PiNodeSessionCreateInput {
 	getCurrentContext?: () => string | undefined;
 	getAdditionalReadRoots?: () => readonly string[];
 	getDeniedReadRoots?: () => readonly string[];
+	allowReadOwnWritePaths?: boolean;
 	permissions?: Static<typeof NodePermissionsSchema>;
 	participant: EffectiveParticipant;
 	runDefaultModel: Model<Api>;
@@ -97,6 +99,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 								...(input.getAdditionalReadRoots?.() ?? []),
 							],
 							deniedReadRoots: input.getDeniedReadRoots,
+							allowReadOwnWritePaths: input.allowReadOwnWritePaths,
 						}),
 					},
 					...(input.getCurrentContext
@@ -122,6 +125,25 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 		const customTools = [...this.customTools, ...(input.controlTools ?? [])].filter((tool) =>
 			allowedToolNames.has(tool.name),
 		);
+		if (allowedToolNames.has("bash")) {
+			const nonBashTools = customTools.filter((tool) => tool.name !== "bash");
+			customTools.length = 0;
+			customTools.push(
+				...nonBashTools,
+				createNodeSandboxedBashTool({
+					workspace: input.workspace,
+					sessionDirectory: input.sessionDirectory,
+					participantId: input.participant.participantId,
+					permissions,
+					additionalReadRoots: () => [
+						...input.participant.lockedSkills.map((skill) => skill.baseDir),
+						...(input.getAdditionalReadRoots?.() ?? []),
+					],
+					deniedReadRoots: input.getDeniedReadRoots,
+					allowReadOwnWritePaths: input.allowReadOwnWritePaths,
+				}),
+			);
+		}
 		const created = await createAgentSessionFromServices({
 			services,
 			sessionManager: SessionManager.create(input.workspace, input.sessionDirectory),

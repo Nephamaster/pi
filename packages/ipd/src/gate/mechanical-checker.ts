@@ -1,5 +1,6 @@
 // 执行可注册的确定性质量检查并汇总逐项结果。
 import Type from "typebox";
+import { extname } from "node:path";
 import { validateArtifactManifest } from "../artifact/manifest.ts";
 import type { JsonValue } from "../contracts/primitives.ts";
 import type { CriterionDefinition } from "../contracts/workflow.ts";
@@ -104,7 +105,6 @@ export function createArtifactIntegrityCheckExecutor() {
 						contract: artifact.contract,
 						manifest: artifact.manifest,
 					}),
-				),
 			);
 			const diagnostics = validations.flatMap((validation) => validation.diagnostics);
 			return diagnostics.length === 0
@@ -113,6 +113,53 @@ export function createArtifactIntegrityCheckExecutor() {
 						result: "FAIL",
 						evidence: { diagnostics: toJsonValue(diagnostics) },
 						message: "Artifact integrity validation failed",
+					};
+		},
+	});
+}
+
+export function createArtifactFileSetCheckExecutor() {
+	return defineCheckExecutor({
+		id: "artifact-file-set",
+		parameters: Type.Object(
+			{
+				exact_count: Type.Optional(Type.Integer({ minimum: 0 })),
+				extensions: Type.Optional(
+					Type.Array(Type.String({ pattern: "^\\.[A-Za-z0-9]+$" }), { minItems: 1, uniqueItems: true }),
+				),
+				file_names: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, uniqueItems: true })),
+			},
+			{ additionalProperties: false },
+		),
+		async execute(parameters, context) {
+			const files = context.manifest.files.map((file) => file.path);
+			const diagnostics: string[] = [];
+			if (parameters.exact_count !== undefined && files.length !== parameters.exact_count)
+				diagnostics.push(`Expected exactly ${parameters.exact_count} file(s), received ${files.length}`);
+			if (parameters.extensions) {
+				const allowed = new Set(parameters.extensions.map((extension) => extension.toLowerCase()));
+				for (const file of files) {
+					const extension = extname(file).toLowerCase();
+					if (!allowed.has(extension)) diagnostics.push(`File ${file} has disallowed extension ${extension || "(none)"}`);
+				}
+			}
+			if (parameters.file_names) {
+				const actualNames = new Set(files.map((file) => file.split(/[\\/]/).at(-1) ?? file));
+				for (const required of parameters.file_names)
+					if (!actualNames.has(required)) diagnostics.push(`Required delivery file is missing: ${required}`);
+				for (const actual of actualNames)
+					if (!parameters.file_names.includes(actual)) diagnostics.push(`Unexpected delivery file: ${actual}`);
+			}
+			return diagnostics.length === 0
+				? {
+						result: "PASS",
+						evidence: { files: toJsonValue(files) },
+						message: "Artifact file set matches the declared delivery constraint",
+					}
+				: {
+						result: "FAIL",
+						evidence: { files: toJsonValue(files), diagnostics: toJsonValue(diagnostics) },
+						message: "Artifact file set violates the declared delivery constraint",
 					};
 		},
 	});

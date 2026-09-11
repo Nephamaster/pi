@@ -15,7 +15,11 @@ import type { CompilerDiagnostic } from "../contracts/baseline.ts";
 import { IpdControlPlane } from "../control/control-plane.ts";
 import { type PiControlRoleOptions, PiProcessSelector, PiWorkflowDesigner } from "../control/pi-control-roles.ts";
 import { WorkflowDraftManager } from "../control/workflow-draft.ts";
-import { createArtifactIntegrityCheckExecutor, MechanicalChecker } from "../gate/mechanical-checker.ts";
+import {
+	createArtifactFileSetCheckExecutor,
+	createArtifactIntegrityCheckExecutor,
+	MechanicalChecker,
+} from "../gate/mechanical-checker.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
 import { AssetAssembler, toCompilerAssetCatalog } from "../registry/asset-assembler.ts";
 import { CheckExecutorRegistry } from "../registry/check-executor-registry.ts";
@@ -121,8 +125,10 @@ async function createDefaultService(
 			runtimeModels.getModel(provider, id) !== undefined && runtimeModels.hasConfiguredAuth(provider),
 	});
 	const checks = new CheckExecutorRegistry();
-	const collision = checks.add(createArtifactIntegrityCheckExecutor());
-	if (collision) throw new Error(collision.message);
+	for (const executor of [createArtifactIntegrityCheckExecutor(), createArtifactFileSetCheckExecutor()]) {
+		const collision = checks.add(executor);
+		if (collision) throw new Error(collision.message);
+	}
 	const assets = toCompilerAssetCatalog(assembled, checks);
 	const selectorCard = assembled.agentCards.find((card) => card.id === "ipd-process-selector");
 	const designerCard = assembled.agentCards.find((card) => card.id === "agency-project-management-project-shepherd");
@@ -151,6 +157,7 @@ async function createDefaultService(
 			description: skill.description,
 			associatedTools: assembled.skillTools[skill.id] ?? [],
 			requiredTools: skill.requiredTools,
+			requiredCommands: skill.requiredCommands,
 		})),
 		tools: assembled.tools.map((tool) => tool.id),
 		unavailableAgentCards: assembled.unavailableAgentCards,
