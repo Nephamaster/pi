@@ -1,0 +1,157 @@
+name: IPD task simplification finalize
+on:
+  push:
+    branches: [fix/ipd-simplify-task-input-and-preparation]
+permissions:
+  contents: write
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ipd-simplify-task-input-and-preparation
+          fetch-depth: 0
+      - name: Apply coherent task-model cleanup
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          def edit(path, fn):
+              p = Path(path)
+              old = p.read_text()
+              new = fn(old)
+              if new == old:
+                  raise SystemExit(f"no change produced for {path}")
+              p.write_text(new)
+
+          def reps(path, pairs):
+              def apply(text):
+                  for old, new in pairs:
+                      if old not in text:
+                          raise SystemExit(f"missing expected text in {path}: {old[:120]!r}")
+                      text = text.replace(old, new)
+                  return text
+              edit(path, apply)
+
+          # Compiler: TaskInput remains authoritative raw input/material metadata, but user semantics are not formal coverage.
+          reps('packages/ipd/src/compiler/compiler.ts', [
+              ('\tconst taskRequirementIds = new Set(task.requirements.map((item) => item.requirement_id));\n', ''),
+              ('\tfor (const id of selection.task_requirement_refs) {\n\t\tif (!taskRequirementIds.has(id))\n\t\t\tdiagnostics.push({\n\t\t\t\tcode: "selection_reference_unknown",\n\t\t\t\tseverity: "error",\n\t\t\t\tpath: "/task_requirement_refs",\n\t\t\t\tmessage: `Unknown task requirement ${id}`,\n\t\t\t});\n\t}\n', ''),
+          ])
+
+          reps('packages/ipd/src/compiler/validate-process-coverage.ts', [
+              ('// 校验 Workflow 对 TaskInput 和 ProcessSpec 的真实覆盖。', '// 校验 Workflow 对 ProcessSpec 治理义务的真实覆盖。'),
+              ('import type { TaskInput } from "../contracts/task-input.ts";\n', ''),
+              ('\ttask: TaskInput,\n', ''),
+              ('\tfor (const item of task.requirements) expected.add(coverageKey("task_requirement", item.requirement_id));\n', ''),
+          ])
+          reps('packages/ipd/src/compiler/validate-workflow.ts', [
+              ('\t\ttask,\n\t\tspec,\n\t\tnodes,', '\t\tspec,\n\t\tnodes,'),
+          ])
+
+          reps('packages/ipd/src/control/control-plane.ts', [
+              ('\ttask_requirement_refs: string[];\n', ''),
+          ])
+
+          def patch_roles(text):
+              text = text.replace('\t\ttask_requirement_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),\n', '')
+              text = text.replace('Use exact registered IDs, versions, and requirement references.', 'Use exact registered IDs, versions, and ProcessSpec requirement references.')
+              text = text.replace('\t\t\t!decision.task_requirement_refs ||\n', '')
+              text = text.replace('\t\t\tschema_version: 1,', '\t\t\tschema_version: 2,')
+              text = text.replace('\n\t\t\ttask_requirement_refs: decision.task_requirement_refs,', '')
+              text = text.replace('\tif (!decision.task_requirement_refs) diagnostics.push("selected decision requires task_requirement_refs");\n', '')
+              text = text.replace('\tconst taskRequirementIds = new Set(task.requirements.map((item) => item.requirement_id));\n', '')
+              text = re.sub(r'\tfor \(const id of decision\.task_requirement_refs \?\? \[\]\)\n\t\tif \(!taskRequirementIds\.has\(id\)\) diagnostics\.push\(`Unknown task_requirement_ref: \$\{id\}`\);\n', '', text)
+              text = re.sub(r'\tfor \(const id of block\.task_requirement_refs\)\n\t\tif \(!taskRequirementIds\.has\(id\)\) diagnostics\.push\(`Unknown task_requirement_ref: \$\{id\}`\);\n', '', text)
+              return text
+          edit('packages/ipd/src/control/pi-control-roles.ts', patch_roles)
+
+          def patch_runtime_state(text):
+              pattern = re.compile(r'export function taskContextForNode\(node: EffectiveNode, state: RunState\): NodeTaskContext \{.*?\n\}\n\nexport function nodeIsReady', re.S)
+              replacement = '''export function taskContextForNode(node: EffectiveNode, state: RunState): NodeTaskContext {
+\tconst task = state.taskInput;
+\tif (!task) return { materials: [], unresolvedFacts: [] };
+\tconst materialIds = new Set(
+\t\tnode.definition.inputs.flatMap((input) => (input.kind === "task_material" ? [input.material_id] : [])),
+\t);
+\treturn {
+\t\trawTask: task.raw_task,
+\t\tmaterials: task.materials
+\t\t\t.filter((material) => materialIds.has(material.material_id))
+\t\t\t.map((material) => structuredClone(material)),
+\t\tunresolvedFacts: structuredClone(task.unresolved_facts),
+\t};
+}
+
+export function nodeIsReady'''
+              new, count = pattern.subn(replacement, text)
+              if count != 1:
+                  raise SystemExit(f'runtime-state taskContext replacement count={count}')
+              return new
+          edit('packages/ipd/src/runtime/runtime-state.ts', patch_runtime_state)
+
+          reps('packages/ipd/src/runtime/workflow-runtime.ts', [
+              ('\t\t\t\taffectedRequirementIds: [...report.affected_requirement_ids],\n', ''),
+          ])
+
+          def patch_node_context(text):
+              text = re.sub(r'\tconst objectives = task\.objectives.*?\.join\("\\n\\n"\);\n', '', text, flags=re.S)
+              text = re.sub(r'\tconst requirements = task\.requirements.*?\.join\("\\n\\n"\);\n', '', text, flags=re.S)
+              text = text.replace('''\n## Objectives\n\n${objectives || "None"}\n\n## Assigned Requirements\n\n${requirements || "None"}\n''', '\n')
+              return text
+          edit('packages/ipd/src/adapter/node-context.ts', patch_node_context)
+
+          # Managed draft must emit the new Workflow schema version.
+          edit('packages/ipd/src/control/workflow-draft.ts', lambda t: t.replace('schema_version: 2,', 'schema_version: 3,', 1))
+
+          # Control-role protocols: raw task is the semantic source; only ProcessSpec obligations are formally traced.
+          def patch_selector_prompt(text):
+              text = text.replace('- explicit objectives;\n- explicit requirements;\n', '')
+              text = text.replace('- only valid task requirement references;\n', '')
+              text = text.replace('All references must come from the current `TaskInput` or the selected ProcessSpec.', 'Formal requirement references must come from the selected ProcessSpec. The user task remains preserved as natural-language source material, not compiler coverage IDs.')
+              return text
+          edit('packages/ipd/prompts/process-selector.md', patch_selector_prompt)
+
+          def patch_designer_prompt(text):
+              text = text.replace('''Maintain meaningful traceability from:\n\n`TaskInput / ProcessSpec requirement`\n→ `responsible node`\n→ `declared output`\n→ `acceptance criterion`\n→ `independent review`\n\nDo not attach requirement IDs to unrelated nodes or criteria merely to make validation pass.''', '''Maintain formal traceability for ProcessSpec governance obligations:\n\n`ProcessSpec obligation`\n→ `responsible node`\n→ `declared output`\n→ `acceptance criterion`\n→ `independent review`\n\nThe original user task is not converted into compiler-owned requirement IDs. Interpret it faithfully when designing node contracts, outputs, criteria, and delivery, but do not claim that formal coverage proves semantic satisfaction of the user's request.''')
+              text = text.replace('relevant TaskInput/ProcessSpec requirement IDs', 'relevant ProcessSpec requirement IDs')
+              text = text.replace('weak or cosmetic requirement coverage;', 'weak or cosmetic ProcessSpec coverage;')
+              return text
+          edit('packages/ipd/prompts/workflow-designer.md', patch_designer_prompt)
+
+          def patch_execution_prompt(text):
+              text = text.replace('Record only conditions actually observed, what was attempted, which task requirements are affected, and what is needed before work can resume.', 'Record only conditions actually observed, what was attempted, and what is needed before work can resume.')
+              return text
+          edit('packages/ipd/prompts/execution-node.md', patch_execution_prompt)
+
+          # Skills: remove the obsolete formal TaskRequirement contract while preserving semantic task fidelity.
+          def patch_process_skill(text):
+              text = text.replace('explicit objectives, requirements, prohibitions, and delivery forms;', 'the user\'s requested outcome, constraints, prohibitions, and delivery forms as expressed in the original request;')
+              text = text.replace('`task_requirement_refs`;\n- ', '')
+              text = re.sub(r'\n`task_requirement_refs` should contain.*?Do not include every requirement merely to look complete\.\n', '\n', text, flags=re.S)
+              text = text.replace('task requirement / process requirement / unresolved fact references come from the formal objects;', 'process requirement / unresolved fact references come from the formal objects;')
+              return text
+          edit('packages/ipd/assets/skills/process-selection/SKILL.md', patch_process_skill)
+
+          def patch_workflow_skill(text):
+              text = text.replace('**TaskInput** — the factual basis of the current user task, including the original request, objectives, explicit requirements, materials, and unresolved facts;', '**TaskInput** — the factual basis of the current user task, preserving the original request, user-provided materials, and unresolved facts;')
+              text = text.replace('explicit requirements and prohibitions;', 'requirements and prohibitions expressed in the original request;')
+              text = text.replace('''User / ProcessSpec requirement\n        ↓''', '''User request / ProcessSpec obligation\n        ↓''')
+              text = text.replace('Criteria come from:\n\n- explicit user requirements;\n- ProcessSpec quality requirements', 'Criteria are designed from the user request and ProcessSpec quality requirements. Formal compiler coverage applies only to ProcessSpec obligations. Relevant quality criteria may reflect the user request, but that does not make the Compiler a semantic judge of whether the final delivery satisfies the user.\n\nProcessSpec quality requirements')
+              text = text.replace('`set_requirement_coverage` — map TaskInput and ProcessSpec obligations to real responsibility, output, and criteria;', '`set_requirement_coverage` — map ProcessSpec obligations to real responsibility, output, and criteria;')
+              text = text.replace('every explicit user requirement has real responsibility and deliverable coverage;', 'the Workflow as a whole faithfully addresses the original user request;')
+              return text
+          edit('packages/ipd/assets/skills/workflow-design/SKILL.md', patch_workflow_skill)
+
+          # Remove the temporary workflow itself from the commit.
+          Path('.github/workflows/ipd-task-simplify-finalize.yml').unlink()
+      - name: Commit cleanup
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "refactor(ipd): remove formal task requirement coverage"
+          git push origin HEAD:fix/ipd-simplify-task-input-and-preparation
