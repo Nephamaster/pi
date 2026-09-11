@@ -29,6 +29,61 @@ describe("IpdService", () => {
 		);
 	});
 
+	it("records unexpected preparation exceptions as blocked preparation failures", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-preparation-failure-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		const store = new FileRunStore();
+		const control = new IpdControlPlane(
+			store,
+			{
+				async select() {
+					throw new Error("selector exploded");
+				},
+			},
+			{
+				async design() {
+					throw new Error("designer should not run");
+				},
+			},
+			new FileWorkflowAssetStore({ directory: join(root, ".pi", "ipd", "workflow") }),
+		);
+		const service = new IpdService({
+			store,
+			createControlPlane: () => control,
+			processSpecs: [fixture.processSpec],
+			assets: {
+				...fixture.assets,
+				skills: [
+					{
+						id: "test-skill",
+						hash: "a".repeat(64),
+						source: "test",
+						filePath: "/test/SKILL.md",
+						baseDir: "/test",
+						description: "Test Skill",
+						allowedTools: [],
+					},
+				],
+			},
+			projectRoot: root,
+			idFactory: () => "run-preparation-failure",
+			createRuntime: () => {
+				throw new Error("runtime should not start");
+			},
+		});
+
+		await service.createRun("request-preparation-failure", fixture.taskInput, "test-skill");
+		for (let count = 0; count < 50 && (await service.getRun("run-preparation-failure")).status === "running"; count++)
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		const state = await service.getRun("run-preparation-failure");
+		expect(state.status).toBe("blocked");
+		expect(state.phase).toBe("selection");
+		expect(state.failure).toMatchObject({ code: "preparation_failure", message: "selector exploded" });
+		expect(state.events.some((event) => event.type === "preparation_failed")).toBe(true);
+		expect(state.events.some((event) => event.type === "runtime_failed")).toBe(false);
+	});
+
 	it("creates once and exposes query-only progress and result APIs", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-service-"));
 		roots.push(root);
