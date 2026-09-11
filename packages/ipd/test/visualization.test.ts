@@ -98,4 +98,75 @@ describe("IPD visualization", () => {
 		expect(body).toContain(state.taskInput!.raw_task.text);
 		expect(body).toContain("Standalone snapshot");
 	});
+
+	it("projects the latest RunState on every live API request", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-visualization-live-"));
+		roots.push(root);
+		const { state, processSpec } = stateFixture();
+		let currentState = structuredClone(state);
+		const server = new IpdDashboardServer({
+			projectRoot: root,
+			processSpecs: [processSpec],
+			getRun: async (runId) => {
+				if (runId !== state.runId) throw Object.assign(new Error("not found"), { code: "ENOENT" });
+				return structuredClone(currentState);
+			},
+			host: "127.0.0.1",
+			port: 0,
+		});
+		servers.push(server);
+		const link = await server.registerRun(state.runId);
+		const apiUrl = `${new URL(link.url).origin}/api/runs/${encodeURIComponent(state.runId)}`;
+
+		let response = await fetch(apiUrl);
+		expect(response.status).toBe(200);
+		let snapshot = (await response.json()) as {
+			run: { revision: number; phase: string };
+			workflow: { nodes: Array<{ id: string; status: string; activeRoundId?: string; roundCount: number }> };
+		};
+		expect(snapshot.run).toMatchObject({ revision: 3, phase: "compile" });
+		expect(snapshot.workflow.nodes.every((node) => node.status === "planned")).toBe(true);
+
+		currentState = {
+			...currentState,
+			revision: 4,
+			phase: "execute",
+			nodes: [
+				{ nodeId: "produce", kind: "execution", status: "active", nextRound: 2, activeRoundId: "produce:round:1" },
+				{ nodeId: "review-produce", kind: "review", status: "waiting", nextRound: 1 },
+			],
+			rounds: [
+				{
+					roundId: "produce:round:1",
+					nodeId: "produce",
+					index: 1,
+					status: "active",
+					inputSubmissionIds: [],
+					inputBindings: [],
+					startedAt: 3,
+				},
+			],
+			events: [
+				...currentState.events,
+				{
+					sequence: 3,
+					type: "round_started",
+					timestamp: 3,
+					nodeId: "produce",
+					roundId: "produce:round:1",
+					data: null,
+				},
+			],
+		};
+
+		response = await fetch(apiUrl);
+		expect(response.status).toBe(200);
+		snapshot = (await response.json()) as typeof snapshot;
+		expect(snapshot.run).toMatchObject({ revision: 4, phase: "execute" });
+		expect(snapshot.workflow.nodes.find((node) => node.id === "produce")).toMatchObject({
+			status: "active",
+			activeRoundId: "produce:round:1",
+			roundCount: 1,
+		});
+	});
 });

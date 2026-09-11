@@ -40,7 +40,9 @@ export interface DashboardSnapshot {
 	};
 	task?: {
 		text: string;
+		/** Compatibility-only presentation field; TaskInput v2 no longer models formal objectives. */
 		objectives: string[];
+		/** Compatibility-only presentation field; TaskInput v2 no longer models formal requirements. */
 		requirements: Array<{ id: string; text: string }>;
 		materials: Array<{ id: string; description: string; reference: string }>;
 		unresolvedFacts: Array<{ id: string; description: string }>;
@@ -59,6 +61,7 @@ export interface DashboardSnapshot {
 			requiredReviewCount: number;
 		};
 		rationale?: string;
+		/** Compatibility-only presentation field; ProcessSelection v2 no longer carries task requirement refs. */
 		taskRequirementRefs: string[];
 		processRequirementRefs: string[];
 		unresolvedFactRefs: string[];
@@ -137,11 +140,8 @@ export function buildDashboardSnapshot(
 			? {
 					task: {
 						text: state.taskInput.raw_task.text,
-						objectives: state.taskInput.objectives.map((item) => item.statement.text),
-						requirements: state.taskInput.requirements.map((item) => ({
-							id: item.requirement_id,
-							text: item.statement.text,
-						})),
+						objectives: [],
+						requirements: [],
 						materials: state.taskInput.materials.map((item) => ({
 							id: item.material_id,
 							description: item.description,
@@ -181,9 +181,11 @@ function selectionView(state: RunState, processSpecs: readonly ProcessSpec[]): D
 			unresolvedFactRefs: [],
 		};
 	}
-	const spec = processSpecs.find(
-		(item) => item.process_spec_id === selection.process_spec_ref.id && item.version === selection.process_spec_ref.version,
-	);
+	const spec =
+		state.selectedProcessSpec ??
+		processSpecs.find(
+			(item) => item.process_spec_id === selection.process_spec_ref.id && item.version === selection.process_spec_ref.version,
+		);
 	return {
 		status: "selected",
 		...(spec
@@ -202,7 +204,7 @@ function selectionView(state: RunState, processSpecs: readonly ProcessSpec[]): D
 				}
 			: {}),
 		rationale: selection.rationale,
-		taskRequirementRefs: [...selection.task_requirement_refs],
+		taskRequirementRefs: [],
 		processRequirementRefs: [...selection.process_requirement_refs],
 		unresolvedFactRefs: [...selection.unresolved_fact_refs],
 	};
@@ -228,7 +230,6 @@ function workflowEdges(nodes: readonly WorkflowNode[]): DashboardEdge[] {
 				const key = `rework:${node.node_id}:${target}`;
 				edges.set(key, { from: node.node_id, to: target, kind: "rework", label: "rework" });
 			}
-		}
 	}
 	return [...edges.values()];
 }
