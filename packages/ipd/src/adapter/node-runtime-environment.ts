@@ -30,11 +30,12 @@ export async function commandAvailable(command: string, env: NodeJS.ProcessEnv =
 }
 
 export function requiredRuntimeCommands(participant: EffectiveParticipant): string[] {
-	return [
-		...new Set(
-			participant.lockedSkills.flatMap((skill) => skill.requiredCommands ?? []).map((command) => command.trim()),
-		),
-	].filter(Boolean);
+	const skillCommands = participant.lockedSkills.flatMap((skill) => skill.requiredCommands ?? []);
+	const sandboxCommands =
+		participant.lockedTools.some((tool) => tool.id === "bash") && process.platform === "linux"
+			? ["bwrap", "socat"]
+			: [];
+	return [...new Set([...skillCommands, ...sandboxCommands].map((command) => command.trim()))].filter(Boolean);
 }
 
 export async function missingRuntimeCommands(participant: EffectiveParticipant): Promise<string[]> {
