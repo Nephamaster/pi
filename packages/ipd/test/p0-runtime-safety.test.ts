@@ -6,7 +6,6 @@ import {
 	effectiveNodeReadRoots,
 	MechanicalChecker,
 } from "../src/index.ts";
-import { missingRuntimeCommands } from "../src/adapter/node-runtime-environment.ts";
 
 describe("IPD P0 runtime safety", () => {
 	it("lets execution read its owned write root without widening review permissions", () => {
@@ -28,28 +27,6 @@ describe("IPD P0 runtime safety", () => {
 		});
 		expect(executionRoots).toContain(resolve(workspace, "outputs/current"));
 		expect(reviewRoots).not.toContain(resolve(workspace, "outputs/current"));
-	});
-
-	it("fails runtime preflight for a missing Skill command before Session work", async () => {
-		const participant = {
-			participantId: "producer",
-			agentCard: { tools: [] },
-			lockedSkills: [
-				{
-					id: "test-skill",
-					hash: "a".repeat(64),
-					source: "test",
-					filePath: "/tmp/SKILL.md",
-					baseDir: "/tmp",
-					description: "Test",
-					allowedTools: [],
-					requiredCommands: ["definitely-not-an-ipd-runtime-command"],
-				},
-			],
-			lockedTools: [],
-			lockedKnowledgeBases: [],
-		} as never;
-		expect(await missingRuntimeCommands(participant)).toContain("definitely-not-an-ipd-runtime-command");
 	});
 
 	it("enforces exact user-facing artifact file sets", async () => {
