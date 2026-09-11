@@ -110,7 +110,10 @@ describe("AssetAssembler", () => {
 			}),
 		);
 		expect(result.agentCards).toContainEqual(
-			expect.objectContaining({ id: "agency-product-trend-researcher", capabilities: expect.arrayContaining(["evidence-review"]) }),
+			expect.objectContaining({
+				id: "agency-product-trend-researcher",
+				capabilities: expect.arrayContaining(["evidence-review"]),
+			}),
 		);
 		expect(result.agentCards).toContainEqual(
 			expect.objectContaining({

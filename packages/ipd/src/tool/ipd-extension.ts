@@ -85,10 +85,7 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 					content: [
 						{
 							type: "text",
-							text: wrapPromptBlock(
-								"ipd_run_receipt",
-								`IPD Run ${receipt.runId} accepted=${receipt.accepted}; phase=${receipt.phase}; status=${receipt.status}`,
-							),
+							text: wrapPromptBlock("ipd_run_receipt", lines.join("\n")),
 						},
 					],
 					details: receipt,

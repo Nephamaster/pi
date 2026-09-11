@@ -146,9 +146,7 @@ export class AssetAssembler {
 				if (declaredTools.length > 0) {
 					const notAllowed = requiredTools.filter((name) => !declaredTools.includes(name));
 					if (notAllowed.length > 0)
-						throw new Error(
-							`Skill ${skill.name} requires tools outside allowed-tools: ${notAllowed.join(", ")}`,
-						);
+						throw new Error(`Skill ${skill.name} requires tools outside allowed-tools: ${notAllowed.join(", ")}`);
 				}
 				return {
 					id: skill.name,

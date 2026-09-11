@@ -160,7 +160,11 @@ export class IpdControlPlane {
 			event.emit("process_selected", { processSpec: selection.process_spec_ref.id });
 			event.emit("process_staffing_checked", {
 				ok: staffingDiagnostics.length === 0,
-				diagnostics: staffingDiagnostics.map((item) => ({ code: item.code, path: item.path, message: item.message })),
+				diagnostics: staffingDiagnostics.map((item) => ({
+					code: item.code,
+					path: item.path,
+					message: item.message,
+				})),
 			});
 			return true;
 		});
@@ -194,7 +198,11 @@ export class IpdControlPlane {
 				return this.block(
 					input.runId,
 					directory,
-					[error.block.reason, ...error.block.missing_conditions, ...error.block.diagnostics.map((item) => item.message)],
+					[
+						error.block.reason,
+						...error.block.missing_conditions,
+						...error.block.diagnostics.map((item) => item.message),
+					],
 					"workflow_design_blocked",
 				);
 			}
@@ -259,12 +267,17 @@ export class IpdControlPlane {
 		diagnostics: string[],
 		failureCode = "preparation_blocked",
 	): Promise<PrepareRunResult> {
-		await this.store.mutate(runId, `prepare-blocked:${hashJson({ failureCode, diagnostics })}`, { diagnostics }, (draft, event) => {
-			draft.status = "blocked";
-			draft.failure = { code: failureCode, message: diagnostics.join("\n") };
-			event.emit("preparation_blocked", { code: failureCode, diagnostics });
-			return true;
-		});
+		await this.store.mutate(
+			runId,
+			`prepare-blocked:${hashJson({ failureCode, diagnostics })}`,
+			{ diagnostics },
+			(draft, event) => {
+				draft.status = "blocked";
+				draft.failure = { code: failureCode, message: diagnostics.join("\n") };
+				event.emit("preparation_blocked", { code: failureCode, diagnostics });
+				return true;
+			},
+		);
 		return { ok: false, directory, diagnostics };
 	}
 }

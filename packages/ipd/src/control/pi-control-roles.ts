@@ -19,8 +19,8 @@ import { createAgentCardCatalogTools, createProcessSpecCatalogTools } from "./as
 import {
 	ProcessSelectionBlockedError,
 	type ProcessSelector,
-	WorkflowDesignBlockedError,
 	type WorkflowDesignBlock,
+	WorkflowDesignBlockedError,
 	type WorkflowDesigner,
 } from "./control-plane.ts";
 import {

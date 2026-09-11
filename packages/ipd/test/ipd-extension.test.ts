@@ -16,6 +16,12 @@ describe("IPD create-run tool", () => {
 			accepted: true,
 			phase: "intake",
 			status: "running",
+			visualization: {
+				url: "http://127.0.0.1:1234/runs/run-1",
+				snapshotUrl: "http://127.0.0.1:1234/runs/run-1/snapshot.html",
+				bindHost: "127.0.0.1",
+				port: 1234,
+			},
 		});
 		registerIpdCreateRunTool(api, async () => ({ createRun }) as unknown as IpdService);
 
@@ -32,13 +38,16 @@ describe("IPD create-run tool", () => {
 		expect(schema.properties.task.description).toContain("copied verbatim");
 
 		const task = "Create the requested deck exactly as described.\nPreserve this second line.";
-		await tool.execute(
+		const result = await tool.execute(
 			"call-1",
 			{ request_id: "request-1", skill_name: "pptx", task },
 			undefined,
 			undefined,
 			{} as ExtensionContext,
 		);
+		const receiptText = result.content.find((item) => item.type === "text")?.text;
+		expect(receiptText).toContain("Visualization: http://127.0.0.1:1234/runs/run-1");
+		expect(receiptText).toContain("Snapshot: http://127.0.0.1:1234/runs/run-1/snapshot.html");
 		expect(createRun).toHaveBeenCalledWith(
 			"request-1",
 			{

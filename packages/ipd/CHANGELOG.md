@@ -35,6 +35,7 @@
 
 ### Fixed
 
+- Included the live visualization and snapshot URLs directly in successful IPD Run creation receipts.
 - Fixed execution and review Agents that omit their structured submission tool call so they receive protocol correction
   in the same Session and work round instead of blocking the node.
 - Fixed partial Gate approval that could release an output or complete a Run before all semantic criteria passed.

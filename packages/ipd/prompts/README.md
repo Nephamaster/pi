@@ -1132,7 +1132,8 @@ ipd_read_events
 ipd_get_result
 ```
 
-`ipd` 创建 Run 后，内部控制面在后台继续。外层对话是否继续，不是 Run 完成条件。
+`ipd` 创建 Run 后，回执正文直接包含可打开的 `Visualization` 和 `Snapshot` URL，内部控制面在后台继续。
+外层对话是否继续，不是 Run 完成条件。
 
 IPD Tool 的返回文本也使用稳定标签：
 
