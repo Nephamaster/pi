@@ -20,8 +20,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Install without platform-specific optional packages
-        run: npm ci --ignore-scripts --omit=optional
+      - name: Install dependencies for verification
+        run: npm ci --ignore-scripts --force
       - name: Build IPD
         run: npm run build --workspace @earendil-works/pi-ipd
       - name: Test IPD
