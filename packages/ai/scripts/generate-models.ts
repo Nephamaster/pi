@@ -726,7 +726,7 @@ function detectOpenAICompletionsCompat(model: Model<"openai-completions">): Open
 		supportsStrictMode: !isMoonshot && !isTogether && !isCloudflareAiGateway && !isNvidia,
 		supportsOpenAIGrammarTools: false,
 		...(cacheControlFormat ? { cacheControlFormat } : {}),
-		sendSessionAffinityHeaders: false,
+		sendSessionAffinityHeaders: isOpenRouter,
 		supportsLongCacheRetention: !(
 			isTogether ||
 			isCloudflareWorkersAI ||
@@ -1422,6 +1422,8 @@ function processFireworksModels(provider: ModelsDevProvider | undefined): Model<
 	if (!provider?.models) return [];
 
 	const anthropicCompat: AnthropicMessagesCompat = {
+		// Arbitrary loader names work, but Fireworks only defers the prefix for ToolSearch/tool_search.
+		supportsToolReferences: true,
 		allowEmptySignature: true,
 		sendSessionAffinityHeaders: true,
 		supportsEagerToolInputStreaming: false,
@@ -2636,37 +2638,21 @@ async function generateModels() {
 		requiresReasoningContentOnAssistantMessages: true,
 		thinkingFormat: "deepseek",
 	};
-	const deepseekV4Models: Model<"openai-completions">[] = [
+	const deepseekModels: Model<"openai-completions">[] = [
 		{
-			id: "deepseek-v4-flash",
-			name: "DeepSeek V4 Flash",
+			id: "deepseek-flash",
+			name: "DeepSeek V4.1 Flash",
 			api: "openai-completions",
 			baseUrl: "https://api.deepseek.com",
 			provider: "deepseek",
 			reasoning: true,
-			input: ["text"],
-			cost: {
-				input: 0.14,
-				output: 0.28,
-				cacheRead: 0.0028,
-				cacheWrite: 0,
-			},
-			contextWindow: 1000000,
-			maxTokens: 384000,
-			compat: deepseekCompat,
-		},
-		{
-			id: "deepseek-v4-flash-vision-exp",
-			name: "DeepSeek V4 Flash Vision Exp",
-			api: "openai-completions",
-			baseUrl: "https://api.deepseek.com",
-			provider: "deepseek",
-			reasoning: true,
+			thinkingLevelMap: DEEPSEEK_V4_FLASH_THINKING_LEVEL_MAP,
 			input: ["text", "image"],
 			cost: {
-				input: 0.14,
-				output: 0.28,
-				cacheRead: 0.0028,
+				// DeepSeek also offers time-based off-peak rates, which the cost schema cannot represent yet.
+				input: 0.3,
+				output: 1.2,
+				cacheRead: 0.006,
 				cacheWrite: 0,
 			},
 			contextWindow: 1000000,
@@ -2682,9 +2668,10 @@ async function generateModels() {
 			reasoning: true,
 			input: ["text"],
 			cost: {
-				input: 0.435,
-				output: 0.87,
-				cacheRead: 0.003625,
+				// DeepSeek also offers time-based off-peak rates, which the cost schema cannot represent yet.
+				input: 1.32,
+				output: 3.96,
+				cacheRead: 0.044,
 				cacheWrite: 0,
 			},
 			contextWindow: 1000000,
@@ -2692,7 +2679,7 @@ async function generateModels() {
 			compat: deepseekCompat,
 		},
 	];
-	allModels.push(...deepseekV4Models);
+	allModels.push(...deepseekModels);
 
 	const antLingCompat: OpenAICompletionsCompat = {
 		supportsStore: false,
@@ -2806,30 +2793,6 @@ async function generateModels() {
 			input: ["text"],
 			cost: { input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
 			contextWindow: CODEX_SPARK_CONTEXT,
-			maxTokens: CODEX_MAX_TOKENS,
-		},
-		{
-			id: "gpt-5.4",
-			name: "GPT-5.4",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: CODEX_BASE_URL,
-			reasoning: true,
-			input: ["text", "image"],
-			cost: withOpenAiLongContextPricing({ input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0 }),
-			contextWindow: CODEX_CONTEXT,
-			maxTokens: CODEX_MAX_TOKENS,
-		},
-		{
-			id: "gpt-5.4-mini",
-			name: "GPT-5.4 mini",
-			api: "openai-codex-responses",
-			provider: "openai-codex",
-			baseUrl: CODEX_BASE_URL,
-			reasoning: true,
-			input: ["text", "image"],
-			cost: { input: 0.75, output: 4.5, cacheRead: 0.075, cacheWrite: 0 },
-			contextWindow: CODEX_CONTEXT,
 			maxTokens: CODEX_MAX_TOKENS,
 		},
 		{

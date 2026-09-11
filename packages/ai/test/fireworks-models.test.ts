@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
-import { getModel, streamSimple } from "../src/compat.ts";
+import { getModel, getModels, streamSimple } from "../src/compat.ts";
 import { findEnvKeys, getEnvApiKey } from "../src/env-api-keys.ts";
 import { getSupportedThinkingLevels } from "../src/models.ts";
 import type { Context, Model, Tool } from "../src/types.ts";
@@ -19,6 +19,16 @@ afterEach(() => {
 });
 
 describe("Fireworks models", () => {
+	it("enables native tool references only on Messages models", () => {
+		for (const model of getModels("fireworks")) {
+			if (model.api === "anthropic-messages") {
+				expect(model.compat).toMatchObject({ supportsToolReferences: true });
+			} else {
+				expect(model.compat).not.toHaveProperty("supportsToolReferences");
+			}
+		}
+	});
+
 	it("registers the default Kimi K2.6 model via Anthropic-compatible Messages API", () => {
 		const model = getModel("fireworks", "accounts/fireworks/models/kimi-k2p6");
 
@@ -203,6 +213,7 @@ describe("Fireworks models", () => {
 		expect(model.compat?.supportsCacheControlOnTools).toBe(false);
 		expect(model.compat?.supportsLongCacheRetention).toBe(false);
 		expect(model.compat?.allowEmptySignature).toBe(true);
+		expect(model.compat?.supportsToolReferences).toBe(true);
 	});
 });
 
@@ -220,6 +231,7 @@ const tool: Tool = {
 };
 
 const FIREWORKS_ANTHROPIC_COMPAT = {
+	supportsToolReferences: true,
 	allowEmptySignature: true,
 	sendSessionAffinityHeaders: true,
 	supportsEagerToolInputStreaming: false,
@@ -257,6 +269,15 @@ function createAnthropicModel(): Model<"anthropic-messages"> {
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 200000,
 		maxTokens: 32000,
+	};
+}
+
+function createOpenRouterModel(): Model<"anthropic-messages"> {
+	return {
+		...createAnthropicModel(),
+		id: "anthropic/claude-opus-4.8",
+		provider: "openrouter",
+		baseUrl: "https://openrouter.ai/api",
 	};
 }
 
@@ -331,7 +352,7 @@ function getTools(body: Record<string, unknown>): Record<string, unknown>[] {
 	return tools as Record<string, unknown>[];
 }
 
-describe("Fireworks Anthropic session affinity and tool compat", () => {
+describe("Anthropic-compatible session affinity and tool compat", () => {
 	it("sends x-session-affinity header for Fireworks models", async () => {
 		const model = createFireworksModel();
 		// Need a real port, capture will assign one
@@ -359,6 +380,35 @@ describe("Fireworks Anthropic session affinity and tool compat", () => {
 		});
 
 		expect(request.headers["x-session-affinity"]).toBeUndefined();
+	});
+
+	// Regression test for https://github.com/earendil-works/pi/issues/9102
+	it("sends only x-session-id for OpenRouter models", async () => {
+		const request = await captureAnthropicRequest(createOpenRouterModel(), createContext(), {
+			sessionId: "openrouter-session-1",
+		});
+
+		expect(request.headers["x-session-id"]).toBe("openrouter-session-1");
+		expect(request.headers["x-session-affinity"]).toBeUndefined();
+	});
+
+	it("omits OpenRouter session headers when cacheRetention is none", async () => {
+		const request = await captureAnthropicRequest(createOpenRouterModel(), createContext(), {
+			sessionId: "openrouter-session-2",
+			cacheRetention: "none",
+		});
+
+		expect(request.headers["x-session-id"]).toBeUndefined();
+		expect(request.headers["x-session-affinity"]).toBeUndefined();
+	});
+
+	it("allows OpenRouter session headers to be disabled", async () => {
+		const model = { ...createOpenRouterModel(), compat: { sendSessionAffinityHeaders: false } };
+		const request = await captureAnthropicRequest(model, createContext(), {
+			sessionId: "openrouter-session-3",
+		});
+
+		expect(request.headers["x-session-id"]).toBeUndefined();
 	});
 
 	it("omits cache_control on tools for Fireworks models", async () => {
