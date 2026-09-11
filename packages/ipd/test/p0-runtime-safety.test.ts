@@ -67,7 +67,14 @@ describe("IPD P0 runtime safety", () => {
 				contractId: "delivery",
 				createdAt: 1,
 				inputs: [],
-				files: [{ path: "deck.pptx", mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", size: 1, sha256: "a".repeat(64) }],
+				files: [
+					{
+						path: "deck.pptx",
+						mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+						size: 1,
+						sha256: "a".repeat(64),
+					},
+				],
 				metadata: {},
 			},
 		};
@@ -81,11 +88,15 @@ describe("IPD P0 runtime safety", () => {
 		};
 		const pass = await checker.evaluate([criterion], { ...base, artifacts: [base] } as never);
 		expect(pass.result).toBe("PASS");
+		expect(pass.criteria[0]?.checkId).toBe("artifact-file-set");
 		const failBase = {
 			...base,
 			manifest: {
 				...base.manifest,
-				files: [...base.manifest.files, { path: "qa.pdf", mimeType: "application/pdf", size: 1, sha256: "b".repeat(64) }],
+				files: [
+					...base.manifest.files,
+					{ path: "qa.pdf", mimeType: "application/pdf", size: 1, sha256: "b".repeat(64) },
+				],
 			},
 		};
 		const fail = await checker.evaluate([criterion], { ...failBase, artifacts: [failBase] } as never);
