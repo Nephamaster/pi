@@ -40,6 +40,7 @@ export interface LockedSkill {
 	description: string;
 	allowedTools: string[];
 	requiredTools?: string[];
+	requiredCommands?: string[];
 }
 
 export interface LockedTool {
