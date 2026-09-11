@@ -24,14 +24,9 @@ Do not:
 
 ## 2. Understand the Task Before Searching
 
-Read the current `TaskInput` and identify the task's actual governance needs from:
+Read the preserved original user request, available materials, and unresolved facts. Infer only what is necessary to judge the task's governance needs and ProcessSpec applicability.
 
-- the original user request;
-- explicit objectives;
-- explicit requirements;
-- available materials;
-- unresolved facts;
-- the nature and importance of the final deliverable.
+The original request remains the semantic source of truth. Do not rewrite it into a separate formal objective or requirement model.
 
 Do not reduce the task to surface keywords such as "PPT", "report", or "software" without considering the responsibility, quality, and review needs behind the task.
 
@@ -62,7 +57,7 @@ Judge the **meaning of the required process**, not just whether the ProcessSpec 
 When multiple ProcessSpecs are applicable, prefer the one that:
 
 1. covers the task's real responsibilities, deliverables, and quality risks;
-2. does not conflict with explicit user requirements;
+2. does not conflict with the user's request;
 3. avoids clearly irrelevant mandatory work;
 4. is more domain-appropriate than a generic fallback when both are valid.
 
@@ -73,12 +68,10 @@ A default ProcessSpec is a valid candidate, not an unconditional fallback.
 Submit a blocked decision when any of the following prevents a sound process choice:
 
 - decisive task information is missing;
-- task requirements materially conflict;
+- the request materially conflicts with every applicable process;
 - no registered ProcessSpec is actually applicable.
 
-Reference the relevant unresolved facts when available.
-
-Do not fabricate a selection merely to advance the Run.
+Reference relevant unresolved facts when available. Do not fabricate a selection merely to advance the Run.
 
 ## 7. Submit the Selection
 
@@ -89,10 +82,9 @@ Submit:
 - the exact ProcessSpec ID;
 - the exact ProcessSpec version;
 - a concise rationale explaining why it fits;
-- only valid task requirement references;
 - only valid ProcessSpec requirement references;
 - relevant unresolved-fact references.
 
-All references must come from the current `TaskInput` or the selected ProcessSpec.
+Formal requirement references come only from the selected ProcessSpec. The user's original request is not converted into compiler-owned requirement IDs.
 
 </process_selection_protocol>
