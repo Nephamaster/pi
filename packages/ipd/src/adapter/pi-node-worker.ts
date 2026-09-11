@@ -11,6 +11,7 @@ import {
 	NodeWorkerError,
 } from "../runtime/node-worker.ts";
 import { renderCurrentRoundContext, renderNodeContextFiles } from "./node-context.ts";
+import { missingRuntimeCommands } from "./node-runtime-environment.ts";
 import { NodeSessionAdapter } from "./node-session-adapter.ts";
 import { type PiNodeSessionCreateInput, PiNodeSessionFactory } from "./pi-node-session-factory.ts";
 import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "./structured-submissions.ts";
@@ -65,6 +66,21 @@ export class PiNodeWorker implements NodeWorker {
 	}
 
 	async runExecution(work: NodeRoundWork): Promise<SubmitArtifact | { kind: "blocked"; report: ReportNodeBlocked }> {
+		const missingCommands = await missingRuntimeCommands(work.node.agents[0]);
+		if (missingCommands.length > 0)
+			return {
+				kind: "blocked",
+				report: {
+					reason: "Runtime environment preflight failed before the execution Session started.",
+					missing_conditions: missingCommands.map((command) => `Required runtime command is unavailable: ${command}`),
+					affected_requirement_ids: [],
+					attempted_actions: ["Checked every locked Skill required-command and the Bash sandbox runtime prerequisites on PATH."],
+					evidence: [],
+					needed_to_resume: missingCommands.map(
+						(command) => `Install or expose ${command} in the IPD Runtime PATH, then resume the blocked node.`,
+					),
+				},
+			};
 		const binding = this.binding(work, "execution");
 		binding.capture.beginRound();
 		binding.blockedCapture?.beginRound();
@@ -79,6 +95,13 @@ export class PiNodeWorker implements NodeWorker {
 	}
 
 	async runReview(work: NodeRoundWork): Promise<SubmitReview> {
+		const missingCommands = await missingRuntimeCommands(work.node.agents[0]);
+		if (missingCommands.length > 0)
+			throw new NodeWorkerError(
+				"configuration",
+				`Review runtime environment is missing required commands: ${missingCommands.join(", ")}`,
+				false,
+			);
 		const binding = this.binding(work, "review");
 		binding.capture.beginRound();
 		await this.dispatch(work, binding);
@@ -179,6 +202,7 @@ export class PiNodeWorker implements NodeWorker {
 					getCurrentContext: () => binding.currentContext,
 					getAdditionalReadRoots: () => binding.additionalReadRoots,
 					getDeniedReadRoots: () => binding.deniedReadRoots,
+					allowReadOwnWritePaths: binding.kind === "execution",
 					permissions: work.node.definition.agents[0].permissions,
 					participant,
 					runDefaultModel: this.options.model,
