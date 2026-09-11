@@ -33,6 +33,24 @@ export async function isPathWithinRoots(path: string, roots: readonly string[]):
 	return false;
 }
 
+export function effectiveNodeReadRoots(options: {
+	workspace: string;
+	permissions: Static<typeof NodePermissionsSchema>;
+	additionalReadRoots?: readonly string[];
+	allowReadOwnWritePaths?: boolean;
+}): string[] {
+	const workspace = resolve(options.workspace);
+	return [
+		...new Set([
+			...options.permissions.read_paths.map((scope) => resolve(workspace, scope)),
+			...(options.allowReadOwnWritePaths
+				? options.permissions.write_paths.map((scope) => resolve(workspace, scope))
+				: []),
+			...(options.additionalReadRoots ?? []).map((root) => resolve(root)),
+		]),
+	];
+}
+
 export function createNodeFileScopeExtension(options: {
 	workspace: string;
 	permissions: Static<typeof NodePermissionsSchema>;
@@ -54,14 +72,15 @@ export function createNodeFileScopeExtension(options: {
 				(options.deniedReadRoots?.() ?? []).some((root) => contains(resolve(workspace, root), target))
 			)
 				return { block: true, reason: `Read must use the sealed Submission instead of mutable path: ${requested}` };
-			const configured =
-				event.toolName === "read" ? options.permissions.read_paths : options.permissions.write_paths;
-			const roots = configured.map((scope) => resolve(workspace, scope));
-			if (event.toolName === "read") {
-				if (options.allowReadOwnWritePaths)
-					roots.push(...options.permissions.write_paths.map((scope) => resolve(workspace, scope)));
-				roots.push(...(options.additionalReadRoots?.() ?? []).map((root) => resolve(root)));
-			}
+			const roots =
+				event.toolName === "read"
+					? effectiveNodeReadRoots({
+							workspace,
+							permissions: options.permissions,
+							additionalReadRoots: options.additionalReadRoots?.(),
+							allowReadOwnWritePaths: options.allowReadOwnWritePaths,
+						})
+					: options.permissions.write_paths.map((scope) => resolve(workspace, scope));
 			if (await isPathWithinRoots(target, roots)) return undefined;
 			return { block: true, reason: `Path is outside the node's ${event.toolName} scope: ${requested}` };
 		});
