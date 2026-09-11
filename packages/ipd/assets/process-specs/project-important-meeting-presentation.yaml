@@ -1,6 +1,6 @@
 schema_version: 2
 process_spec_id: project-important-meeting-presentation-simple
-version: 1.0.2
+version: 1.0.3
 name: Important Meeting Presentation - Simple
 description: >-
   A simplified PPT development process for important meetings, management presentations, project reviews, and formal proposal
@@ -110,7 +110,8 @@ required_deliverables:
   activity_id: deck-production
   artifact_type: presentation-deck
   description: >-
-    Complete editable PPT deck and necessary supporting assets or auxiliary files.
+    Complete editable PPT deck and necessary production-side supporting assets. Supporting assets are internal working material
+    unless the user explicitly requests them as delivery files.
   evidence_requirements:
   - evidence_requirement_id: presentation-deck.evidence.1
     description: PPT content is consistent with the approved facts, data, and storyboard.
@@ -125,19 +126,21 @@ required_deliverables:
   activity_id: final-validation
   artifact_type: presentation-release-package
   description: >-
-    Formal meeting version after final inspection and revalidation, including the final PPT and any actually required notes,
-    appendices, citations, or version information.
+    The exact user-facing formal meeting artifact set after final inspection and revalidation. It contains only files the user is
+    actually supposed to receive. Rendered slides, PDFs used only for QA, validation reports, debug files, and other review
+    evidence must be modeled as separate internal outputs unless the user explicitly requests them for delivery.
   evidence_requirements:
   - evidence_requirement_id: final-presentation-package.evidence.1
     description: >-
-      The final file is the definitive version that completed producer-side finalization and is the exact candidate submitted
-      for independent final review.
+      The user-facing final file set is the definitive version that completed producer-side finalization and is the exact
+      candidate submitted for independent final review.
   - evidence_requirement_id: final-presentation-package.evidence.2
     description: Known issues and limitations are resolved or explicitly disclosed, and no known blocking problem 
       remains that would directly affect meeting use.
   - evidence_requirement_id: final-presentation-package.evidence.3
-    description: The formal version can be used directly for the intended meeting and is not confused with obsolete or 
-      candidate versions.
+    description: >-
+      The formal delivery contains only the files required by the user; internal QA renders, validation logs, reports, and
+      other process evidence remain internal unless explicitly requested.
 
 required_reviews:
 - review_id: brief-and-content-review
@@ -181,7 +184,7 @@ required_reviews:
   deliverable_id: final-presentation-package
   description: >-
     Independent final PPT comprehensive review of the exact finalized candidate. Confirms that content, data, visual
-    presentation, file integrity, and actual speaking conditions meet formal meeting-use requirements.
+    presentation, file integrity, user-facing delivery set, and actual speaking conditions meet formal meeting-use requirements.
   reviewer_capabilities:
   - presentation-review
   independent_agent: true
@@ -220,6 +223,13 @@ workflow_rules:
     The final PPT for an important meeting must receive an independent comprehensive review by a professional role different
     from any employee that produced or modified the final-presentation-package; producer-side finalization and self-checking
     cannot replace the final quality judgment.
+  enforced_by: review
+
+- rule_id: delivery-evidence-separation
+  description: >-
+    User-facing delivery files and internal validation evidence must be modeled as separate outputs whenever they differ. The
+    final delivery must not include QA renders, validation reports, debug files, or other process evidence unless the user
+    explicitly requested those files.
   enforced_by: review
 
 - rule_id: version-consistency
