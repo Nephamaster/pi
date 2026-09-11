@@ -42,7 +42,6 @@ const WorkflowDesignBlockSchema = Type.Object(
 		]),
 		reason: NonEmptyStringSchema,
 		missing_conditions: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
-		task_requirement_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),
 		process_requirement_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),
 		diagnostics: Type.Array(
 			Type.Object(
@@ -149,7 +148,7 @@ export class PiProcessSelector implements ProcessSelector {
 			this.options,
 			ProcessSelectionDecisionSchema,
 			"submit_process_selection",
-			"Submit the selected ProcessSpec or a blocked selection result. Use exact registered IDs, versions, and requirement references. Runtime validates and records the candidate decision.",
+			"Submit the selected ProcessSpec or a blocked selection result. Use exact registered IDs, versions, and ProcessSpec requirement references. Runtime validates and records the candidate decision.",
 			(decision) => validateProcessSelectionDecision(decision, task, specs),
 			createProcessSpecCatalogTools(specs),
 		);
@@ -169,7 +168,6 @@ export class PiProcessSelector implements ProcessSelector {
 			!decision.process_spec_id ||
 			!decision.process_spec_version ||
 			!decision.rationale ||
-			!decision.task_requirement_refs ||
 			!decision.process_requirement_refs
 		)
 			throw new Error("Process Selector submitted an incomplete selected decision");
@@ -180,13 +178,12 @@ export class PiProcessSelector implements ProcessSelector {
 		);
 		if (!spec) throw new Error(`Process Selector chose an unavailable ProcessSpec: ${decision.process_spec_id}`);
 		return {
-			schema_version: 1,
+			schema_version: 2,
 			process_selection_id: `${runId}:selection`,
 			run_id: runId,
 			task_input_ref: { id: task.task_input_id, hash: hashJson(task) },
 			process_spec_ref: { id: spec.process_spec_id, version: spec.version, hash: hashJson(spec) },
 			rationale: decision.rationale,
-			task_requirement_refs: decision.task_requirement_refs,
 			process_requirement_refs: decision.process_requirement_refs,
 			unresolved_fact_refs: decision.unresolved_fact_refs,
 		};
@@ -209,7 +206,6 @@ function validateProcessSelectionDecision(
 	if (!decision.process_spec_id) diagnostics.push("selected decision requires process_spec_id");
 	if (!decision.process_spec_version) diagnostics.push("selected decision requires process_spec_version");
 	if (!decision.rationale) diagnostics.push("selected decision requires rationale");
-	if (!decision.task_requirement_refs) diagnostics.push("selected decision requires task_requirement_refs");
 	if (!decision.process_requirement_refs) diagnostics.push("selected decision requires process_requirement_refs");
 	if (diagnostics.length > 0) return diagnostics;
 	const spec = specs.find(
@@ -217,15 +213,12 @@ function validateProcessSelectionDecision(
 			candidate.process_spec_id === decision.process_spec_id && candidate.version === decision.process_spec_version,
 	);
 	if (!spec) return [`Unknown ProcessSpec ${decision.process_spec_id}@${decision.process_spec_version}`];
-	const taskRequirementIds = new Set(task.requirements.map((item) => item.requirement_id));
 	const processRequirementIds = new Set([
 		...spec.required_activities.map((item) => item.activity_id),
 		...spec.required_deliverables.map((item) => item.deliverable_id),
 		...spec.required_reviews.map((item) => item.review_id),
 		...spec.workflow_rules.map((item) => item.rule_id),
 	]);
-	for (const id of decision.task_requirement_refs ?? [])
-		if (!taskRequirementIds.has(id)) diagnostics.push(`Unknown task_requirement_ref: ${id}`);
 	for (const id of decision.process_requirement_refs ?? [])
 		if (!processRequirementIds.has(id)) diagnostics.push(`Unknown process_requirement_ref: ${id}`);
 	for (const id of decision.unresolved_fact_refs)
@@ -233,17 +226,14 @@ function validateProcessSelectionDecision(
 	return diagnostics;
 }
 
-function validateWorkflowDesignBlock(block: WorkflowDesignBlock, task: TaskInput, spec: ProcessSpec): string[] {
+function validateWorkflowDesignBlock(block: WorkflowDesignBlock, spec: ProcessSpec): string[] {
 	const diagnostics: string[] = [];
-	const taskRequirementIds = new Set(task.requirements.map((item) => item.requirement_id));
 	const processRequirementIds = new Set([
 		...spec.required_activities.map((item) => item.activity_id),
 		...spec.required_deliverables.map((item) => item.deliverable_id),
 		...spec.required_reviews.map((item) => item.review_id),
 		...spec.workflow_rules.map((item) => item.rule_id),
 	]);
-	for (const id of block.task_requirement_refs)
-		if (!taskRequirementIds.has(id)) diagnostics.push(`Unknown task_requirement_ref: ${id}`);
 	for (const id of block.process_requirement_refs)
 		if (!processRequirementIds.has(id)) diagnostics.push(`Unknown process_requirement_ref: ${id}`);
 	return diagnostics;
@@ -309,10 +299,10 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				name: "report_workflow_design_blocked",
 				label: "Report Workflow Design Blocked",
 				description:
-					"Report a genuine task, resource, or workflow-expressiveness gap that prevents a legal WorkflowDefinition. Use this only after verifying that the gap cannot be solved by a different valid employee/resource binding without weakening TaskInput or ProcessSpec requirements.",
+					"Report a genuine task, resource, or workflow-expressiveness gap that prevents a legal WorkflowDefinition. Use this only after verifying that the gap cannot be solved by a different valid employee/resource binding without weakening the user task or ProcessSpec obligations.",
 				parameters: WorkflowDesignBlockSchema,
 				capture: blockCapture,
-				validate: (value) => validateWorkflowDesignBlock(value as WorkflowDesignBlock, task, spec),
+				validate: (value) => validateWorkflowDesignBlock(value as WorkflowDesignBlock, spec),
 			});
 			active = {
 				adapter: new NodeSessionAdapter(new PiNodeSessionFactory(options)),
