@@ -30,7 +30,6 @@ export interface WorkflowDesignBlockRecord {
 	type: "resource_gap" | "expressiveness_gap" | "task_blocker" | "other";
 	reason: string;
 	missing_conditions: string[];
-	task_requirement_refs: string[];
 	process_requirement_refs: string[];
 	diagnostics: Array<{ code?: string; path?: string; message: string }>;
 	needed_to_resume: string[];
@@ -41,7 +40,6 @@ export interface NodeBlockRecord {
 	roundId: string;
 	reason: string;
 	missingConditions: string[];
-	affectedRequirementIds: string[];
 	attemptedActions: string[];
 	evidence: JsonValue;
 	neededToResume: string[];
