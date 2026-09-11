@@ -48,19 +48,19 @@ function parseDocument(content: string, path: string): unknown {
 	return extname(path) === ".json" ? JSON.parse(content) : parseYaml(content);
 }
 
-function frontmatterToolList(content: string, field: "allowed-tools" | "required-tools"): string[] {
+function frontmatterStringList(content: string, field: string): string[] {
 	if (!content.startsWith("---")) return [];
 	const end = content.indexOf("\n---", 3);
 	if (end < 0) return [];
 	const parsed = parseYaml(content.slice(3, end));
 	if (typeof parsed !== "object" || parsed === null) return [];
 	const value = (parsed as Record<string, unknown>)[field];
-	const tools = Array.isArray(value)
+	const items = Array.isArray(value)
 		? value.filter((item): item is string => typeof item === "string")
 		: typeof value === "string"
 			? value.split(/\s+/).filter(Boolean)
 			: [];
-	return [...new Set(tools.map((item) => item.trim()).filter(Boolean))];
+	return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
 }
 
 async function assetFiles(directories: readonly string[]): Promise<string[]> {
@@ -138,8 +138,12 @@ export class AssetAssembler {
 		const skills = await Promise.all(
 			options.skills.map(async (skill): Promise<LockedSkill> => {
 				const content = await readFile(skill.filePath, "utf8");
-				const declaredTools = frontmatterToolList(content, "allowed-tools");
-				const requiredTools = frontmatterToolList(content, "required-tools");
+				const declaredTools = frontmatterStringList(content, "allowed-tools");
+				const requiredTools = frontmatterStringList(content, "required-tools");
+				const requiredCommands = frontmatterStringList(content, "required-commands");
+				const invalidCommands = requiredCommands.filter((command) => !/^[A-Za-z0-9._+-]+$/.test(command));
+				if (invalidCommands.length > 0)
+					throw new Error(`Skill ${skill.name} declares invalid required-commands: ${invalidCommands.join(", ")}`);
 				const missing = [...new Set([...declaredTools, ...requiredTools])].filter((name) => !knownTools.has(name));
 				if (missing.length > 0)
 					throw new Error(`Skill ${skill.name} declares unavailable tools: ${missing.join(", ")}`);
@@ -157,6 +161,7 @@ export class AssetAssembler {
 					description: skill.description,
 					allowedTools: declaredTools,
 					requiredTools,
+					requiredCommands,
 				};
 			}),
 		);
