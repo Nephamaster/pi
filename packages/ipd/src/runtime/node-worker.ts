@@ -6,8 +6,6 @@ import type { TaskInput } from "../contracts/task-input.ts";
 
 export interface NodeTaskContext {
 	rawTask?: TaskInput["raw_task"];
-	objectives: TaskInput["objectives"];
-	requirements: TaskInput["requirements"];
 	materials: TaskInput["materials"];
 	unresolvedFacts: TaskInput["unresolved_facts"];
 }

@@ -94,7 +94,6 @@ export const ProcessSelectionDecisionSchema = Type.Object(
 		process_spec_version: Type.Optional(VersionSchema),
 		rationale: Type.Optional(NonEmptyStringSchema),
 		reason: Type.Optional(NonEmptyStringSchema),
-		task_requirement_refs: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
 		process_requirement_refs: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
 		unresolved_fact_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),
 	},
@@ -105,13 +104,12 @@ export type ProcessSelectionDecision = Static<typeof ProcessSelectionDecisionSch
 
 export const ProcessSelectionSchema = Type.Object(
 	{
-		schema_version: Type.Literal(1),
+		schema_version: Type.Literal(2),
 		process_selection_id: OpaqueIdSchema,
 		run_id: OpaqueIdSchema,
 		task_input_ref: ContentRecordRefSchema,
 		process_spec_ref: LockedAssetRefSchema,
 		rationale: NonEmptyStringSchema,
-		task_requirement_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),
 		process_requirement_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),
 		unresolved_fact_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),
 	},

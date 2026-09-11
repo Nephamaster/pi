@@ -11,13 +11,12 @@ export class BootstrapProcessSelector implements ProcessSelector {
 		const spec = specs[0];
 		if (!spec) throw new Error("No ProcessSpec is registered");
 		return {
-			schema_version: 1,
+			schema_version: 2,
 			process_selection_id: `${runId}:selection`,
 			run_id: runId,
 			task_input_ref: { id: task.task_input_id, hash: hashJson(task) },
 			process_spec_ref: { id: spec.process_spec_id, version: spec.version, hash: hashJson(spec) },
 			rationale: "Bootstrap selector chose the registered minimal reviewed-delivery specification.",
-			task_requirement_refs: task.requirements.map((item) => item.requirement_id),
 			process_requirement_refs: [
 				...spec.required_activities.map((item) => item.activity_id),
 				...spec.required_deliverables.map((item) => item.deliverable_id),
@@ -50,7 +49,7 @@ export class BootstrapWorkflowDesigner implements WorkflowDesigner {
 		if (!activity || !deliverable || !review) throw new Error("Bootstrap ProcessSpec is incomplete");
 		const output = { node_id: "produce", output_id: "result" };
 		return {
-			schema_version: 2,
+			schema_version: 3,
 			workflow_id: `task-${hashJson(task).slice(0, 12)}`,
 			workflow_version: "1.0.0",
 			name: "Bootstrap reviewed delivery",
@@ -78,13 +77,6 @@ export class BootstrapWorkflowDesigner implements WorkflowDesigner {
 				},
 			],
 			requirement_coverage: [
-				...task.requirements.map((item) => ({
-					source: "task_requirement" as const,
-					requirement_id: item.requirement_id,
-					responsible_node_ids: ["produce", "review"],
-					output_refs: [output],
-					criterion_refs: ["quality"],
-				})),
 				{
 					source: "process_activity",
 					requirement_id: activity.activity_id,
@@ -140,7 +132,7 @@ export class BootstrapWorkflowDesigner implements WorkflowDesigner {
 				objective: task.raw_task.text,
 				responsibilities: ["Produce the requested deliverable"],
 				non_responsibilities: ["Approve the deliverable"],
-				work_requirements: task.requirements.map((item) => item.statement.text).concat("Submit a complete result"),
+				work_requirements: ["Follow the preserved original user request", "Submit a complete result"],
 				constraints: [],
 			},
 			inputs: task.materials.map((item) => ({

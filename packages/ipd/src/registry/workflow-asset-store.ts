@@ -104,8 +104,8 @@ export class FileWorkflowAssetStore implements WorkflowAssetStore {
 		const parsed = validateSchema<WorkflowDefinition>(WorkflowDefinitionSchema, value, path);
 		if (!parsed.ok) {
 			throw new WorkflowAssetWriteError(
-				"write_failed",
-				`Persisted Workflow Asset is invalid: ${parsed.diagnostics.map((item) => `${item.path}: ${item.message}`).join("; ")}`,
+				"version_conflict",
+				`Workflow version is already occupied by an incompatible or legacy Asset; increment the Workflow version before saving. Existing Asset diagnostics: ${parsed.diagnostics.map((item) => `${item.path}: ${item.message}`).join("; ")}`,
 			);
 		}
 		return parsed.value;

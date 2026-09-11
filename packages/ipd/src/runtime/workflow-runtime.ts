@@ -211,7 +211,6 @@ export class WorkflowRuntime {
 				roundId: work.roundId,
 				reason: report.reason,
 				missingConditions: [...report.missing_conditions],
-				affectedRequirementIds: [...report.affected_requirement_ids],
 				attemptedActions: [...report.attempted_actions],
 				evidence: toJsonValue(report.evidence),
 				neededToResume: [...report.needed_to_resume],

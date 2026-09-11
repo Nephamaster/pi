@@ -52,7 +52,7 @@ If a required fact, material, access permission, authorization, environment depe
 
 Use it only for a genuine inability to continue within the frozen assignment. Do not use it for a malformed submission, correctable quality defect, or transient model, tool, or storage failure.
 
-Record only conditions actually observed, what was attempted, which task requirements are affected, and what is needed before work can resume. Runtime decides the node and Run state.
+Record only conditions actually observed, what was attempted, and what is needed before work can resume. Runtime decides the node and Run state.
 
 ## 5. Submit a Complete Candidate
 

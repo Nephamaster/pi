@@ -137,7 +137,6 @@ export function compileWorkflow(input: CompileWorkflowInput): CompileWorkflowRes
 			path: "/process_selection_ref",
 			message: "Workflow does not reference the supplied ProcessSelection content",
 		});
-	const taskRequirementIds = new Set(task.requirements.map((item) => item.requirement_id));
 	const unresolvedFactIds = new Set(task.unresolved_facts.map((item) => item.fact_id));
 	const processRequirementIds = new Set([
 		...spec.required_activities.map((item) => item.activity_id),
@@ -145,15 +144,6 @@ export function compileWorkflow(input: CompileWorkflowInput): CompileWorkflowRes
 		...spec.required_reviews.map((item) => item.review_id),
 		...spec.workflow_rules.map((item) => item.rule_id),
 	]);
-	for (const id of selection.task_requirement_refs) {
-		if (!taskRequirementIds.has(id))
-			diagnostics.push({
-				code: "selection_reference_unknown",
-				severity: "error",
-				path: "/task_requirement_refs",
-				message: `Unknown task requirement ${id}`,
-			});
-	}
 	for (const id of selection.unresolved_fact_refs) {
 		if (!unresolvedFactIds.has(id))
 			diagnostics.push({

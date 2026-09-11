@@ -145,24 +145,12 @@ function requiredInputsResolved(
 
 export function taskContextForNode(node: EffectiveNode, state: RunState): NodeTaskContext {
 	const task = state.taskInput;
-	if (!task) return { objectives: [], requirements: [], materials: [], unresolvedFacts: [] };
-	const responsibleRequirements = new Set(
-		requireBaseline(state)
-			.workflow.requirement_coverage.filter((coverage) =>
-				coverage.responsible_node_ids.includes(node.definition.node_id),
-			)
-			.filter((coverage) => coverage.source === "task_requirement")
-			.map((coverage) => coverage.requirement_id),
-	);
+	if (!task) return { materials: [], unresolvedFacts: [] };
 	const materialIds = new Set(
 		node.definition.inputs.flatMap((input) => (input.kind === "task_material" ? [input.material_id] : [])),
 	);
 	return {
 		rawTask: task.raw_task,
-		objectives: structuredClone(task.objectives),
-		requirements: task.requirements
-			.filter((requirement) => responsibleRequirements.has(requirement.requirement_id))
-			.map((requirement) => structuredClone(requirement)),
 		materials: task.materials
 			.filter((material) => materialIds.has(material.material_id))
 			.map((material) => structuredClone(material)),

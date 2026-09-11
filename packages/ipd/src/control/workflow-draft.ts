@@ -15,7 +15,7 @@ import { hashJson, toJsonValue } from "../ir/hash.ts";
 import { validateSchema } from "../ir/validation.ts";
 
 export interface WorkflowDraftHeader {
-	schema_version: 2;
+	schema_version: 3;
 	workflow_id: string;
 	workflow_version: string;
 	name: string;

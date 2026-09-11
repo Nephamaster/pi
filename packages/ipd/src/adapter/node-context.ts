@@ -170,12 +170,6 @@ ${permissions(node)}`,
 
 export function renderTaskScopeFile(work: NodeRoundWork): VirtualContextFile {
 	const task = work.taskContext;
-	const objectives = task.objectives
-		.map((item) => `### ${item.objective_id}\n\n${item.statement.text}\n\nSource: ${item.statement.source}`)
-		.join("\n\n");
-	const requirements = task.requirements
-		.map((item) => `### ${item.requirement_id}\n\n${item.statement.text}\n\nSource: ${item.statement.source}`)
-		.join("\n\n");
 	const materials = task.materials
 		.map(
 			(item) =>
@@ -191,21 +185,13 @@ export function renderTaskScopeFile(work: NodeRoundWork): VirtualContextFile {
 			"task_scope",
 			`# Authoritative Task Scope
 
-This document preserves the task basis relevant to this node. It explains why this work exists; the node contract separately defines what this node must deliver.
+This document preserves the original user request and task materials relevant to this node. The original request remains natural-language task intent; the node contract separately defines this node's frozen responsibilities and deliverables.
 
 ## Original Request
 
 ${task.rawTask?.text ?? "Not provided"}
 
 Source: ${task.rawTask?.source ?? "Not provided"}
-
-## Objectives
-
-${objectives || "None"}
-
-## Assigned Requirements
-
-${requirements || "None"}
 
 ## Task Materials
 

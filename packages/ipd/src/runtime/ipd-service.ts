@@ -133,33 +133,59 @@ export class IpdService {
 	private startBackground(runId: string, preparation: Promise<PrepareRunResult>): void {
 		if (this.active.has(runId)) return;
 		const running = preparation
-			.then(async (prepared) => {
-				if (!prepared.ok) return;
-				const runtime = this.options.createRuntime(prepared.directory);
-				await runtime.activate(prepared.baseline);
-				await runtime.run();
-			})
-			.then(() => undefined)
-			.catch(async (error: unknown) => {
-				const message = error instanceof Error ? error.message : String(error);
-				try {
-					await this.options.store.mutate(
-						runId,
-						`runtime-failed:${hashJson(message)}`,
-						{ message },
-						(draft, event) => {
-							draft.status = "failed";
-							draft.phase = "closed";
-							draft.failure = { code: "runtime_failure", message };
-							event.emit("runtime_failed", { message });
-							return true;
-						},
-					);
-				} catch {
-					// The original error remains observable through the failed background operation when storage is unavailable.
-				}
-			})
+			.then(
+				async (prepared) => {
+					if (!prepared.ok) return;
+					try {
+						const runtime = this.options.createRuntime(prepared.directory);
+						await runtime.activate(prepared.baseline);
+						await runtime.run();
+					} catch (error) {
+						await this.recordRuntimeFailure(runId, error);
+					}
+				},
+				async (error) => this.recordPreparationFailure(runId, error),
+			)
 			.finally(() => this.active.delete(runId));
 		this.active.set(runId, running);
+	}
+
+	private async recordPreparationFailure(runId: string, error: unknown): Promise<void> {
+		const message = error instanceof Error ? error.message : String(error);
+		try {
+			await this.options.store.mutate(
+				runId,
+				`preparation-failed:${hashJson(message)}`,
+				{ message },
+				(draft, event) => {
+					draft.status = "blocked";
+					draft.failure = { code: "preparation_failure", message };
+					event.emit("preparation_failed", { message });
+					return true;
+				},
+			);
+		} catch {
+			// Storage failure must not be misclassified as execution failure.
+		}
+	}
+
+	private async recordRuntimeFailure(runId: string, error: unknown): Promise<void> {
+		const message = error instanceof Error ? error.message : String(error);
+		try {
+			await this.options.store.mutate(
+				runId,
+				`runtime-failed:${hashJson(message)}`,
+				{ message },
+				(draft, event) => {
+					draft.status = "failed";
+					draft.phase = "closed";
+					draft.failure = { code: "runtime_failure", message };
+					event.emit("runtime_failed", { message });
+					return true;
+				},
+			);
+		} catch {
+			// The original execution error remains the relevant failure when storage is unavailable.
+		}
 	}
 }

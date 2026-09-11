@@ -13,7 +13,7 @@ const hash = "a".repeat(64);
 
 export function createValidWorkflow(): WorkflowDefinition {
 	return {
-		schema_version: 2,
+		schema_version: 3,
 		workflow_id: "example-workflow",
 		workflow_version: "1.0.0",
 		name: "Example Workflow",
@@ -119,13 +119,6 @@ export function createValidWorkflow(): WorkflowDefinition {
 		],
 		requirement_coverage: [
 			{
-				source: "task_requirement",
-				requirement_id: "deliver-result",
-				responsible_node_ids: ["produce", "review-produce"],
-				output_refs: [{ node_id: "produce", output_id: "content-output" }],
-				criterion_refs: ["quality"],
-			},
-			{
 				source: "process_activity",
 				requirement_id: "produce",
 				responsible_node_ids: ["produce"],
@@ -158,16 +151,9 @@ export function createValidWorkflow(): WorkflowDefinition {
 
 export function createCompilerFixture() {
 	const taskInput: TaskInput = {
-		schema_version: 1,
+		schema_version: 2,
 		task_input_id: "task-1",
 		raw_task: { text: "Create a reviewed deliverable", source: "user-message:1" },
-		objectives: [],
-		requirements: [
-			{
-				requirement_id: "deliver-result",
-				statement: { text: "Deliver a reviewed result", source: "user-message:1" },
-			},
-		],
 		materials: [{ material_id: "brief", description: "Task brief", reference: "user-message:1" }],
 		unresolved_facts: [],
 	};
@@ -216,7 +202,7 @@ export function createCompilerFixture() {
 		workflow_rules: [],
 	};
 	const processSelection: ProcessSelection = {
-		schema_version: 1,
+		schema_version: 2,
 		process_selection_id: "selection-1",
 		run_id: "run-1",
 		task_input_ref: { id: taskInput.task_input_id, hash: hashJson(taskInput) },
@@ -226,7 +212,6 @@ export function createCompilerFixture() {
 			hash: hashJson(processSpec),
 		},
 		rationale: "The selected process requires production and independent review",
-		task_requirement_refs: ["deliver-result"],
 		process_requirement_refs: ["produce", "content", "content-review"],
 		unresolved_fact_refs: [],
 	};

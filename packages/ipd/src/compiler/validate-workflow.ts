@@ -294,7 +294,6 @@ export function validateWorkflowRelations(
 	}
 	validateCoverageReferences(
 		workflow,
-		task,
 		spec,
 		nodes,
 		new Set(outputs.keys()),

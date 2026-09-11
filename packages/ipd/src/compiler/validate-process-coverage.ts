@@ -1,8 +1,7 @@
-// 校验 Workflow 对 TaskInput 和 ProcessSpec 的真实覆盖。
+// 校验 Workflow 对 ProcessSpec 治理义务的真实覆盖。
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { CompilerDiagnostic } from "../contracts/baseline.ts";
 import type { ProcessSpec } from "../contracts/process-spec.ts";
-import type { TaskInput } from "../contracts/task-input.ts";
 import type { NodeOutputRef, ReviewNode, WorkflowDefinition, WorkflowNode } from "../contracts/workflow.ts";
 import { addDiagnostic, outputKey } from "./diagnostics.ts";
 
@@ -10,7 +9,6 @@ const coverageKey = (source: string, requirementId: string) => `${source}:${requ
 
 export function validateCoverageReferences(
 	workflow: WorkflowDefinition,
-	task: TaskInput,
 	spec: ProcessSpec,
 	nodes: ReadonlyMap<string, WorkflowNode>,
 	outputs: ReadonlySet<string>,
@@ -18,7 +16,6 @@ export function validateCoverageReferences(
 	diagnostics: CompilerDiagnostic[],
 ): void {
 	const expected = new Set<string>();
-	for (const item of task.requirements) expected.add(coverageKey("task_requirement", item.requirement_id));
 	for (const item of spec.required_activities) expected.add(coverageKey("process_activity", item.activity_id));
 	for (const item of spec.required_deliverables) expected.add(coverageKey("process_deliverable", item.deliverable_id));
 	for (const item of spec.required_reviews) expected.add(coverageKey("process_review", item.review_id));
@@ -31,7 +28,7 @@ export function validateCoverageReferences(
 				diagnostics,
 				"coverage_source_unknown",
 				`/requirement_coverage/${index}`,
-				`Unknown requirement ${key}`,
+				`Unknown ProcessSpec requirement ${key}`,
 			);
 		covered.add(key);
 		for (const nodeId of item.responsible_node_ids) {
@@ -68,7 +65,7 @@ export function validateCoverageReferences(
 				diagnostics,
 				"requirement_uncovered",
 				"/requirement_coverage",
-				`Required coverage is missing for ${key}`,
+				`Required ProcessSpec coverage is missing for ${key}`,
 			);
 	}
 }

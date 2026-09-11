@@ -36,16 +36,20 @@ describe("FileWorkflowAssetStore", () => {
 		expect(reused.record.source).toBe(created.record.source);
 	});
 
-	it("rejects a corrupted existing Asset instead of overwriting it", async () => {
+	it("treats an incompatible legacy Asset at the same version as a version conflict", async () => {
 		const root = await createRoot();
 		const workflow = createValidWorkflow();
 		const hash = hashJson(workflow);
 		const store = new FileWorkflowAssetStore({ directory: root });
 		const created = await store.save(workflow, hash);
-		await writeFile(created.record.source, JSON.stringify({ ...workflow, objective: "corrupted" }));
+		const legacy = { ...workflow, schema_version: 2 };
+		await writeFile(created.record.source, JSON.stringify(legacy));
 
-		await expect(store.save(workflow, hash)).rejects.toBeInstanceOf(WorkflowAssetWriteError);
-		expect(JSON.parse(await readFile(created.record.source, "utf8"))).toMatchObject({ objective: "corrupted" });
+		await expect(store.save(workflow, hash)).rejects.toMatchObject({
+			code: "version_conflict",
+			message: expect.stringContaining("legacy Asset"),
+		});
+		expect(JSON.parse(await readFile(created.record.source, "utf8"))).toMatchObject({ schema_version: 2 });
 	});
 
 	it("requires a version increment when Workflow content changes", async () => {
