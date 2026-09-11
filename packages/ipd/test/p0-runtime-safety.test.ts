@@ -9,7 +9,7 @@ import {
 import { missingRuntimeCommands } from "../src/adapter/node-runtime-environment.ts";
 
 describe("IPD P0 runtime safety", () => {
-	it("lets execution read its owned write root without widening review reads", () => {
+	it("lets execution read its owned write root without widening review permissions", () => {
 		const workspace = "/tmp/ipd-workspace";
 		const permissions = {
 			read_paths: ["outputs/upstream"],
