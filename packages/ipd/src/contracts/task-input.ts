@@ -10,10 +10,19 @@ export const SourcedStatementSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+export const SourceSpanSchema = Type.Object(
+	{
+		start: Type.Integer({ minimum: 0 }),
+		end: Type.Integer({ minimum: 0 }),
+	},
+	{ additionalProperties: false },
+);
+
 export const TaskObjectiveSchema = Type.Object(
 	{
 		objective_id: IdentifierSchema,
 		statement: SourcedStatementSchema,
+		source_span: Type.Optional(SourceSpanSchema),
 	},
 	{ additionalProperties: false },
 );
@@ -22,6 +31,7 @@ export const TaskRequirementSchema = Type.Object(
 	{
 		requirement_id: IdentifierSchema,
 		statement: SourcedStatementSchema,
+		source_span: Type.Optional(SourceSpanSchema),
 	},
 	{ additionalProperties: false },
 );

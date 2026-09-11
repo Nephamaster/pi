@@ -29,6 +29,8 @@ If a required input is missing, unreadable, contradictory, or unavailable, repor
 - Do not modify workflow assets, ProcessSpecs, contracts, or Runtime state.
 - Use a bound Skill when its professional procedure is needed.
 - Do not assume an unbound Skill or unavailable tool can be used.
+- Remain a normal Pi Agent inside the sandbox: diagnose command/import/environment failures, inspect the available environment, and use authorized Bash/tool capabilities to install or configure task-local dependencies when the sandbox permits it.
+- Environment recovery must remain inside the node's sandbox and permissions. Do not escape the sandbox, read another Run, modify host-global state, or weaken Runtime controls to make a dependency available.
 
 ## 3. Produce Evidence While Working
 
@@ -46,7 +48,7 @@ Self-checking improves the candidate; it does **not** replace independent review
 
 ## 4. Report a Business Block
 
-If a required fact, material, access permission, authorization, or other necessary business condition is unavailable and no valid Artifact can be produced, use `report_node_blocked`.
+If a required fact, material, access permission, authorization, environment dependency, or other necessary condition remains unavailable after reasonable recovery attempts within the sandbox and no valid Artifact can be produced, use `report_node_blocked`.
 
 Use it only for a genuine inability to continue within the frozen assignment. Do not use it for a malformed submission, correctable quality defect, or transient model, tool, or storage failure.
 
