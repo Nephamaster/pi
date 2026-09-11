@@ -38,6 +38,7 @@ export function createNodeFileScopeExtension(options: {
 	permissions: Static<typeof NodePermissionsSchema>;
 	additionalReadRoots?: () => readonly string[];
 	deniedReadRoots?: () => readonly string[];
+	allowReadOwnWritePaths?: boolean;
 }): ExtensionFactory {
 	const workspace = resolve(options.workspace);
 	return (pi) => {
@@ -56,8 +57,11 @@ export function createNodeFileScopeExtension(options: {
 			const configured =
 				event.toolName === "read" ? options.permissions.read_paths : options.permissions.write_paths;
 			const roots = configured.map((scope) => resolve(workspace, scope));
-			if (event.toolName === "read")
+			if (event.toolName === "read") {
+				if (options.allowReadOwnWritePaths)
+					roots.push(...options.permissions.write_paths.map((scope) => resolve(workspace, scope)));
 				roots.push(...(options.additionalReadRoots?.() ?? []).map((root) => resolve(root)));
+			}
 			if (await isPathWithinRoots(target, roots)) return undefined;
 			return { block: true, reason: `Path is outside the node's ${event.toolName} scope: ${requested}` };
 		});
