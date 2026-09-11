@@ -170,7 +170,6 @@ export type CriterionDefinition = Static<typeof CriterionDefinitionSchema>;
 export const RequirementCoverageSchema = Type.Object(
 	{
 		source: Type.Union([
-			Type.Literal("task_requirement"),
 			Type.Literal("process_activity"),
 			Type.Literal("process_deliverable"),
 			Type.Literal("process_review"),
@@ -196,7 +195,7 @@ export const WorkflowCompletionSchema = Type.Object(
 
 export const WorkflowDefinitionSchema = Type.Object(
 	{
-		schema_version: Type.Literal(2),
+		schema_version: Type.Literal(3),
 		workflow_id: IdentifierSchema,
 		workflow_version: VersionSchema,
 		name: NonEmptyStringSchema,
