@@ -1,0 +1,56 @@
+name: IPD P0 finalize
+
+on:
+  push:
+    branches:
+      - fix/ipd-p0-runtime-safety-delivery
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.event.head_commit.message != 'chore(ipd): finalize P0 metadata and lockfile'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ipd-p0-runtime-safety-delivery
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Add PPT runtime requirements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.pi/skills/pptx/SKILL.md')
+          text = path.read_text(encoding='utf-8')
+          marker = 'license: Proprietary. LICENSE.txt has complete terms\n'
+          addition = '''required-tools: bash
+          required-commands:
+            - node
+            - python3
+            - soffice
+            - pdftoppm
+          '''
+          if 'required-commands:' not in text.split('---', 2)[1]:
+              if marker not in text:
+                  raise SystemExit('pptx frontmatter marker not found')
+              text = text.replace(marker, marker + addition, 1)
+              path.write_text(text, encoding='utf-8')
+          PY
+      - name: Refresh root lockfile
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Remove one-shot workflow and commit
+        shell: bash
+        run: |
+          rm .github/workflows/ipd-p0-finalize.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .pi/skills/pptx/SKILL.md package-lock.json .github/workflows/ipd-p0-finalize.yml
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore(ipd): finalize P0 metadata and lockfile'
+          git push origin HEAD:fix/ipd-p0-runtime-safety-delivery
