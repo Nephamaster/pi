@@ -32,7 +32,6 @@ export interface WorkflowDesignBlock {
 	type: "resource_gap" | "expressiveness_gap" | "task_blocker" | "other";
 	reason: string;
 	missing_conditions: string[];
-	task_requirement_refs: string[];
 	process_requirement_refs: string[];
 	diagnostics: Array<{ code?: string; path?: string; message: string }>;
 	needed_to_resume: string[];
