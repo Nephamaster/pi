@@ -6,16 +6,6 @@ import type { TaskInput } from "../contracts/task-input.ts";
 import { wrapPromptBlock } from "../prompt/block.ts";
 import type { IpdService } from "../runtime/ipd-service.ts";
 
-const ProjectedStatementSchema = Type.Object(
-	{
-		id: NonEmptyStringSchema,
-		text: NonEmptyStringSchema,
-		start: Type.Integer({ minimum: 0 }),
-		end: Type.Integer({ minimum: 0 }),
-	},
-	{ additionalProperties: false },
-);
-
 const CreateRunSchema = Type.Object(
 	{
 		request_id: NonEmptyStringSchema,
@@ -25,18 +15,6 @@ const CreateRunSchema = Type.Object(
 			description:
 				"The user's complete task request copied verbatim. Do not summarize, rewrite, expand, interpret, or add Skill instructions.",
 		}),
-		objectives: Type.Optional(
-			Type.Array(ProjectedStatementSchema, {
-				description:
-					"Explicit task objectives copied exactly from task. start/end are zero-based UTF-16 offsets into task; text must equal task.slice(start,end). Do not infer or paraphrase objectives.",
-			}),
-		),
-		requirements: Type.Optional(
-			Type.Array(ProjectedStatementSchema, {
-				description:
-					"Explicit user requirements copied exactly from task. start/end are zero-based UTF-16 offsets into task; text must equal task.slice(start,end). Include delivery format/count, must-answer items, constraints, and other explicit requirements. Do not infer or paraphrase.",
-			}),
-		),
 		materials: Type.Optional(
 			Type.Array(
 				Type.Object(
@@ -59,33 +37,12 @@ const CreateRunSchema = Type.Object(
 );
 
 type CreateRunInput = Static<typeof CreateRunSchema>;
-type ProjectedStatement = Static<typeof ProjectedStatementSchema>;
-
-function projectStatement(task: string, item: ProjectedStatement, kind: "objective" | "requirement") {
-	if (item.end <= item.start || item.end > task.length)
-		throw new Error(`Invalid ${kind} source span for ${item.id}: ${item.start}-${item.end}`);
-	const exact = task.slice(item.start, item.end);
-	if (exact !== item.text)
-		throw new Error(`${kind} ${item.id} must be copied exactly from task at the supplied source span`);
-	return {
-		statement: { text: item.text, source: `raw_task:${item.start}-${item.end}` },
-		source_span: { start: item.start, end: item.end },
-	};
-}
 
 function taskInput(input: CreateRunInput): TaskInput {
 	return {
-		schema_version: 1,
+		schema_version: 2,
 		task_input_id: input.request_id,
 		raw_task: { text: input.task, source: "external-agent-request" },
-		objectives: (input.objectives ?? []).map((item) => ({
-			objective_id: item.id,
-			...projectStatement(input.task, item, "objective"),
-		})),
-		requirements: (input.requirements ?? []).map((item) => ({
-			requirement_id: item.id,
-			...projectStatement(input.task, item, "requirement"),
-		})),
 		materials: input.materials ?? [],
 		unresolved_facts: [],
 	};
@@ -101,14 +58,12 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 			description:
 				"Create one governed IPD Run from the user's preserved task. Internal planning and execution continue without outer-agent orchestration.",
 			promptSnippet:
-				"Use IPD create_run for long tasks that require structured delivery and independent review. Pass request_id, skill_name, the user's verbatim task, exact-source objectives/requirements when explicit, and only user-supplied task materials when present.",
+				"Use IPD create_run for long tasks that require structured delivery and independent review. Pass request_id, skill_name, the user's complete verbatim task, and only user-supplied task materials when present.",
 			promptGuidelines: [
-				"Copy the user's complete task request verbatim into task. Do not summarize, rewrite, expand, interpret, or add content from Skills or other context.",
-				"Project explicit objectives and requirements from task into objectives/requirements using exact text spans only. text must equal task.slice(start,end). Never infer, normalize, merge, split, or paraphrase beyond what the user explicitly wrote.",
-				"Use stable IDs for projected objectives/requirements so Process Selection and Workflow requirement_coverage can reference them directly.",
+				"Copy the user's complete task request verbatim into task. Do not summarize, rewrite, expand, interpret, classify, or extract requirements before handing the task to IPD.",
 				"skill_name binds the task Skill separately. Do not repeat Skill instructions, files, scripts, inferred requirements, materials, or unresolved facts in task.",
 				"materials is optional and contains only task materials explicitly supplied or referenced by the user. Never include the bound Skill, Skill files, Skill scripts, or Agent-inferred materials.",
-				"This Tool only creates a Run. It cannot approve outputs, answer internal roles, skip review, or mutate Run state.",
+				"This Tool only creates a Run. IPD owns task interpretation, process selection, Workflow design, execution, and review after creation.",
 			],
 			parameters: CreateRunSchema,
 			async execute(_toolCallId, input, _signal, _onUpdate, context) {
