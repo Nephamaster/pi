@@ -1,0 +1,44 @@
+name: IPD P0 typebox lock sync
+
+on:
+  push:
+    branches:
+      - fix/ipd-p0-runtime-safety-delivery
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ipd-p0-runtime-safety-delivery
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Sync IPD typebox workspace entry
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('package-lock.json')
+          text = path.read_text(encoding='utf-8')
+          start = text.index('\t\t"packages/ipd": {')
+          end = text.index('\n\t\t},', start) + len('\n\t\t},')
+          block = text[start:end]
+          if '"typebox": "1.3.7"' not in block:
+              raise SystemExit('packages/ipd typebox 1.3.7 entry not found')
+          block = block.replace('"typebox": "1.3.7"', '"typebox": "1.3.27"', 1)
+          text = text[:start] + block + text[end:]
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Remove one-shot workflow and commit
+        shell: bash
+        run: |
+          rm .github/workflows/ipd-p0-typebox-lock.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add package-lock.json .github/workflows/ipd-p0-typebox-lock.yml
+          git commit -m 'build(ipd): sync typebox workspace lock'
+          git push origin HEAD:fix/ipd-p0-runtime-safety-delivery
