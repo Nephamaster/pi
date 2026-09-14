@@ -87,6 +87,7 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 						},
 					],
 					details: receipt,
+					terminate: true,
 				};
 			},
 		}),
@@ -110,6 +111,34 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 				};
 				return {
 					content: [{ type: "text", text: wrapPromptBlock("ipd_run_status", JSON.stringify(view)) }],
+					details: view,
+				};
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
+			name: "ipd_cancel_run",
+			label: "Cancel IPD Run",
+			description:
+				"Cancel one running IPD Run, stop active work, and persist a terminal cancelled state. Use only when the user explicitly requests cancellation.",
+			parameters: Type.Object(
+				{
+					run_id: NonEmptyStringSchema,
+					reason: Type.Optional(NonEmptyStringSchema),
+				},
+				{ additionalProperties: false },
+			),
+			async execute(_toolCallId, input, _signal, _onUpdate, context) {
+				const state = await (await serviceProvider(context)).cancelRun(input.run_id, input.reason);
+				const view = {
+					run_id: state.runId,
+					phase: state.phase,
+					status: state.status,
+					revision: state.revision,
+				};
+				return {
+					content: [{ type: "text", text: wrapPromptBlock("ipd_run_cancelled", JSON.stringify(view)) }],
 					details: view,
 				};
 			},

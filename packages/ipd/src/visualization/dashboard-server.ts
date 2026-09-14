@@ -76,7 +76,10 @@ export class IpdDashboardServer {
 		if (this.starting) return this.starting;
 		this.starting = new Promise<void>((resolve, reject) => {
 			const server = createServer((request, response) => {
-				void this.handle(request.url ?? "/", request.method ?? "GET", response);
+				void this.handle(request.url ?? "/", request.method ?? "GET", response).catch((error) => {
+					if (response.headersSent) response.destroy(error instanceof Error ? error : new Error(String(error)));
+					else text(response, 500, error instanceof Error ? error.message : String(error));
+				});
 			});
 			server.once("error", reject);
 			server.listen(this.port, this.host, () => {
@@ -111,7 +114,10 @@ export class IpdDashboardServer {
 			if (runPage) {
 				const runId = decodeURIComponent(runPage[1]);
 				assertRunId(runId);
-				if (runPage[2]) return this.snapshot(response, runId);
+				if (runPage[2]) {
+					await this.snapshot(response, runId);
+					return;
+				}
 				return html(
 					response,
 					200,

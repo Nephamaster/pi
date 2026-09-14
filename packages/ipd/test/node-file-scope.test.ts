@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionAPI, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
-import { isPathWithinRoots } from "../src/index.ts";
+import { createNodeFileScopeExtension, isPathWithinRoots } from "../src/index.ts";
 
 describe("node file scope", () => {
 	const roots: string[] = [];
@@ -24,5 +25,41 @@ describe("node file scope", () => {
 		expect(await isPathWithinRoots(join(owned, "result.txt"), [owned])).toBe(true);
 		expect(await isPathWithinRoots(join(sibling, "result.txt"), [owned])).toBe(false);
 		expect(await isPathWithinRoots(join(owned, "escape", "secret.txt"), [owned])).toBe(false);
+	});
+
+	it("applies the same read boundary to read, grep, find, and ls", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-tool-scope-"));
+		roots.push(root);
+		const workspace = join(root, "workspace");
+		await Promise.all([
+			mkdir(join(workspace, "allowed"), { recursive: true }),
+			mkdir(join(workspace, "denied"), { recursive: true }),
+		]);
+		let handler:
+			| ((event: ToolCallEvent) => Promise<ToolCallEventResult | undefined> | ToolCallEventResult | undefined)
+			| undefined;
+		const pi = {
+			on(event: string, candidate: typeof handler) {
+				if (event === "tool_call") handler = candidate;
+			},
+		} as unknown as ExtensionAPI;
+		createNodeFileScopeExtension({
+			workspace,
+			permissions: { read_paths: ["allowed"], write_paths: [], external_actions: false },
+		})(pi);
+		if (!handler) throw new Error("Tool scope handler was not registered");
+
+		for (const toolName of ["read", "grep", "find", "ls"] as const) {
+			const input =
+				toolName === "read"
+					? { path: "denied" }
+					: toolName === "grep"
+						? { pattern: "secret", path: "denied" }
+						: toolName === "find"
+							? { pattern: "*", path: "denied" }
+							: { path: "denied" };
+			const result = await handler({ type: "tool_call", toolCallId: toolName, toolName, input } as ToolCallEvent);
+			expect(result).toMatchObject({ block: true, reason: expect.stringContaining("read scope") });
+		}
 	});
 });

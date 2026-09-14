@@ -95,6 +95,8 @@ export function validateProcessCoverage(
 	const reviewNodes = new Map(
 		workflow.nodes.filter((node): node is ReviewNode => node.kind === "review").map((node) => [node.node_id, node]),
 	);
+	const requiredNodeIds = new Set(workflow.completion.required_node_ids);
+	const requiredReviewNodeIds = new Set(workflow.completion.required_review_node_ids);
 	const processEvidenceIds = new Set(
 		spec.required_deliverables.flatMap((deliverable) =>
 			deliverable.evidence_requirements.map((requirement) => requirement.evidence_requirement_id),
@@ -138,6 +140,7 @@ export function validateProcessCoverage(
 			const card = agentByNode.get(nodeId);
 			return (
 				executionNodes.has(nodeId) &&
+				requiredNodeIds.has(nodeId) &&
 				activity.required_capabilities.every((value) => card?.capabilities.includes(value))
 			);
 		});
@@ -158,10 +161,12 @@ export function validateProcessCoverage(
 		if (!item) continue;
 		const matching = item.output_refs.filter((ref) => {
 			const node = executionNodes.get(ref.node_id);
-			return node?.outputs.some(
-				(output) =>
-					output.output_id === ref.output_id &&
-					(deliverable.artifact_type === undefined || output.artifact_type === deliverable.artifact_type),
+			return (
+				node?.outputs.some(
+					(output) =>
+						output.output_id === ref.output_id &&
+						(deliverable.artifact_type === undefined || output.artifact_type === deliverable.artifact_type),
+				) && requiredNodeIds.has(ref.node_id)
 			);
 		});
 		deliverableOutputs.set(deliverable.deliverable_id, matching);
@@ -204,6 +209,8 @@ export function validateProcessCoverage(
 			const card = agentByNode.get(nodeId);
 			return (
 				review !== undefined &&
+				requiredNodeIds.has(nodeId) &&
+				requiredReviewNodeIds.has(nodeId) &&
 				requiredReview.reviewer_capabilities.every((value) => card?.capabilities.includes(value)) &&
 				review.targets.some((target) => expectedTargets.has(outputKey(target)))
 			);
@@ -270,6 +277,23 @@ export function validateProcessCoverage(
 				`${rule.enforced_by} rule ${rule.rule_id} has no registered deterministic implementation`,
 				rule.rule_id,
 			);
+			continue;
 		}
+		const coverageItem = coverage.get(coverageKey("process_rule", rule.rule_id));
+		const enforced = coverageItem?.responsible_node_ids.some((nodeId) => {
+			const review = reviewNodes.get(nodeId);
+			if (!review || !requiredNodeIds.has(nodeId) || !requiredReviewNodeIds.has(nodeId)) return false;
+			return coverageItem.criterion_refs.some((criterionId) =>
+				review.targets.some((target) => target.criterion_refs.includes(criterionId)),
+			);
+		});
+		if (!enforced)
+			error(
+				diagnostics,
+				"process_rule_unsatisfied",
+				"/requirement_coverage",
+				`Review-enforced rule ${rule.rule_id} is not bound to a required review criterion`,
+				rule.rule_id,
+			);
 	}
 }

@@ -8,6 +8,7 @@ class FakeSession implements NodeSessionHandle {
 	disposed = false;
 	hold = false;
 	readonly prompts: string[] = [];
+	readonly promptEvents: AgentSessionEvent[] = [];
 	private listeners: Array<(event: AgentSessionEvent) => void> = [];
 	private resume?: () => void;
 
@@ -18,6 +19,7 @@ class FakeSession implements NodeSessionHandle {
 	async prompt(text: string): Promise<void> {
 		this.isIdle = false;
 		this.prompts.push(text);
+		for (const event of this.promptEvents) this.emit(event);
 		this.emit({ type: "agent_settled" });
 		if (this.hold) {
 			await new Promise<void>((resolve) => {
@@ -148,5 +150,31 @@ describe("NodeSessionAdapter", () => {
 		factory.release();
 		expect((await first).sessionId).toBe((await second).sessionId);
 		expect(factory.createCount).toBe(1);
+	});
+
+	it("terminates a round after its tool error limit", async () => {
+		const factory = new FakeFactory();
+		factory.session.promptEvents.push(
+			{
+				type: "tool_execution_end",
+				toolCallId: "call-1",
+				toolName: "test",
+				result: { content: [], details: {} },
+				isError: true,
+			},
+			{
+				type: "tool_execution_end",
+				toolCallId: "call-2",
+				toolName: "test",
+				result: { content: [], details: {} },
+				isError: true,
+			},
+		);
+		const adapter = new NodeSessionAdapter(factory, undefined, { maxToolErrors: 1 });
+		await adapter.create({ runId: "run-1", nodeId: "node-1", participantId: "p1", createInput: "config" });
+		await expect(adapter.dispatch("run-1", "node-1", "p1", "round-1", "task")).rejects.toThrow(
+			"exceeded 1 tool errors",
+		);
+		expect(adapter.inspect("run-1", "node-1", "p1")?.status).toBe("idle");
 	});
 });

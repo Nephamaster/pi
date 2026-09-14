@@ -22,6 +22,21 @@ export interface InvalidatedRound {
 	roundId: string;
 }
 
+export function markRunCancelled(state: RunState): void {
+	state.status = "cancelled";
+	state.phase = "closed";
+	for (const round of state.rounds) {
+		if (round.status !== "active") continue;
+		round.status = "cancelled";
+		round.finishedAt = Date.now();
+	}
+	for (const node of state.nodes) {
+		if (node.status === "succeeded") continue;
+		node.status = "cancelled";
+		delete node.activeRoundId;
+	}
+}
+
 export function requireBaseline(state: RunState): ExecutionBaseline {
 	if (!state.baseline) throw new Error(`Run ${state.runId} has no Baseline`);
 	return state.baseline;
@@ -56,7 +71,14 @@ function outputIsFullyApproved(
 				approval.status === "active" &&
 				approval.reviewNodeId === reviewNodeId &&
 				approval.submissionId === submissionId &&
-				approval.outputId === outputId,
+				approval.outputId === outputId &&
+				state.reviews.some(
+					(review) =>
+						review.status === "active" &&
+						review.reviewId === approval.reviewId &&
+						review.reviewNodeId === approval.reviewNodeId &&
+						review.submissionIds.includes(submissionId),
+				),
 		),
 	);
 	if (approvals.some((approval) => approval === undefined)) return false;
@@ -197,16 +219,30 @@ export function reworkFeedback(node: EffectiveNode, state: RunState): RoundFeedb
 	let latestReviewFeedback: RoundFeedback[] = [];
 	for (let index = state.reviews.length - 1; index >= 0; index--) {
 		const review = state.reviews[index];
-		if (review?.decision === "REWORK" && review.reworkNodeIds.includes(node.definition.node_id)) {
+		if (
+			review?.decision === "REWORK" &&
+			review.criteria.some((criterion) =>
+				criterion.reworkTargets.some(
+					(target) => target.nodeId === node.definition.node_id && target.status === "pending",
+				),
+			)
+		) {
 			latestReviewFeedback = review.criteria.flatMap((criterion) =>
-				criterion.requiredRework.map((issue) => ({
-					type: "quality_rework" as const,
-					sourceId: review.reviewId,
-					criterionId: criterion.criterionId,
-					issue,
-					evidenceRef: `review:${review.reviewId}:${criterion.criterionId}`,
-					expectedCorrection: issue,
-				})),
+				criterion.reworkTargets.some(
+					(target) => target.nodeId === node.definition.node_id && target.status === "pending",
+				)
+					? criterion.requiredRework.map((issue) => ({
+							type: "quality_rework" as const,
+							sourceId: review.reviewId,
+							criterionId: criterion.criterionId,
+							outputId: criterion.reworkTargets.find(
+								(target) => target.nodeId === node.definition.node_id && target.status === "pending",
+							)?.outputId,
+							issue,
+							evidenceRef: `review:${review.reviewId}:${criterion.criterionId}`,
+							expectedCorrection: issue,
+						}))
+					: [],
 			);
 			break;
 		}
@@ -242,6 +278,36 @@ export function reworkFeedback(node: EffectiveNode, state: RunState): RoundFeedb
 	return [...latestReviewFeedback, ...mechanicalFeedback];
 }
 
+export function markReworkAddressed(state: RunState, nodeId: string): void {
+	for (const review of state.reviews)
+		for (const criterion of review.criteria)
+			for (const target of criterion.reworkTargets)
+				if (target.nodeId === nodeId && target.status === "pending") target.status = "addressed";
+}
+
+export function resolveReworkForTargets(
+	state: RunState,
+	targets: ReadonlyArray<{ node_id: string; output_id: string }>,
+): void {
+	const keys = new Set(targets.map((target) => graphOutputKey(target.node_id, target.output_id)));
+	for (const review of state.reviews)
+		for (const criterion of review.criteria)
+			for (const target of criterion.reworkTargets)
+				if (
+					["pending", "addressed"].includes(target.status) &&
+					keys.has(graphOutputKey(target.nodeId, target.outputId))
+				)
+					target.status = "resolved";
+}
+
+export function supersedePendingRework(state: RunState, nodeIds: readonly string[]): void {
+	const affected = new Set(nodeIds);
+	for (const review of state.reviews)
+		for (const criterion of review.criteria)
+			for (const target of criterion.reworkTargets)
+				if (affected.has(target.nodeId) && target.status === "pending") target.status = "superseded";
+}
+
 export function invalidateFromNode(state: RunState, nodeId: string, excludeRoundId?: string): InvalidatedRound[] {
 	const root = state.submissions
 		.filter((item) => item.nodeId === nodeId && ["candidate", "approved"].includes(item.status))
@@ -263,15 +329,24 @@ export function invalidateFromNode(state: RunState, nodeId: string, excludeRound
 			changed = true;
 		}
 	}
+	const staleReviewIds = new Set<string>();
 	for (const approval of state.approvals) {
 		if (affected.has(approval.submissionId)) approval.status = "stale";
 	}
 	for (const review of state.reviews) {
 		if (!review.submissionIds.some((id) => affected.has(id))) continue;
 		review.status = "stale";
+		staleReviewIds.add(review.reviewId);
 		const reviewer = state.nodes.find((item) => item.nodeId === review.reviewNodeId);
 		if (reviewer) reviewer.status = "waiting";
 	}
+	const additionalAffectedSubmissions = new Set<string>();
+	for (const approval of state.approvals) {
+		if (!staleReviewIds.has(approval.reviewId)) continue;
+		approval.status = "stale";
+		additionalAffectedSubmissions.add(approval.submissionId);
+	}
+	for (const submissionId of additionalAffectedSubmissions) refreshSubmissionStatus(state, submissionId);
 	const invalidated: InvalidatedRound[] = [];
 	for (const round of state.rounds) {
 		if (
@@ -363,6 +438,9 @@ export function runIsComplete(state: RunState): boolean {
 	return (
 		completion.required_node_ids.every(
 			(id) => state.nodes.find((item) => item.nodeId === id)?.status === "succeeded",
+		) &&
+		completion.required_review_node_ids.every(
+			(id) => state.nodes.find((item) => item.nodeId === id && item.kind === "review")?.status === "succeeded",
 		) &&
 		completion.final_outputs.every(
 			(ref) => approvedSubmissionForOutput(state, ref, completion.required_review_node_ids) !== undefined,

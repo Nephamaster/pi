@@ -22,16 +22,16 @@ the frozen acceptance criteria.
 
 ## Main capabilities
 
-- TaskInput, ProcessSpec v2, WorkflowDefinition v2, ExecutionBaseline, and Runtime state contracts.
+- TaskInput and ProcessSpec v2, WorkflowDefinition v3, ExecutionBaseline, and Runtime state contracts.
 - Versioned AgentCard, ProcessSpec, Skill, Tool, and Workflow asset loading.
 - Dedicated `process-selection` and `workflow-design` Skills bound only to their corresponding control-role Sessions.
 - Incremental Workflow draft tools with revision and operation idempotency.
 - Compiler checks for assets, permissions, output ownership, complete Gate coverage, ProcessSpec criterion/evidence
   mappings, requirement coverage, and independent review.
-- Shared Run workspace with non-overlapping execution output roots and sealed, hashed Submission copies.
-- Parallel ready-node scheduling, exact input-version binding, local and cross-node rework invalidation, and final
+- Shared Run workspace with non-overlapping execution output roots and independently sealed, hashed output views.
+- Bounded ready-node scheduling, exact input-version binding, local and cross-node rework invalidation, and final
   delivery projection.
-- Query-only `ipd_get_run`, `ipd_read_events`, and `ipd_get_result` tools.
+- Run control through `ipd_cancel_run`, plus query-only `ipd_get_run`, `ipd_read_events`, and `ipd_get_result` tools.
 - Zero-dependency local visualization for TaskInput, ProcessSpec selection, live Workflow draft/compiled graph, node
   execution state, review/rework routes, Runtime events, and downloadable self-contained HTML snapshots.
 
@@ -77,12 +77,26 @@ assignments, and Runtime events.
 Run data is stored under `<project>/.pi/ipd/runs/<run-id>/`; reusable Workflow assets are stored under
 `<project>/.pi/ipd/workflow/`.
 
+## Runtime safeguards
+
+The default Runtime uses these safety limits:
+
+```text
+PI_IPD_MAX_CONCURRENT_NODES=4
+PI_IPD_MAX_QUALITY_REWORK_ROUNDS=10
+PI_IPD_ROUND_TIMEOUT_MS=1800000
+```
+
+Low-frequency state-write and round-duration metrics are appended outside authoritative Run state at
+`<project>/.pi/ipd/telemetry.ndjson`. Run state writes use a per-file writer lock and fail closed when another process
+is mutating the same Run.
+
 ## Current boundaries
 
 - No node-internal multi-Agent collaboration, budget governance, HITL, asset self-evolution, or complete replan flow.
-- File `read/write/edit` calls are path-scoped, and review nodes cannot receive mutation or general-purpose Shell
-  tools. Execution-node Bash still requires a trusted environment or an external sandbox for system-level isolation.
-- State serialization and request idempotency are single-process; active Runs cannot resume their original
+- File `read/grep/find/ls/write/edit` calls share path authorization, Bash uses the node sandbox, and review nodes
+  cannot receive mutation or general-purpose Shell tools. Custom Tool behavior still requires explicit capability metadata.
+- State mutation has cross-process conflict detection, but active Runs cannot resume their original
   AgentSessions after process loss.
 - The visualization server is process-local and intentionally read-only; it does not provide remote control, approval,
   Run mutation, or authentication.

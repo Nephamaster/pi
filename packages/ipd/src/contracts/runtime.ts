@@ -7,9 +7,17 @@ import type { TaskInput } from "./task-input.ts";
 import type { WorkflowDefinition } from "./workflow.ts";
 
 export type RunPhase = "intake" | "selection" | "design" | "compile" | "execute" | "closed";
-export type RunStatus = "running" | "blocked" | "succeeded" | "failed";
-export type NodeStatus = "waiting" | "ready" | "active" | "waiting_review" | "waiting_rework" | "succeeded" | "blocked";
-export type RoundStatus = "active" | "submitted" | "completed" | "blocked" | "invalidated" | "failed";
+export type RunStatus = "running" | "blocked" | "succeeded" | "failed" | "cancelled";
+export type NodeStatus =
+	| "waiting"
+	| "ready"
+	| "active"
+	| "waiting_review"
+	| "waiting_rework"
+	| "succeeded"
+	| "blocked"
+	| "cancelled";
+export type RoundStatus = "active" | "submitted" | "completed" | "blocked" | "invalidated" | "failed" | "cancelled";
 export type SubmissionStatus = "candidate" | "approved" | "rejected" | "stale";
 
 export interface PreparationDiagnosticRecord {
@@ -97,6 +105,11 @@ export interface CriterionResultRecord {
 	evidence: JsonValue;
 	rationale: string;
 	requiredRework: string[];
+	reworkTargets: Array<{
+		nodeId: string;
+		outputId: string;
+		status: "pending" | "addressed" | "resolved" | "superseded";
+	}>;
 }
 
 export interface ReviewRecord {
@@ -106,7 +119,6 @@ export interface ReviewRecord {
 	submissionIds: string[];
 	decision: "PASS" | "REWORK" | "BLOCKED";
 	criteria: CriterionResultRecord[];
-	reworkNodeIds: string[];
 	status: "active" | "stale";
 	createdAt: number;
 }

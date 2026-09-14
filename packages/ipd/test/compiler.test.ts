@@ -101,6 +101,74 @@ describe("compileWorkflow", () => {
 		expect(result.report.diagnostics.map((item) => item.code)).toContain("final_output_review_incomplete");
 	});
 
+	it("requires every completion review to be a required node", () => {
+		const fixture = createCompilerFixture();
+		fixture.workflow.completion.required_node_ids = ["produce"];
+		const result = compileWorkflow(fixture);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.report.diagnostics.map((item) => item.code)).toContain("required_review_not_required");
+	});
+
+	it("rejects an implicit joint criterion across multiple review outputs", () => {
+		const fixture = createCompilerFixture();
+		const producer = fixture.workflow.nodes.find((node) => node.kind === "execution");
+		const review = fixture.workflow.nodes.find((node) => node.kind === "review");
+		if (!producer || producer.kind !== "execution" || !review || review.kind !== "review")
+			throw new Error("Fixture nodes are missing");
+		producer.outputs.push({
+			...structuredClone(producer.outputs[0]),
+			output_id: "second-output",
+			path_prefix: "outputs/produce/second",
+		});
+		review.inputs.push({
+			kind: "node_output",
+			input_id: "second-candidate",
+			source: { node_id: "produce", output_id: "second-output" },
+			required: true,
+			availability: "submitted",
+			approval_review_node_ids: [],
+		});
+		review.targets.push({ node_id: "produce", output_id: "second-output", criterion_refs: ["quality"] });
+		const result = compileWorkflow(fixture);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.report.diagnostics.map((item) => item.code)).toContain("review_criterion_target_ambiguous");
+	});
+
+	it("requires ProcessSpec reviews to participate in completion", () => {
+		const fixture = createCompilerFixture();
+		addSecondaryReview(fixture);
+		fixture.workflow.completion.required_review_node_ids = ["review-secondary"];
+		const result = compileWorkflow(fixture);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.report.diagnostics.map((item) => item.code)).toContain("process_review_unsatisfied");
+	});
+
+	it("requires review-enforced ProcessSpec rules to bind a required review criterion", () => {
+		const fixture = createCompilerFixture();
+		fixture.processSpec.workflow_rules.push({
+			rule_id: "review-rule",
+			description: "A rule enforced by review",
+			enforced_by: "review",
+		});
+		fixture.processSelection.process_spec_ref.hash = hashJson(fixture.processSpec);
+		fixture.processSelection.process_requirement_refs.push("review-rule");
+		fixture.workflow.process_selection_ref.hash = hashJson(fixture.processSelection);
+		fixture.workflow.requirement_coverage.push({
+			source: "process_rule",
+			requirement_id: "review-rule",
+			responsible_node_ids: ["produce"],
+			output_refs: [{ node_id: "produce", output_id: "content-output" }],
+			criterion_refs: ["quality"],
+		});
+		const result = compileWorkflow(fixture);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.report.diagnostics.map((item) => item.code)).toContain("process_rule_unsatisfied");
+	});
+
 	it("requires downstream approval Gates to cover every semantic input criterion", () => {
 		const fixture = createCompilerFixture();
 		addSecondaryReview(fixture);

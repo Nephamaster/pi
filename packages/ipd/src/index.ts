@@ -50,6 +50,7 @@ export * from "./runtime/run-directory.ts";
 export * from "./runtime/run-store.ts";
 export * from "./runtime/runtime-state.ts";
 export * from "./runtime/submission-store.ts";
+export * from "./runtime/telemetry.ts";
 export * from "./runtime/workflow-runtime.ts";
 export * from "./tool/default-ipd-extension.ts";
 export * from "./tool/ipd-extension.ts";

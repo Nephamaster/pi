@@ -40,6 +40,11 @@ export interface NodeSessionBindingSnapshot {
 	activeRoundId?: string;
 }
 
+export interface NodeSessionRoundLimits {
+	maxToolCalls?: number;
+	maxToolErrors?: number;
+}
+
 interface BindingRecord {
 	runId: string;
 	nodeId: string;
@@ -47,6 +52,9 @@ interface BindingRecord {
 	session: NodeSessionHandle;
 	status: NodeSessionBindingStatus;
 	activeRoundId?: string;
+	toolCalls: number;
+	toolErrors: number;
+	limitError?: Error;
 	unsubscribe: () => void;
 }
 
@@ -57,13 +65,19 @@ export class NodeSessionAdapter<TCreateInput> {
 	private readonly creations = new Map<string, Promise<BindingRecord>>();
 	private readonly factory: NodeSessionFactory<TCreateInput>;
 	private readonly onEvent: (event: NodeSessionEventEnvelope) => void;
+	private readonly limits: NodeSessionRoundLimits;
 
 	constructor(
 		factory: NodeSessionFactory<TCreateInput>,
 		onEvent: (event: NodeSessionEventEnvelope) => void = () => {},
+		limits: NodeSessionRoundLimits = {},
 	) {
 		this.factory = factory;
 		this.onEvent = onEvent;
+		this.limits = limits;
+		for (const [name, value] of Object.entries(limits))
+			if (value !== undefined && (!Number.isInteger(value) || value < 1))
+				throw new Error(`${name} must be a positive integer`);
 	}
 
 	async create(input: NodeSessionBindingInput<TCreateInput>): Promise<NodeSessionBindingSnapshot> {
@@ -86,9 +100,29 @@ export class NodeSessionAdapter<TCreateInput> {
 				participantId: input.participantId,
 				session,
 				status: "idle",
+				toolCalls: 0,
+				toolErrors: 0,
 				unsubscribe: () => {},
 			};
 			record.unsubscribe = session.subscribe((event) => {
+				if (record.activeRoundId && event.type === "tool_execution_start") {
+					record.toolCalls++;
+					if (this.limits.maxToolCalls !== undefined && record.toolCalls > this.limits.maxToolCalls) {
+						record.limitError = new Error(
+							`Round ${record.activeRoundId} exceeded ${this.limits.maxToolCalls} tool calls`,
+						);
+						void record.session.abort().catch(() => {});
+					}
+				}
+				if (record.activeRoundId && event.type === "tool_execution_end" && event.isError) {
+					record.toolErrors++;
+					if (this.limits.maxToolErrors !== undefined && record.toolErrors > this.limits.maxToolErrors) {
+						record.limitError = new Error(
+							`Round ${record.activeRoundId} exceeded ${this.limits.maxToolErrors} tool errors`,
+						);
+						void record.session.abort().catch(() => {});
+					}
+				}
 				this.onEvent({
 					runId: record.runId,
 					nodeId: record.nodeId,
@@ -120,14 +154,22 @@ export class NodeSessionAdapter<TCreateInput> {
 			throw new Error(`Node Session ${runId}/${nodeId}/${participantId} already has an active round`);
 		record.status = "active";
 		record.activeRoundId = roundId;
+		record.toolCalls = 0;
+		record.toolErrors = 0;
+		record.limitError = undefined;
+		let dispatchError: unknown;
 		try {
 			await record.session.prompt(prompt);
+		} catch (error) {
+			dispatchError = error;
 		} finally {
 			if (record.status === "active" && record.activeRoundId === roundId) {
 				record.status = "idle";
 				record.activeRoundId = undefined;
 			}
 		}
+		if (record.limitError) throw record.limitError;
+		if (dispatchError) throw dispatchError;
 	}
 
 	async stop(runId: string, nodeId: string, participantId: string, roundId: string): Promise<void> {

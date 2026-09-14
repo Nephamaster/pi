@@ -48,7 +48,7 @@ async function createFixture() {
 			metadata: {},
 		},
 	});
-	return { workspace, contract, manifest, artifacts: [{ contract, manifest }] };
+	return { workspace, contract, manifest, artifacts: [{ workspace, contract, manifest }] };
 }
 
 describe("MechanicalChecker", () => {
@@ -117,6 +117,28 @@ describe("MechanicalChecker", () => {
 			fixture,
 		);
 		expect(result.result).toBe("FAIL");
+	});
+
+	it("validates each isolated output against its own sealed workspace", async () => {
+		const first = await createFixture();
+		const second = await createFixture();
+		const registry = new CheckExecutorRegistry();
+		registry.add(createArtifactIntegrityCheckExecutor());
+		const checker = new MechanicalChecker(registry);
+		const result = await checker.evaluate(
+			[
+				{
+					kind: "mechanical",
+					criterion_id: "integrity",
+					description: "Validate all isolated outputs",
+					check_id: "artifact-integrity",
+					parameters: {},
+					evidence_requirements: ["Manifest"],
+				},
+			],
+			{ ...first, artifacts: [first, second] },
+		);
+		expect(result.result).toBe("PASS");
 	});
 
 	it("rejects an unregistered Check before execution", async () => {

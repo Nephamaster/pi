@@ -40,7 +40,13 @@ export interface NodeWorker {
 	releaseRun?(runId: string): Promise<void>;
 }
 
-export type NodeWorkerFailureKind = "transient" | "external_outcome_unknown" | "session_lost" | "configuration";
+export type NodeWorkerFailureKind =
+	| "transient"
+	| "external_outcome_unknown"
+	| "session_lost"
+	| "configuration"
+	| "timeout"
+	| "cancelled";
 
 export class NodeSubmissionProtocolError extends Error {
 	constructor(message: string) {
@@ -105,14 +111,14 @@ export class RetryingNodeWorker implements NodeWorker {
 		const key = `${work.runId}\0${work.node.definition.node_id}\0${participantId}\0${work.roundId}`;
 		for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
 			if (this.stoppedRounds.has(key))
-				throw new NodeWorkerError("configuration", `Round is no longer active: ${work.roundId}`, false);
+				throw new NodeWorkerError("cancelled", `Round is no longer active: ${work.roundId}`, false);
 			try {
 				return await operation(current);
 			} catch (error) {
 				last = error;
 				if (!(error instanceof NodeWorkerError) || !error.retryable || attempt === this.maxAttempts) throw error;
 				if (this.stoppedRounds.has(key))
-					throw new NodeWorkerError("configuration", `Round is no longer active: ${work.roundId}`, false);
+					throw new NodeWorkerError("cancelled", `Round is no longer active: ${work.roundId}`, false);
 				current = {
 					...current,
 					feedback: [...current.feedback, { type: "technical_retry", issue: error.message }],

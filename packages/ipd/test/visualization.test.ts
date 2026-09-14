@@ -169,4 +169,24 @@ describe("IPD visualization", () => {
 			roundCount: 1,
 		});
 	});
+
+	it("contains snapshot failures within the HTTP response", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-visualization-error-"));
+		roots.push(root);
+		const { state, processSpec } = stateFixture();
+		const server = new IpdDashboardServer({
+			projectRoot: root,
+			processSpecs: [processSpec],
+			getRun: async () => {
+				throw new Error("snapshot unavailable");
+			},
+			host: "127.0.0.1",
+			port: 0,
+		});
+		servers.push(server);
+		const link = await server.registerRun(state.runId);
+		const response = await fetch(link.snapshotUrl);
+		expect(response.status).toBe(500);
+		expect(await response.text()).toContain("snapshot unavailable");
+	});
 });

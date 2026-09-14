@@ -128,6 +128,7 @@ export function validateWorkflowRelations(
 	const reviews = workflow.nodes.filter((node): node is ReviewNode => node.kind === "review");
 	const reviewsByOutput: Record<string, string[]> = {};
 	for (const [index, review] of reviews.entries()) {
+		const targetsByCriterion = new Map<string, Set<string>>();
 		for (const [targetIndex, target] of review.targets.entries()) {
 			const key = outputKey(target);
 			if (!outputs.has(key))
@@ -144,6 +145,9 @@ export function validateWorkflowRelations(
 				reviewsByOutput[key] = assignedReviews;
 			}
 			for (const criterionId of target.criterion_refs) {
+				const criterionTargets = targetsByCriterion.get(criterionId) ?? new Set<string>();
+				criterionTargets.add(key);
+				targetsByCriterion.set(criterionId, criterionTargets);
 				if (criteria.get(criterionId)?.kind !== "semantic")
 					add(
 						diagnostics,
@@ -163,6 +167,16 @@ export function validateWorkflowRelations(
 					"review_input_missing",
 					`/nodes/${index}/inputs`,
 					`Review target ${key} requires a submitted input binding`,
+					review.node_id,
+				);
+		}
+		for (const [criterionId, targetKeys] of targetsByCriterion) {
+			if (targetKeys.size > 1)
+				add(
+					diagnostics,
+					"review_criterion_target_ambiguous",
+					`/nodes/${index}/targets`,
+					`Review criterion ${criterionId} implicitly covers multiple outputs: ${[...targetKeys].join(", ")}`,
 					review.node_id,
 				);
 		}
@@ -292,14 +306,7 @@ export function validateWorkflowRelations(
 		);
 		for (const diagnostic of checkDiagnostics) add(diagnostics, diagnostic.code, diagnostic.path, diagnostic.message);
 	}
-	validateCoverageReferences(
-		workflow,
-		spec,
-		nodes,
-		new Set(outputs.keys()),
-		new Set(criteria.keys()),
-		diagnostics,
-	);
+	validateCoverageReferences(workflow, spec, nodes, new Set(outputs.keys()), new Set(criteria.keys()), diagnostics);
 
 	for (const [index, ref] of workflow.completion.final_outputs.entries()) {
 		const key = outputKey(ref);
@@ -315,6 +322,7 @@ export function validateWorkflowRelations(
 			);
 	}
 	const finalOutputKeys = new Set(workflow.completion.final_outputs.map(outputKey));
+	const requiredNodeIds = new Set(workflow.completion.required_node_ids);
 	for (const [index, ref] of workflow.completion.delivery_outputs.entries()) {
 		const key = outputKey(ref);
 		if (!outputs.has(key))
@@ -351,6 +359,33 @@ export function validateWorkflowRelations(
 				"/completion/required_review_node_ids",
 				`Invalid required review node ${nodeId}`,
 			);
+		else if (!requiredNodeIds.has(nodeId))
+			add(
+				diagnostics,
+				"required_review_not_required",
+				"/completion/required_review_node_ids",
+				`Required review node ${nodeId} must also be included in required_node_ids`,
+			);
+	for (const [index, ref] of workflow.completion.final_outputs.entries())
+		if (!requiredNodeIds.has(ref.node_id))
+			add(
+				diagnostics,
+				"final_output_node_not_required",
+				`/completion/final_outputs/${index}`,
+				`Final output producer ${ref.node_id} must be included in required_node_ids`,
+			);
+	for (const nodeId of requiredNodeIds) {
+		for (const dependencyId of dependencies.get(nodeId) ?? []) {
+			if (!requiredNodeIds.has(dependencyId))
+				add(
+					diagnostics,
+					"required_node_dependency_missing",
+					"/completion/required_node_ids",
+					`Required node ${nodeId} depends on ${dependencyId}, which is not required for completion`,
+					nodeId,
+				);
+		}
+	}
 
 	const forward: Record<string, string[]> = {};
 	const reverse: Record<string, string[]> = {};

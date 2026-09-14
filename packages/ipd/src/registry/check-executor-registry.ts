@@ -10,7 +10,7 @@ export interface CheckExecutionContext {
 	workspace: string;
 	contract: ArtifactContract;
 	manifest: ArtifactManifest;
-	artifacts: Array<{ contract: ArtifactContract; manifest: ArtifactManifest }>;
+	artifacts: Array<{ workspace: string; contract: ArtifactContract; manifest: ArtifactManifest }>;
 }
 
 export interface CheckExecutorResult {

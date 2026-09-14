@@ -84,6 +84,62 @@ describe("IpdService", () => {
 		expect(state.events.some((event) => event.type === "runtime_failed")).toBe(false);
 	});
 
+	it("cancels a Run during preparation without recording a later failure", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-preparation-cancel-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		const store = new FileRunStore();
+		let finishSelection: (() => void) | undefined;
+		const selection = new Promise<typeof fixture.processSelection>((resolve) => {
+			finishSelection = () => resolve(fixture.processSelection);
+		});
+		const control = new IpdControlPlane(
+			store,
+			{
+				select: async () => selection,
+				async cancelRun() {
+					finishSelection?.();
+				},
+			},
+			{
+				async design() {
+					throw new Error("designer should not run");
+				},
+			},
+			new FileWorkflowAssetStore({ directory: join(root, ".pi", "ipd", "workflow") }),
+		);
+		const service = new IpdService({
+			store,
+			createControlPlane: () => control,
+			processSpecs: [fixture.processSpec],
+			assets: {
+				...fixture.assets,
+				skills: [
+					{
+						id: "test-skill",
+						hash: "a".repeat(64),
+						source: "test",
+						filePath: "/test/SKILL.md",
+						baseDir: "/test",
+						description: "Test Skill",
+						allowedTools: [],
+					},
+				],
+			},
+			projectRoot: root,
+			idFactory: () => "run-cancelled",
+			createRuntime: () => {
+				throw new Error("runtime should not start");
+			},
+		});
+		await service.createRun("request-cancelled", fixture.taskInput, "test-skill");
+		const cancelled = await service.cancelRun("run-cancelled", "Stopped by test");
+		expect(cancelled.status).toBe("cancelled");
+		expect(cancelled.phase).toBe("closed");
+		expect(cancelled.events.filter((event) => event.type === "run_cancelled")).toHaveLength(1);
+		expect(cancelled.events.some((event) => event.type === "preparation_failed")).toBe(false);
+	});
+
 	it("creates once and exposes query-only progress and result APIs", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-service-"));
 		roots.push(root);
@@ -103,7 +159,10 @@ describe("IpdService", () => {
 					metadata: {},
 				};
 			},
-			async runReview() {
+			async runReview(work) {
+				const submission = work.inputSubmissions[0];
+				const output = submission?.outputs[0];
+				if (!submission || !output) throw new Error("Missing review input");
 				return {
 					decision: "PASS",
 					criteria: [
@@ -114,14 +173,17 @@ describe("IpdService", () => {
 								{
 									description: "Observed sealed output",
 									reference: "outputs/produce/result.txt",
+									submission_id: submission.submissionId,
+									node_id: submission.nodeId,
+									output_id: output.outputId,
 									criterion_id: "quality",
 								},
 							],
 							rationale: "accepted",
 							required_rework: [],
+							rework_targets: [],
 						},
 					],
-					rework_node_ids: [],
 					unresolved_issues: [],
 				};
 			},

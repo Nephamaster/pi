@@ -121,19 +121,31 @@ describe("WorkflowRuntime failure classification", () => {
 					metadata: {},
 				};
 			},
-			async runReview() {
+			async runReview(work) {
+				const submission = work.inputSubmissions[0];
+				const output = submission?.outputs[0];
+				if (!submission || !output) throw new Error("Missing review input");
 				return {
 					decision: "PASS",
 					criteria: [
 						{
 							criterion_id: "quality",
 							result: "PASS",
-							evidence: [{ description: "Inspected result", reference: "result.txt", criterion_id: "quality" }],
+							evidence: [
+								{
+									description: "Inspected result",
+									reference: "result.txt",
+									submission_id: submission.submissionId,
+									node_id: submission.nodeId,
+									output_id: output.outputId,
+									criterion_id: "quality",
+								},
+							],
 							rationale: "accepted",
 							required_rework: [],
+							rework_targets: [],
 						},
 					],
-					rework_node_ids: [],
 					unresolved_issues: [],
 				};
 			},

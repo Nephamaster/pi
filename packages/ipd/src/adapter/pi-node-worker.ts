@@ -48,6 +48,19 @@ export interface PiNodeWorkerOptions {
 const keyOf = (work: NodeRoundWork) =>
 	`${work.runId}\0${work.node.definition.node_id}\0${work.node.agents[0].participantId}`;
 
+function classifyWorkerError(error: unknown): NodeWorkerError {
+	const message = error instanceof Error ? error.message : String(error);
+	if (/abort|cancel|no longer active/i.test(message))
+		return new NodeWorkerError("cancelled", message, false, { cause: error });
+	if (
+		/Locked Skill content changed|Configured model is unavailable|Node Session .* (lost|released)|does not expose|required by IPD/i.test(
+			message,
+		)
+	)
+		return new NodeWorkerError("configuration", message, false, { cause: error });
+	return new NodeWorkerError("transient", message, true, { cause: error });
+}
+
 export class PiNodeWorker implements NodeWorker {
 	private readonly options: PiNodeWorkerOptions;
 	private readonly sessions: NodeSessionAdapter<PiNodeSessionCreateInput>;
@@ -196,10 +209,7 @@ export class PiNodeWorker implements NodeWorker {
 			);
 		} catch (error) {
 			if (error instanceof NodeWorkerError || error instanceof NodeSubmissionProtocolError) throw error;
-			const message = error instanceof Error ? error.message : String(error);
-			throw new NodeWorkerError("transient", message, true, {
-				cause: error,
-			});
+			throw classifyWorkerError(error);
 		}
 	}
 }

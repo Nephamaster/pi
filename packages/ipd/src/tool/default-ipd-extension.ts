@@ -23,16 +23,19 @@ import {
 import { hashJson, toJsonValue } from "../ir/hash.ts";
 import { AssetAssembler, toCompilerAssetCatalog } from "../registry/asset-assembler.ts";
 import { CheckExecutorRegistry } from "../registry/check-executor-registry.ts";
+import { hashSkillPackage } from "../registry/skill-package.ts";
 import { FileWorkflowAssetStore } from "../registry/workflow-asset-store.ts";
 import { IpdService } from "../runtime/ipd-service.ts";
 import { RetryingNodeWorker } from "../runtime/node-worker.ts";
 import { FileRunStore } from "../runtime/run-store.ts";
 import { SubmissionStore } from "../runtime/submission-store.ts";
+import { FileIpdTelemetry } from "../runtime/telemetry.ts";
 import { WorkflowRuntime } from "../runtime/workflow-runtime.ts";
 import { IpdDashboardServer } from "../visualization/dashboard-server.ts";
 import { registerIpdCreateRunTool } from "./ipd-extension.ts";
 
 const BUILTIN_TOOLS = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"]);
+const OUTER_IPD_TOOLS = new Set(["ipd", "ipd_get_run", "ipd_cancel_run", "ipd_read_events", "ipd_get_result"]);
 
 function executableTools(pi: ExtensionAPI): ToolDefinition[] {
 	if (!("getToolDefinitions" in pi))
@@ -45,9 +48,16 @@ function dashboardPort(): number {
 	const raw = process.env.PI_IPD_DASHBOARD_PORT?.trim();
 	if (!raw) return 0;
 	const port = Number(raw);
-	if (!Number.isInteger(port) || port < 0 || port > 65_535)
-		throw new Error(`Invalid PI_IPD_DASHBOARD_PORT: ${raw}`);
+	if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error(`Invalid PI_IPD_DASHBOARD_PORT: ${raw}`);
 	return port;
+}
+
+function runtimeInteger(name: string, fallback: number, minimum: number): number {
+	const raw = process.env[name]?.trim();
+	if (!raw) return fallback;
+	const value = Number(raw);
+	if (!Number.isInteger(value) || value < minimum) throw new Error(`Invalid ${name}: ${raw}`);
+	return value;
 }
 
 function diagnosticCategory(diagnostic: CompilerDiagnostic): string {
@@ -89,32 +99,60 @@ async function modelRuntime(context: ExtensionContext): Promise<ModelRuntime> {
 
 export function registerDefaultIpdExtension(pi: ExtensionAPI): void {
 	let activeSkills: Skill[] = [];
-	let cached: { key: string; service: Promise<IpdService> } | undefined;
+	const services = new Map<string, Promise<IpdService>>();
 
 	pi.on("before_agent_start", (event) => {
 		activeSkills = [...(event.systemPromptOptions.skills ?? [])];
+	});
+	pi.on("session_shutdown", async () => {
+		await Promise.allSettled([...services.values()].map(async (service) => (await service).close()));
+		services.clear();
 	});
 
 	registerIpdCreateRunTool(pi, async (context) => {
 		const model = context.model as Model<Api> | undefined;
 		if (!model) throw new Error("Current Pi session has no configured model");
-		const key = `${context.cwd}\0${model.provider}\0${model.id}\0${activeSkills.map((skill) => skill.filePath).join("\0")}`;
-		if (cached?.key === key) return cached.service;
-		const service = createDefaultService(pi, context, model, activeSkills);
-		cached = { key, service };
+		const toolDefinitions = executableTools(pi).filter((tool) => !OUTER_IPD_TOOLS.has(tool.name));
+		const skillHashes = await Promise.all(
+			activeSkills.map(async (skill) => ({ path: skill.filePath, hash: await hashSkillPackage(skill.baseDir) })),
+		);
+		const key = JSON.stringify({
+			cwd: context.cwd,
+			model: `${model.provider}/${model.id}`,
+			thinkingLevel: context.thinkingLevel ?? "off",
+			projectTrusted: context.isProjectTrusted(),
+			skills: skillHashes.sort((left, right) => left.path.localeCompare(right.path)),
+			tools: toolDefinitions
+				.map((tool) => ({
+					name: tool.name,
+					hash: hashJson({
+						description: tool.description,
+						parameters: tool.parameters,
+						promptSnippet: tool.promptSnippet,
+						promptGuidelines: tool.promptGuidelines,
+					}),
+				}))
+				.sort((left, right) => left.name.localeCompare(right.name)),
+		});
+		const existing = services.get(key);
+		if (existing) return existing;
+		const service = createDefaultService(context, model, activeSkills, toolDefinitions);
+		services.set(key, service);
+		void service.catch(() => {
+			if (services.get(key) === service) services.delete(key);
+		});
 		return service;
 	});
 }
 
 async function createDefaultService(
-	pi: ExtensionAPI,
 	context: ExtensionContext,
 	model: Model<Api>,
 	skills: readonly Skill[],
+	toolDefinitions: readonly ToolDefinition[],
 ): Promise<IpdService> {
 	const agentDir = getAgentDir();
 	const runtimeModels = await modelRuntime(context);
-	const toolDefinitions = executableTools(pi).filter((tool) => tool.name !== "ipd");
 	const assembled = await new AssetAssembler().assembleDefault({
 		agentDir,
 		projectRoot: context.cwd,
@@ -135,9 +173,25 @@ async function createDefaultService(
 	const selectionSkill = assembled.skills.find((skill) => skill.id === "process-selection");
 	const designSkill = assembled.skills.find((skill) => skill.id === "workflow-design");
 	const readTool = assembled.tools.find((tool) => tool.id === "read");
-	if (!selectorCard || !designerCard || !selectionSkill || !designSkill || !readTool)
-		throw new Error("Default IPD control assets are incomplete");
-	const store = new FileRunStore();
+	if (!selectorCard || !designerCard || !selectionSkill || !designSkill || !readTool) {
+		const missingControlAssets = [
+			!selectorCard ? "AgentCard:ipd-process-selector" : undefined,
+			!designerCard ? "AgentCard:agency-project-management-project-shepherd" : undefined,
+			!selectionSkill ? "Skill:process-selection" : undefined,
+			!designSkill ? "Skill:workflow-design" : undefined,
+			!readTool ? "Tool:read" : undefined,
+		].filter((item): item is string => item !== undefined);
+		const unavailable = assembled.unavailableAgentCards
+			.map((item) => `${item.source}: ${item.reasons.join(", ")}`)
+			.join("; ");
+		throw new Error(
+			`Default IPD control assets are incomplete: ${missingControlAssets.join(", ")}${unavailable ? `. Unavailable AgentCards: ${unavailable}` : ""}`,
+		);
+	}
+	const telemetry = new FileIpdTelemetry(join(context.cwd, ".pi", "ipd", "telemetry.ndjson"));
+	const store = new FileRunStore({
+		onMutationMetric: (metric) => telemetry.record({ source: "run_store", ...metric }),
+	});
 	const workflowAssets = new FileWorkflowAssetStore({ directory: join(context.cwd, ".pi", "ipd", "workflow") });
 	const customTools = toolDefinitions.filter((tool) => !BUILTIN_TOOLS.has(tool.name));
 	const managerByRun = new Map<string, WorkflowDraftManager>();
@@ -181,6 +235,7 @@ async function createDefaultService(
 		assets,
 		executionIdentity,
 		visualizer: dashboard,
+		onClose: () => telemetry.flush(),
 		createControlPlane: (runId, runSkill) => {
 			return new IpdControlPlane(
 				store,
@@ -262,6 +317,12 @@ async function createDefaultService(
 				),
 				new SubmissionStore(),
 				new MechanicalChecker(checks),
+				{
+					maxConcurrentNodes: runtimeInteger("PI_IPD_MAX_CONCURRENT_NODES", 4, 1),
+					maxQualityReworkRounds: runtimeInteger("PI_IPD_MAX_QUALITY_REWORK_ROUNDS", 10, 0),
+					roundTimeoutMs: runtimeInteger("PI_IPD_ROUND_TIMEOUT_MS", 30 * 60 * 1000, 1),
+					onMetric: (metric) => telemetry.record({ source: "workflow_runtime", ...metric }),
+				},
 			),
 	});
 }

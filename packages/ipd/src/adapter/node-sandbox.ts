@@ -1,12 +1,13 @@
 // 复用 Pi 的 sandbox-runtime 策略，为 IPD 节点的 Bash 提供 OS 级文件系统与网络隔离。
 import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import {
 	type BashOperations,
 	createBashToolDefinition,
+	defineTool,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
@@ -42,6 +43,7 @@ export interface NodeSandboxOptions {
 	additionalReadRoots?: () => readonly string[];
 	deniedReadRoots?: () => readonly string[];
 	allowReadOwnWritePaths?: boolean;
+	beforeExec?: () => Promise<void>;
 }
 
 function nodeSandboxOperations(options: NodeSandboxOptions): BashOperations {
@@ -54,6 +56,7 @@ function nodeSandboxOperations(options: NodeSandboxOptions): BashOperations {
 
 	return {
 		async exec(command, cwd, { onData, signal, timeout, env }) {
+			await options.beforeExec?.();
 			await Promise.all([mkdir(sandboxHome, { recursive: true }), mkdir(sandboxTmp, { recursive: true })]);
 			const configuredReadRoots = options.permissions.read_paths.map((path) => resolve(workspace, path));
 			const writeRoots = options.permissions.write_paths.map((path) => resolve(workspace, path));
@@ -140,8 +143,10 @@ function nodeSandboxOperations(options: NodeSandboxOptions): BashOperations {
 }
 
 export function createNodeSandboxedBashTool(options: NodeSandboxOptions): ToolDefinition {
-	return createBashToolDefinition(options.workspace, {
-		operations: nodeSandboxOperations(options),
-		exposeSessionEnvironment: false,
-	});
+	return defineTool(
+		createBashToolDefinition(options.workspace, {
+			operations: nodeSandboxOperations(options),
+			exposeSessionEnvironment: false,
+		}),
+	);
 }

@@ -230,6 +230,7 @@ function workflowEdges(nodes: readonly WorkflowNode[]): DashboardEdge[] {
 				const key = `rework:${node.node_id}:${target}`;
 				edges.set(key, { from: node.node_id, to: target, kind: "rework", label: "rework" });
 			}
+		}
 	}
 	return [...edges.values()];
 }

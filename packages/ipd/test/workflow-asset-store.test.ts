@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { FileWorkflowAssetStore, hashJson, WorkflowAssetWriteError } from "../src/index.ts";
+import { FileWorkflowAssetStore, hashJson } from "../src/index.ts";
 import { createValidWorkflow } from "./fixtures.ts";
 
 const roots: string[] = [];

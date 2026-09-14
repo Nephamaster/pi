@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -104,5 +104,42 @@ describe("FileRunStore", () => {
 		expect(store.readNotificationErrors()).toMatchObject([
 			{ runId: "run-1", message: "listener failed", eventSequences: [1] },
 		]);
+	});
+
+	it("fails closed on another writer and reports mutation size and duration", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-run-store-writer-"));
+		roots.push(root);
+		const directory = await prepareRunDirectory(root, "run-1");
+		const metrics: Array<{ operationId: string; stateBytes: number; durationMs: number }> = [];
+		const store = new FileRunStore({ onMutationMetric: (metric) => metrics.push(metric) });
+		store.bind("run-1", directory.stateFile);
+		await store.create({
+			runId: "run-1",
+			revision: 0,
+			phase: "intake",
+			status: "running",
+			nodes: [],
+			rounds: [],
+			submissions: [],
+			reviews: [],
+			approvals: [],
+			mechanicalChecks: [],
+			events: [],
+			operations: {},
+		});
+		await store.mutate("run-1", "measure", { action: "measure" }, () => true);
+		expect(metrics).toEqual([
+			expect.objectContaining({
+				operationId: "measure",
+				stateBytes: expect.any(Number),
+				durationMs: expect.any(Number),
+			}),
+		]);
+		expect(metrics[0].stateBytes).toBeGreaterThan(0);
+
+		await writeFile(`${directory.stateFile}.writer.lock`, "another-process\n");
+		await expect(store.mutate("run-1", "conflict", { action: "conflict" }, () => true)).rejects.toThrow(
+			"Run writer conflict",
+		);
 	});
 });

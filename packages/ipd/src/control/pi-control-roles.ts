@@ -76,6 +76,7 @@ class PiStructuredRole<TSchemaValue extends TSchema> {
 	private readonly options: PiControlRoleOptions;
 	private readonly tool;
 	private readonly additionalTools: readonly ToolDefinition[];
+	private cancelled = false;
 
 	constructor(
 		options: PiControlRoleOptions,
@@ -87,7 +88,10 @@ class PiStructuredRole<TSchemaValue extends TSchema> {
 	) {
 		this.options = options;
 		this.additionalTools = additionalTools;
-		this.adapter = new NodeSessionAdapter(new PiNodeSessionFactory(options));
+		this.adapter = new NodeSessionAdapter(new PiNodeSessionFactory(options), undefined, {
+			maxToolCalls: 40,
+			maxToolErrors: 5,
+		});
 		this.tool = createSubmissionTool({
 			name,
 			label: name,
@@ -126,16 +130,27 @@ class PiStructuredRole<TSchemaValue extends TSchema> {
 				controlTools: [...this.additionalTools, this.tool],
 			},
 		});
+		if (this.cancelled) {
+			await this.adapter.release(runId, roleId, roleId);
+			throw new Error(`${roleId} was cancelled`);
+		}
 		await this.adapter.dispatch(runId, roleId, roleId, roundId, prompt);
 		const value = this.capture.value;
 		if (!value) throw new Error(`${roleId} did not submit a structured result`);
 		return value;
+	}
+
+	async cancel(runId: string, roleId: string): Promise<void> {
+		this.cancelled = true;
+		const binding = this.adapter.inspect(runId, roleId, roleId);
+		if (binding && binding.status !== "released") await this.adapter.release(runId, roleId, roleId);
 	}
 }
 
 export class PiProcessSelector implements ProcessSelector {
 	private readonly options: PiControlRoleOptions;
 	private readonly selectionSkill: LockedSkill;
+	private readonly active = new Map<string, PiStructuredRole<typeof ProcessSelectionDecisionSchema>>();
 	constructor(options: PiControlRoleOptions, selectionSkill: LockedSkill) {
 		this.options = {
 			...options,
@@ -152,13 +167,19 @@ export class PiProcessSelector implements ProcessSelector {
 			(decision) => validateProcessSelectionDecision(decision, task, specs),
 			createProcessSpecCatalogTools(specs),
 		);
-		const decision = await role.run(
-			runId,
-			"process-selector",
-			"selection-1",
-			`${loadPrompt("common")}\n\n${renderAgentRuntimeProfile(this.options.agentCard)}\n\n${loadPrompt("process-selector")}`,
-			buildProcessSelectionPrompt(this.selectionSkill.id, task),
-		);
+		this.active.set(runId, role);
+		let decision: Static<typeof ProcessSelectionDecisionSchema>;
+		try {
+			decision = await role.run(
+				runId,
+				"process-selector",
+				"selection-1",
+				`${loadPrompt("common")}\n\n${renderAgentRuntimeProfile(this.options.agentCard)}\n\n${loadPrompt("process-selector")}`,
+				buildProcessSelectionPrompt(this.selectionSkill.id, task),
+			);
+		} finally {
+			if (this.active.get(runId) === role) this.active.delete(runId);
+		}
 		if (decision.status === "blocked")
 			throw new ProcessSelectionBlockedError(
 				decision.reason ?? "Process selection is blocked",
@@ -187,6 +208,10 @@ export class PiProcessSelector implements ProcessSelector {
 			process_requirement_refs: decision.process_requirement_refs,
 			unresolved_fact_refs: decision.unresolved_fact_refs,
 		};
+	}
+
+	cancelRun(runId: string): Promise<void> {
+		return this.active.get(runId)?.cancel(runId, "process-selector") ?? Promise.resolve();
 	}
 }
 
@@ -258,6 +283,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 			tools: WorkflowDraftToolset;
 			blockCapture: SubmissionCapture<WorkflowDesignBlock>;
 			initialized: boolean;
+			cancelled: boolean;
 		}
 	>();
 
@@ -305,11 +331,16 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				validate: (value) => validateWorkflowDesignBlock(value as WorkflowDesignBlock, spec),
 			});
 			active = {
-				adapter: new NodeSessionAdapter(new PiNodeSessionFactory(options)),
+				adapter: new NodeSessionAdapter(new PiNodeSessionFactory(options), undefined, {
+					maxToolCalls: 120,
+					maxToolErrors: 8,
+				}),
 				tools,
 				blockCapture,
 				initialized: false,
+				cancelled: false,
 			};
+			this.active.set(runId, active);
 			await active.adapter.create({
 				runId,
 				nodeId: "workflow-designer",
@@ -330,6 +361,10 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 					controlTools: [...tools.tools, ...createAgentCardCatalogTools(this.agentCards), blockTool],
 				},
 			});
+			if (active.cancelled) {
+				await active.adapter.release(runId, "workflow-designer", "workflow-designer");
+				throw new Error("workflow-designer was cancelled");
+			}
 			await active.adapter.dispatch(
 				runId,
 				"workflow-designer",
@@ -337,7 +372,6 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				"design-method",
 				buildWorkflowDesignMethodPrompt(this.designSkill.id),
 			);
-			this.active.set(runId, active);
 		}
 		active.tools.resetSubmitted();
 		active.blockCapture.beginRound();
@@ -364,5 +398,15 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 		const blocked = active.blockCapture.value;
 		if (blocked) throw new WorkflowDesignBlockedError(blocked);
 		throw new Error("Workflow Designer did not submit a valid Draft or structured blocked result");
+	}
+
+	async cancelRun(runId: string): Promise<void> {
+		const active = this.active.get(runId);
+		if (!active) return;
+		active.cancelled = true;
+		const binding = active.adapter.inspect(runId, "workflow-designer", "workflow-designer");
+		if (binding && binding.status !== "released")
+			await active.adapter.release(runId, "workflow-designer", "workflow-designer");
+		this.active.delete(runId);
 	}
 }

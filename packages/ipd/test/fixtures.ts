@@ -1,5 +1,6 @@
 import {
 	CheckExecutorRegistry,
+	type CompilerAssetCatalog,
 	compileAgentCard,
 	createArtifactIntegrityCheckExecutor,
 	hashJson,
@@ -251,12 +252,19 @@ export function createCompilerFixture() {
 	).value!;
 	const checks = new CheckExecutorRegistry();
 	checks.add(createArtifactIntegrityCheckExecutor());
+	const assets = {
+		agentCards: [producer, reviewer],
+		skills: [] as CompilerAssetCatalog["skills"],
+		tools: [] as CompilerAssetCatalog["tools"],
+		knowledgeBases: [] as CompilerAssetCatalog["knowledgeBases"],
+		checks,
+	};
 	return {
 		runId: "run-1",
 		taskInput,
 		processSelection,
 		processSpec,
 		workflow,
-		assets: { agentCards: [producer, reviewer], skills: [], tools: [], knowledgeBases: [], checks },
+		assets,
 	};
 }

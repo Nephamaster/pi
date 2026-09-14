@@ -16,6 +16,7 @@ import type { FileRunStore } from "../runtime/run-store.ts";
 
 export interface ProcessSelector {
 	select(runId: string, task: TaskInput, specs: readonly ProcessSpec[]): Promise<ProcessSelection>;
+	cancelRun?(runId: string): Promise<void>;
 }
 
 export class ProcessSelectionBlockedError extends Error {
@@ -55,6 +56,7 @@ export interface WorkflowDesigner {
 		spec: ProcessSpec,
 		compilerDiagnostics?: readonly string[],
 	): Promise<WorkflowDefinition>;
+	cancelRun?(runId: string): Promise<void>;
 }
 
 export interface PrepareRunInput {
@@ -92,6 +94,10 @@ export class IpdControlPlane {
 	async prepare(input: PrepareRunInput): Promise<PrepareRunResult> {
 		const directory = await this.accept(input);
 		return this.prepareAccepted(input, directory);
+	}
+
+	async cancelRun(runId: string): Promise<void> {
+		await Promise.allSettled([this.selector.cancelRun?.(runId), this.designer.cancelRun?.(runId)]);
 	}
 
 	async accept(input: PrepareRunInput): Promise<RunDirectory> {
@@ -139,6 +145,7 @@ export class IpdControlPlane {
 				...error.unresolvedFactRefs.map((id) => `Unresolved fact: ${id}`),
 			]);
 		}
+		if (!(await this.isRunning(input.runId))) return { ok: false, directory, diagnostics: ["Run cancelled"] };
 		const spec = input.processSpecs.find(
 			(item) =>
 				item.process_spec_id === selection.process_spec_ref.id &&
@@ -149,6 +156,7 @@ export class IpdControlPlane {
 
 		const staffingDiagnostics = validateProcessSpecStaffing(spec, input.assets.agentCards);
 		await this.store.mutate(input.runId, "process-selected", { selection: hashJson(selection) }, (draft, event) => {
+			if (draft.status !== "running") return false;
 			draft.processSelection = selection;
 			draft.selectedProcessSpec = structuredClone(spec);
 			draft.staffingReport = {
@@ -178,6 +186,7 @@ export class IpdControlPlane {
 		let diagnostics: string[] = [];
 		for (let revision = 1; revision <= 10; revision++) {
 			await this.setPreparationPhase(input.runId, "design", `design:${revision}`);
+			if (!(await this.isRunning(input.runId))) return { ok: false, directory, diagnostics: ["Run cancelled"] };
 			let workflow: WorkflowDefinition;
 			try {
 				workflow = await this.designer.design(input.runId, input.taskInput, selection, spec, diagnostics);
@@ -189,6 +198,7 @@ export class IpdControlPlane {
 					`workflow-design-blocked:${hashJson(error.block)}`,
 					{ block: blockJson },
 					(draft, event) => {
+						if (draft.status !== "running") return false;
 						draft.workflowDesignBlock = structuredClone(error.block);
 						event.emit("workflow_design_blocked", blockJson);
 						return true;
@@ -205,12 +215,14 @@ export class IpdControlPlane {
 					"workflow_design_blocked",
 				);
 			}
+			if (!(await this.isRunning(input.runId))) return { ok: false, directory, diagnostics: ["Run cancelled"] };
 			const workflowHash = hashJson(workflow);
 			await this.store.mutate(
 				input.runId,
 				`workflow-designed:${workflowHash}`,
 				{ workflow: workflowHash },
 				(draft, event) => {
+					if (draft.status !== "running") return false;
 					draft.phase = "compile";
 					draft.workflowCandidate = workflow;
 					event.emit("workflow_designed", { workflowId: workflow.workflow_id, revision });
@@ -228,12 +240,15 @@ export class IpdControlPlane {
 			});
 			if (compiled.ok) {
 				try {
+					if (!(await this.isRunning(input.runId)))
+						return { ok: false, directory, diagnostics: ["Run cancelled"] };
 					const saved = await this.workflowAssets.save(workflow, compiled.baseline.workflowHash);
 					await this.store.mutate(
 						input.runId,
 						`workflow-asset-saved:${compiled.baseline.workflowHash}`,
 						{ source: saved.record.source },
-						(_draft, event) => {
+						(draft, event) => {
+							if (draft.status !== "running") return false;
 							event.emit("workflow_asset_saved", {
 								source: saved.record.source,
 								reused: saved.reused,
@@ -255,9 +270,14 @@ export class IpdControlPlane {
 
 	private async setPreparationPhase(runId: string, phase: "selection" | "design", operationId: string): Promise<void> {
 		await this.store.mutate(runId, `prepare-phase:${operationId}`, { phase }, (draft) => {
+			if (draft.status !== "running") return false;
 			draft.phase = phase;
 			return true;
 		});
+	}
+
+	private async isRunning(runId: string): Promise<boolean> {
+		return (await this.store.read(runId)).status === "running";
 	}
 
 	private async block(
@@ -271,6 +291,7 @@ export class IpdControlPlane {
 			`prepare-blocked:${hashJson({ failureCode, diagnostics })}`,
 			{ diagnostics },
 			(draft, event) => {
+				if (draft.status !== "running") return false;
 				draft.status = "blocked";
 				draft.failure = { code: failureCode, message: diagnostics.join("\n") };
 				event.emit("preparation_blocked", { code: failureCode, diagnostics });

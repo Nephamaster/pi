@@ -42,6 +42,14 @@ describe("WorkflowRuntime local rework", () => {
 		second.agents[0].permissions.write_paths = ["outputs/produce-two"];
 		second.outputs[0].output_id = "content-two";
 		second.outputs[0].path_prefix = "outputs/produce-two";
+		second.outputs[0].criterion_refs = ["integrity", "quality-two"];
+		fixture.workflow.criteria.push({
+			kind: "semantic",
+			criterion_id: "quality-two",
+			description: "The second result satisfies the task",
+			evidence_requirements: ["Specific findings"],
+			process_criterion_refs: [],
+		});
 		review.inputs.push({
 			kind: "node_output",
 			input_id: "candidate-two",
@@ -50,7 +58,7 @@ describe("WorkflowRuntime local rework", () => {
 			availability: "submitted",
 			approval_review_node_ids: [],
 		});
-		review.targets.push({ node_id: "produce-two", output_id: "content-two", criterion_refs: ["quality"] });
+		review.targets.push({ node_id: "produce-two", output_id: "content-two", criterion_refs: ["quality-two"] });
 		review.allowed_rework_node_ids.push("produce-two");
 		fixture.workflow.nodes.push(second);
 		fixture.workflow.completion.required_node_ids.push("produce-two");
@@ -91,6 +99,9 @@ describe("WorkflowRuntime local rework", () => {
 				reviews++;
 				reviewInputs.push(work.inputSubmissions.map((submission) => submission.submissionId).sort());
 				const pass = reviews === 2;
+				const reviewed = work.inputSubmissions.find((submission) => submission.nodeId === "produce");
+				const secondReviewed = work.inputSubmissions.find((submission) => submission.nodeId === "produce-two");
+				if (!reviewed || !secondReviewed) throw new Error("Missing reviewed submission");
 				return {
 					decision: pass ? "PASS" : "REWORK",
 					criteria: [
@@ -101,14 +112,34 @@ describe("WorkflowRuntime local rework", () => {
 								{
 									description: "Inspected both sealed results",
 									reference: "sealed results",
+									submission_id: reviewed.submissionId,
+									node_id: "produce",
+									output_id: "content-output",
 									criterion_id: "quality",
 								},
 							],
 							rationale: pass ? "accepted" : "first result needs revision",
 							required_rework: pass ? [] : ["Revise the first result"],
+							rework_targets: pass ? [] : [{ node_id: "produce", output_id: "content-output" }],
+						},
+						{
+							criterion_id: "quality-two",
+							result: "PASS",
+							evidence: [
+								{
+									description: "Inspected the unaffected sealed result",
+									reference: "sealed results",
+									submission_id: secondReviewed.submissionId,
+									node_id: "produce-two",
+									output_id: "content-two",
+									criterion_id: "quality-two",
+								},
+							],
+							rationale: "second result remains acceptable",
+							required_rework: [],
+							rework_targets: [],
 						},
 					],
-					rework_node_ids: pass ? [] : ["produce"],
 					unresolved_issues: [],
 				};
 			},

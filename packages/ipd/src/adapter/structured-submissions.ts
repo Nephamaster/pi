@@ -2,6 +2,7 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import Type, { type Static, type TSchema } from "typebox";
 import { IdentifierSchema, JsonValueSchema, NonEmptyStringSchema } from "../contracts/primitives.ts";
+import { NodeOutputRefSchema } from "../contracts/workflow.ts";
 import { hashJson } from "../ir/hash.ts";
 import { wrapPromptBlock } from "../prompt/block.ts";
 
@@ -59,6 +60,18 @@ export type ReportNodeBlocked = Static<typeof ReportNodeBlockedSchema>;
 const ReviewDecisionSchema = Type.Union([Type.Literal("PASS"), Type.Literal("REWORK"), Type.Literal("BLOCKED")]);
 const CriterionDecisionSchema = Type.Union([Type.Literal("PASS"), Type.Literal("FAIL"), Type.Literal("BLOCKED")]);
 
+const ReviewEvidenceSchema = Type.Object(
+	{
+		description: NonEmptyStringSchema,
+		reference: NonEmptyStringSchema,
+		submission_id: NonEmptyStringSchema,
+		node_id: IdentifierSchema,
+		output_id: IdentifierSchema,
+		criterion_id: IdentifierSchema,
+	},
+	{ additionalProperties: false },
+);
+
 export const SubmitReviewSchema = Type.Object(
 	{
 		decision: ReviewDecisionSchema,
@@ -67,15 +80,15 @@ export const SubmitReviewSchema = Type.Object(
 				{
 					criterion_id: IdentifierSchema,
 					result: CriterionDecisionSchema,
-					evidence: Type.Array(SubmittedEvidenceSchema),
+					evidence: Type.Array(ReviewEvidenceSchema),
 					rationale: NonEmptyStringSchema,
 					required_rework: Type.Array(NonEmptyStringSchema),
+					rework_targets: Type.Array(NodeOutputRefSchema, { uniqueItems: true }),
 				},
 				{ additionalProperties: false },
 			),
 			{ minItems: 1 },
 		),
-		rework_node_ids: Type.Array(IdentifierSchema, { uniqueItems: true }),
 		unresolved_issues: Type.Array(NonEmptyStringSchema),
 	},
 	{ additionalProperties: false },

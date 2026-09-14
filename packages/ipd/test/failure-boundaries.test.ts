@@ -27,7 +27,7 @@ describe("M7 failure boundaries", () => {
 			node,
 			inputSubmissions: [],
 			inputBindings: [],
-			taskContext: { objectives: [], requirements: [], materials: [], unresolvedFacts: [] },
+			taskContext: { materials: [], unresolvedFacts: [] },
 			forbiddenMutableReadPaths: [],
 			feedback: [],
 		};
@@ -63,7 +63,7 @@ describe("M7 failure boundaries", () => {
 				node: compiled.baseline.nodes[0],
 				inputSubmissions: [],
 				inputBindings: [],
-				taskContext: { objectives: [], requirements: [], materials: [], unresolvedFacts: [] },
+				taskContext: { materials: [], unresolvedFacts: [] },
 				forbiddenMutableReadPaths: [],
 				feedback: [],
 			}),
@@ -81,7 +81,7 @@ describe("M7 failure boundaries", () => {
 			node: compiled.baseline.nodes[0],
 			inputSubmissions: [],
 			inputBindings: [],
-			taskContext: { objectives: [], requirements: [], materials: [], unresolvedFacts: [] },
+			taskContext: { materials: [], unresolvedFacts: [] },
 			forbiddenMutableReadPaths: [],
 			feedback: [],
 		};

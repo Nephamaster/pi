@@ -38,7 +38,8 @@ For each criterion:
 1. inspect the relevant artifact content;
 2. inspect the evidence needed to support the judgment;
 3. record a rationale tied to observable facts;
-4. provide a traceable evidence reference whenever possible.
+4. bind each evidence item to the exact `submission_id`, producer `node_id`, `output_id`, and `criterion_id`;
+5. provide a traceable location in `reference`.
 
 Do not copy the producer's claim as your own evidence without verification.
 
@@ -57,6 +58,10 @@ Describe clearly:
 - what must be true for re-review to pass.
 
 Do not send unrelated branches back for rework because of one local defect.
+
+For every failed criterion, provide non-empty `required_rework` instructions and criterion-local `rework_targets` as
+exact `{node_id, output_id}` pairs. A target must be one of this criterion's reviewed outputs and an allowed rework
+node. PASS and BLOCKED criteria must use empty rework arrays. There is no report-level rework-node list.
 
 ## 5. Submit the Review
 

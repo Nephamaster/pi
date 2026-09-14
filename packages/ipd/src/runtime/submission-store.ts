@@ -17,6 +17,7 @@ export interface SealSubmissionInput {
 	submissionId: string;
 	inputSubmissionIds: string[];
 	submission: SubmitArtifact;
+	signal?: AbortSignal;
 }
 
 export class SubmissionValidationError extends Error {
@@ -28,6 +29,7 @@ export class SubmissionValidationError extends Error {
 
 export class SubmissionStore {
 	async seal(input: SealSubmissionInput): Promise<SubmissionRecord> {
+		input.signal?.throwIfAborted();
 		if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(input.submissionId))
 			throw new SubmissionValidationError("Invalid Submission ID");
 		const contentHash = hashJson({
@@ -54,6 +56,7 @@ export class SubmissionStore {
 			const outputs: SubmissionRecord["outputs"] = [];
 			const seenOutputs = new Set<string>();
 			for (const submitted of input.submission.outputs) {
+				input.signal?.throwIfAborted();
 				const definition = definitions.get(submitted.output_id);
 				if (!definition || seenOutputs.has(submitted.output_id))
 					throw new SubmissionValidationError(`Invalid output submission: ${submitted.output_id}`);
@@ -61,6 +64,8 @@ export class SubmissionStore {
 				const outputRoot = normalizeScope(definition.path_prefix);
 				if (!outputRoot) throw new SubmissionValidationError(`Invalid output path: ${definition.path_prefix}`);
 				const realOutputRoot = await realpath(resolve(input.run.workspace, outputRoot));
+				const sealedOutputStaging = join(staging, definition.output_id);
+				await mkdir(sealedOutputStaging, { recursive: false });
 				for (const file of submitted.files) {
 					const path = normalizeScope(file.path);
 					if (!path || !scopeContains(outputRoot, path))
@@ -93,12 +98,14 @@ export class SubmissionStore {
 					},
 				});
 				for (const file of manifest.files) {
-					const destination = resolve(staging, file.path);
+					input.signal?.throwIfAborted();
+					const destination = resolve(sealedOutputStaging, file.path);
 					await mkdir(dirname(destination), { recursive: true });
 					await copyFile(resolve(input.run.workspace, file.path), destination);
+					input.signal?.throwIfAborted();
 				}
 				const validation = await validateArtifactManifest({
-					workspace: staging,
+					workspace: sealedOutputStaging,
 					contract: {
 						id: definition.output_id,
 						artifactType: definition.artifact_type,
@@ -108,7 +115,7 @@ export class SubmissionStore {
 					manifest,
 				});
 				if (!validation.ok) throw new Error(`Submission changed while being sealed: ${definition.output_id}`);
-				outputs.push({ outputId: definition.output_id, sealedRoot: target, manifest });
+				outputs.push({ outputId: definition.output_id, sealedRoot: join(target, definition.output_id), manifest });
 			}
 			const record: SubmissionRecord = {
 				submissionId: input.submissionId,
@@ -122,6 +129,23 @@ export class SubmissionStore {
 				createdAt: Date.now(),
 			};
 			await writeFile(join(staging, "submission.json"), `${JSON.stringify(record, null, "\t")}\n`, "utf8");
+			for (const output of record.outputs) {
+				const scopedRecord: SubmissionRecord = {
+					...record,
+					outputs: [output],
+					evidence: toJsonValue(
+						input.submission.evidence.filter(
+							(item) => item.output_id === undefined || item.output_id === output.outputId,
+						),
+					),
+				};
+				await writeFile(
+					join(staging, output.outputId, "submission.json"),
+					`${JSON.stringify(scopedRecord, null, "\t")}\n`,
+					"utf8",
+				);
+			}
+			input.signal?.throwIfAborted();
 			await rename(staging, target);
 			return record;
 		} catch (error) {

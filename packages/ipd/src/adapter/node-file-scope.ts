@@ -57,32 +57,40 @@ export function createNodeFileScopeExtension(options: {
 	additionalReadRoots?: () => readonly string[];
 	deniedReadRoots?: () => readonly string[];
 	allowReadOwnWritePaths?: boolean;
+	beforeRead?: () => Promise<void>;
 }): ExtensionFactory {
 	const workspace = resolve(options.workspace);
 	return (pi) => {
 		pi.on("tool_call", async (event) => {
 			let requested: string;
 			if (isToolCallEventType("read", event)) requested = event.input.path;
+			else if (isToolCallEventType("grep", event)) requested = event.input.path ?? ".";
+			else if (isToolCallEventType("find", event)) requested = event.input.path ?? ".";
+			else if (isToolCallEventType("ls", event)) requested = event.input.path ?? ".";
 			else if (isToolCallEventType("write", event)) requested = event.input.path;
 			else if (isToolCallEventType("edit", event)) requested = event.input.path;
 			else return undefined;
+			const readOperation = ["read", "grep", "find", "ls"].includes(event.toolName);
+			if (readOperation) await options.beforeRead?.();
 			const target = isAbsolute(requested) ? resolve(requested) : resolve(workspace, requested);
 			if (
-				event.toolName === "read" &&
+				readOperation &&
 				(options.deniedReadRoots?.() ?? []).some((root) => contains(resolve(workspace, root), target))
 			)
 				return { block: true, reason: `Read must use the sealed Submission instead of mutable path: ${requested}` };
-			const roots =
-				event.toolName === "read"
-					? effectiveNodeReadRoots({
-							workspace,
-							permissions: options.permissions,
-							additionalReadRoots: options.additionalReadRoots?.(),
-							allowReadOwnWritePaths: options.allowReadOwnWritePaths,
-						})
-					: options.permissions.write_paths.map((scope) => resolve(workspace, scope));
+			const roots = readOperation
+				? effectiveNodeReadRoots({
+						workspace,
+						permissions: options.permissions,
+						additionalReadRoots: options.additionalReadRoots?.(),
+						allowReadOwnWritePaths: options.allowReadOwnWritePaths,
+					})
+				: options.permissions.write_paths.map((scope) => resolve(workspace, scope));
 			if (await isPathWithinRoots(target, roots)) return undefined;
-			return { block: true, reason: `Path is outside the node's ${event.toolName} scope: ${requested}` };
+			return {
+				block: true,
+				reason: `Path is outside the node's ${readOperation ? "read" : event.toolName} scope: ${requested}`,
+			};
 		});
 	};
 }

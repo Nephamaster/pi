@@ -16,6 +16,8 @@
   the packaged employee pool.
 - Added structured execution-node business blocking through `report_node_blocked`, including persisted causes,
   affected requirements, evidence, and recovery conditions.
+- Added Run-level cancellation, bounded node concurrency, round timeouts, quality-rework limits, and isolated runtime
+  mutation/round metrics.
 
 ### Changed
 
@@ -32,10 +34,15 @@
 - Changed review-node permissions to reject write, edit, Bash, and PowerShell tools.
 - Reduced IPD Run creation input to request ID, Skill name, the verbatim user task, and optional user-supplied task
   materials; derived objectives, requirements, and unresolved facts now start empty instead of being authored by the outer Agent.
+- Changed Review submissions to bind evidence and criterion-level rework to exact Submission node/output identities.
 
 ### Fixed
 
 - Included the live visualization and snapshot URLs directly in successful IPD Run creation receipts.
+- Invalidated every Approval issued by a stale joint Review and made all required Review nodes part of Run completion.
+- Applied node read scopes consistently to read, grep, find, and ls, and isolated each sealed Submission output.
+- Contained asynchronous Dashboard snapshot failures within their HTTP request.
+- Terminated the outer Agent turn after an accepted Run receipt so business execution cannot continue outside IPD.
 - Fixed execution and review Agents that omit their structured submission tool call so they receive protocol correction
   in the same Session and work round instead of blocking the node.
 - Fixed partial Gate approval that could release an output or complete a Run before all semantic criteria passed.

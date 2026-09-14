@@ -18,6 +18,7 @@ function deliveryPath(outputRoot: string, sourcePath: string): string {
 export async function materializeFinalSubmission(
 	directory: RunDirectory,
 	state: RunState,
+	signal?: AbortSignal,
 ): Promise<FinalSubmissionRecord> {
 	const baseline = requireBaseline(state);
 	const staging = `${directory.finalSubmission}.${process.pid}.${Date.now()}.tmp`;
@@ -26,6 +27,7 @@ export async function materializeFinalSubmission(
 	await mkdir(staging, { recursive: false });
 	try {
 		for (const ref of baseline.workflow.completion.delivery_outputs) {
+			signal?.throwIfAborted();
 			const submission = approvedSubmissionForOutput(
 				state,
 				ref,
@@ -38,6 +40,7 @@ export async function materializeFinalSubmission(
 				node?.kind === "execution" ? node.outputs.find((item) => item.output_id === ref.output_id) : undefined;
 			if (!output || !definition) throw new Error(`Delivery output is missing: ${ref.node_id}:${ref.output_id}`);
 			for (const file of output.manifest.files) {
+				signal?.throwIfAborted();
 				const path = deliveryPath(definition.path_prefix, file.path);
 				if (destinations.has(path)) throw new Error(`Final delivery path collision: ${path}`);
 				destinations.add(path);
@@ -45,6 +48,7 @@ export async function materializeFinalSubmission(
 				const destination = resolve(staging, path);
 				await mkdir(dirname(destination), { recursive: true });
 				await copyFile(source, destination);
+				signal?.throwIfAborted();
 				if ((await hashFile(destination)) !== file.sha256)
 					throw new Error(`Final delivery file failed integrity validation: ${file.path}`);
 				files.push({
@@ -59,7 +63,9 @@ export async function materializeFinalSubmission(
 				});
 			}
 		}
+		signal?.throwIfAborted();
 		await rm(directory.finalSubmission, { recursive: true, force: true });
+		signal?.throwIfAborted();
 		await rename(staging, directory.finalSubmission);
 	} catch (error) {
 		await rm(staging, { recursive: true, force: true });

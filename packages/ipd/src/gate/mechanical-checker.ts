@@ -101,10 +101,11 @@ export function createArtifactIntegrityCheckExecutor() {
 			const validations = await Promise.all(
 				context.artifacts.map((artifact) =>
 					validateArtifactManifest({
-						workspace: context.workspace,
+						workspace: artifact.workspace,
 						contract: artifact.contract,
 						manifest: artifact.manifest,
 					}),
+				),
 			);
 			const diagnostics = validations.flatMap((validation) => validation.diagnostics);
 			return diagnostics.length === 0
@@ -153,12 +154,12 @@ export function createArtifactFileSetCheckExecutor() {
 			return diagnostics.length === 0
 				? {
 						result: "PASS",
-						evidence: { files: toJsonValue(files) },
+						evidence: toJsonValue({ files }),
 						message: "Artifact file set matches the declared delivery constraint",
 					}
 				: {
 						result: "FAIL",
-						evidence: { files: toJsonValue(files), diagnostics: toJsonValue(diagnostics) },
+						evidence: toJsonValue({ files, diagnostics }),
 						message: "Artifact file set violates the declared delivery constraint",
 					};
 		},

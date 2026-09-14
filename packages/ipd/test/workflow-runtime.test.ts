@@ -8,6 +8,7 @@ import {
 	createArtifactIntegrityCheckExecutor,
 	FileRunStore,
 	MechanicalChecker,
+	type NodeRoundWork,
 	NodeSubmissionProtocolError,
 	type NodeWorker,
 	NodeWorkerError,
@@ -17,9 +18,21 @@ import {
 } from "../src/index.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
-const reviewEvidence = () => [
-	{ description: "Observed the sealed output", reference: "outputs/produce/result.txt", criterion_id: "quality" },
-];
+const reviewEvidence = (work: NodeRoundWork, criterionId = "quality") => {
+	const submission = work.inputSubmissions[0];
+	const output = submission?.outputs[0];
+	if (!submission || !output) throw new Error("Review input is missing");
+	return [
+		{
+			description: "Observed the sealed output",
+			reference: output.manifest.files[0]?.path ?? "submission.json",
+			submission_id: submission.submissionId,
+			node_id: submission.nodeId,
+			output_id: output.outputId,
+			criterion_id: criterionId,
+		},
+	];
+};
 
 describe("WorkflowRuntime", () => {
 	const roots: string[] = [];
@@ -62,7 +75,7 @@ describe("WorkflowRuntime", () => {
 					metadata: {},
 				};
 			},
-			async runReview() {
+			async runReview(work) {
 				reviewRounds++;
 				const pass = reviewRounds === 3;
 				const declaredDecision = reviewRounds === 1 ? "PASS" : pass ? "PASS" : "REWORK";
@@ -72,12 +85,12 @@ describe("WorkflowRuntime", () => {
 						{
 							criterion_id: "quality",
 							result: pass ? "PASS" : "FAIL",
-							evidence: reviewEvidence(),
+							evidence: reviewEvidence(work),
 							rationale: pass ? "The revision is acceptable" : "The first version is a draft",
 							required_rework: pass ? [] : ["Replace the draft"],
+							rework_targets: pass ? [] : [{ node_id: "produce", output_id: "content-output" }],
 						},
 					],
-					rework_node_ids: pass ? [] : ["produce"],
 					unresolved_issues: [],
 				};
 			},
@@ -161,12 +174,12 @@ describe("WorkflowRuntime", () => {
 						{
 							criterion_id: "quality",
 							result: "PASS",
-							evidence: reviewEvidence(),
+							evidence: reviewEvidence(work),
 							rationale: "accepted",
 							required_rework: [],
+							rework_targets: [],
 						},
 					],
-					rework_node_ids: [],
 					unresolved_issues: [],
 				};
 			},
@@ -206,7 +219,6 @@ describe("WorkflowRuntime", () => {
 					report: {
 						reason: "Required source access is unavailable",
 						missing_conditions: ["Source credentials"],
-						affected_requirement_ids: ["deliver-result"],
 						attempted_actions: ["Checked supplied materials"],
 						evidence: [],
 						needed_to_resume: ["Provide source credentials"],
@@ -341,12 +353,12 @@ describe("WorkflowRuntime", () => {
 						{
 							criterion_id: "quality",
 							result: "PASS",
-							evidence: reviewEvidence(),
+							evidence: reviewEvidence(work),
 							rationale: "accepted",
 							required_rework: [],
+							rework_targets: [],
 						},
 					],
-					rework_node_ids: [],
 					unresolved_issues: [],
 				};
 			},
@@ -361,6 +373,7 @@ describe("WorkflowRuntime", () => {
 			worker,
 			new SubmissionStore(),
 			new MechanicalChecker(checks),
+			{ maxConcurrentNodes: 2 },
 		);
 		await runtime.activate(compiled.baseline, fixture.taskInput);
 		expect((await runtime.run()).status).toBe("succeeded");
@@ -459,5 +472,145 @@ describe("WorkflowRuntime", () => {
 		const result = await running;
 		expect(result.submissions).toHaveLength(0);
 		expect(result.events.some((event) => event.type === "late_submission_ignored")).toBe(true);
+	});
+
+	it("cancels active work and rejects late round callbacks", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-runtime-cancel-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		const compiled = compileWorkflow(fixture);
+		if (!compiled.ok) throw new Error("Fixture Workflow did not compile");
+		const directory = await prepareRunDirectory(root, "run-1");
+		let markStarted: (() => void) | undefined;
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve;
+		});
+		let rejectExecution: ((error: Error) => void) | undefined;
+		let released = false;
+		const worker: NodeWorker = {
+			runExecution() {
+				markStarted?.();
+				return new Promise((_, reject) => {
+					rejectExecution = reject;
+				});
+			},
+			async runReview() {
+				throw new Error("Review must not start after cancellation");
+			},
+			async releaseRun() {
+				released = true;
+				rejectExecution?.(new Error("cancelled"));
+			},
+		};
+		const store = new FileRunStore();
+		store.bind("run-1", directory.stateFile);
+		const checks = new CheckExecutorRegistry();
+		checks.add(createArtifactIntegrityCheckExecutor());
+		const runtime = new WorkflowRuntime(
+			store,
+			directory,
+			worker,
+			new SubmissionStore(),
+			new MechanicalChecker(checks),
+		);
+		await runtime.activate(compiled.baseline, fixture.taskInput);
+		const running = runtime.run();
+		await started;
+		const cancelled = await runtime.cancel("Stopped by test");
+		expect(cancelled.status).toBe("cancelled");
+		expect(cancelled.phase).toBe("closed");
+		expect(cancelled.rounds).toEqual([expect.objectContaining({ roundId: "produce:round:1", status: "cancelled" })]);
+		expect(cancelled.submissions).toEqual([]);
+		expect(cancelled.events.some((event) => event.type === "run_cancelled")).toBe(true);
+		expect(released).toBe(true);
+		expect((await running).status).toBe("cancelled");
+	});
+
+	it("blocks quality rework beyond the configured limit", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-runtime-rework-limit-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		const compiled = compileWorkflow(fixture);
+		if (!compiled.ok) throw new Error("Fixture Workflow did not compile");
+		const directory = await prepareRunDirectory(root, "run-1");
+		const worker: NodeWorker = {
+			async runExecution() {
+				throw new Error("Exhausted rework must not execute");
+			},
+			async runReview() {
+				throw new Error("Review must not execute");
+			},
+		};
+		const store = new FileRunStore();
+		store.bind("run-1", directory.stateFile);
+		const checks = new CheckExecutorRegistry();
+		checks.add(createArtifactIntegrityCheckExecutor());
+		const runtime = new WorkflowRuntime(
+			store,
+			directory,
+			worker,
+			new SubmissionStore(),
+			new MechanicalChecker(checks),
+			{ maxQualityReworkRounds: 0 },
+		);
+		await runtime.activate(compiled.baseline, fixture.taskInput);
+		await store.mutate("run-1", "force-rework", { nodeId: "produce" }, (state) => {
+			const node = state.nodes.find((item) => item.nodeId === "produce");
+			if (!node) throw new Error("Missing producer state");
+			node.status = "waiting_rework";
+			node.nextRound = 2;
+			return true;
+		});
+		const result = await runtime.run();
+		expect(result.status).toBe("blocked");
+		expect(result.nodes.find((node) => node.nodeId === "produce")?.status).toBe("blocked");
+		expect(result.events.some((event) => event.type === "quality_rework_exhausted")).toBe(true);
+	});
+
+	it("stops and classifies a round that exceeds its timeout", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-runtime-timeout-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		const compiled = compileWorkflow(fixture);
+		if (!compiled.ok) throw new Error("Fixture Workflow did not compile");
+		const directory = await prepareRunDirectory(root, "run-1");
+		let rejectExecution: ((error: Error) => void) | undefined;
+		let stoppedRound: string | undefined;
+		const worker: NodeWorker = {
+			runExecution() {
+				return new Promise((_, reject) => {
+					rejectExecution = reject;
+				});
+			},
+			async runReview() {
+				throw new Error("Review must not execute");
+			},
+			async stopRound(_runId, _nodeId, _participantId, roundId) {
+				stoppedRound = roundId;
+				rejectExecution?.(new Error("stopped"));
+			},
+		};
+		const store = new FileRunStore();
+		store.bind("run-1", directory.stateFile);
+		const checks = new CheckExecutorRegistry();
+		checks.add(createArtifactIntegrityCheckExecutor());
+		const runtime = new WorkflowRuntime(
+			store,
+			directory,
+			worker,
+			new SubmissionStore(),
+			new MechanicalChecker(checks),
+			{ roundTimeoutMs: 5 },
+		);
+		await runtime.activate(compiled.baseline, fixture.taskInput);
+		const result = await runtime.run();
+		expect(result.status).toBe("blocked");
+		expect(stoppedRound).toBe("produce:round:1");
+		expect(result.events).toContainEqual(
+			expect.objectContaining({
+				type: "round_blocked",
+				data: expect.objectContaining({ kind: "timeout" }),
+			}),
+		);
 	});
 });

@@ -10,7 +10,7 @@ import type { IpdControlPlane, PrepareRunResult } from "../control/control-plane
 import { hashJson } from "../ir/hash.ts";
 import { prepareRunDirectory, type RunDirectory } from "./run-directory.ts";
 import type { FileRunStore } from "./run-store.ts";
-import { finalApprovedSubmissionIds } from "./runtime-state.ts";
+import { finalApprovedSubmissionIds, markRunCancelled } from "./runtime-state.ts";
 import type { WorkflowRuntime } from "./workflow-runtime.ts";
 
 export interface IpdVisualizationLink {
@@ -23,6 +23,7 @@ export interface IpdVisualizationLink {
 
 export interface IpdRunVisualizer {
 	registerRun(runId: string): Promise<IpdVisualizationLink>;
+	close?(): Promise<void>;
 }
 
 export interface IpdServiceOptions {
@@ -35,6 +36,7 @@ export interface IpdServiceOptions {
 	createRuntime(directory: RunDirectory): WorkflowRuntime;
 	visualizer?: IpdRunVisualizer;
 	idFactory?: () => string;
+	onClose?: () => Promise<void>;
 }
 
 export interface CreateRunReceipt {
@@ -55,7 +57,14 @@ export class IpdService {
 	private readonly options: IpdServiceOptions;
 	private readonly idFactory: () => string;
 	private readonly requests = new Map<string, { hash: string; result: Promise<CreateRunReceipt> }>();
-	private readonly active = new Map<string, Promise<void>>();
+	private readonly active = new Map<
+		string,
+		{
+			controlPlane: IpdControlPlane;
+			runtime?: WorkflowRuntime;
+			promise: Promise<void>;
+		}
+	>();
 
 	constructor(options: IpdServiceOptions) {
 		this.options = options;
@@ -95,6 +104,28 @@ export class IpdService {
 		};
 	}
 
+	async cancelRun(runId: string, reason = "Cancelled by user"): Promise<RunState> {
+		const state = await this.getRun(runId);
+		if (state.status !== "running") return state;
+		await this.options.store.mutate(runId, `cancel:${state.revision}`, { reason }, (draft, event) => {
+			if (draft.status !== "running") return false;
+			markRunCancelled(draft);
+			event.emit("run_cancelled", { reason });
+			return true;
+		});
+		const active = this.active.get(runId);
+		await active?.controlPlane.cancelRun(runId);
+		await active?.runtime?.cancel(reason);
+		if (active) await active.promise;
+		return this.getRun(runId);
+	}
+
+	async close(): Promise<void> {
+		await Promise.allSettled([...this.active.keys()].map((runId) => this.cancelRun(runId, "IPD service closed")));
+		await this.options.visualizer?.close?.();
+		await this.options.onClose?.();
+	}
+
 	subscribeEvents(runId: string, listener: (events: readonly RunEvent[]) => void): () => void {
 		return this.options.store.subscribe(runId, listener);
 	}
@@ -113,7 +144,7 @@ export class IpdService {
 			executionIdentity: this.options.executionIdentity,
 		};
 		const directory = await controlPlane.accept(input);
-		this.startBackground(runId, controlPlane.prepareAccepted(input, directory));
+		this.startBackground(runId, controlPlane, controlPlane.prepareAccepted(input, directory));
 		const state = await this.getRun(runId);
 		const visualization = await this.visualizationReceipt(runId);
 		return { runId, accepted: true, phase: state.phase, status: state.status, ...visualization };
@@ -130,14 +161,20 @@ export class IpdService {
 		}
 	}
 
-	private startBackground(runId: string, preparation: Promise<PrepareRunResult>): void {
+	private startBackground(runId: string, controlPlane: IpdControlPlane, preparation: Promise<PrepareRunResult>): void {
 		if (this.active.has(runId)) return;
+		const active: { controlPlane: IpdControlPlane; runtime?: WorkflowRuntime; promise: Promise<void> } = {
+			controlPlane,
+			promise: Promise.resolve(),
+		};
 		const running = preparation
 			.then(
 				async (prepared) => {
 					if (!prepared.ok) return;
 					try {
+						if ((await this.getRun(runId)).status !== "running") return;
 						const runtime = this.options.createRuntime(prepared.directory);
+						active.runtime = runtime;
 						await runtime.activate(prepared.baseline);
 						await runtime.run();
 					} catch (error) {
@@ -146,8 +183,11 @@ export class IpdService {
 				},
 				async (error) => this.recordPreparationFailure(runId, error),
 			)
-			.finally(() => this.active.delete(runId));
-		this.active.set(runId, running);
+			.finally(() => {
+				if (this.active.get(runId) === active) this.active.delete(runId);
+			});
+		active.promise = running;
+		this.active.set(runId, active);
 	}
 
 	private async recordPreparationFailure(runId: string, error: unknown): Promise<void> {
@@ -158,6 +198,7 @@ export class IpdService {
 				`preparation-failed:${hashJson(message)}`,
 				{ message },
 				(draft, event) => {
+					if (draft.status !== "running") return false;
 					draft.status = "blocked";
 					draft.failure = { code: "preparation_failure", message };
 					event.emit("preparation_failed", { message });
@@ -172,18 +213,14 @@ export class IpdService {
 	private async recordRuntimeFailure(runId: string, error: unknown): Promise<void> {
 		const message = error instanceof Error ? error.message : String(error);
 		try {
-			await this.options.store.mutate(
-				runId,
-				`runtime-failed:${hashJson(message)}`,
-				{ message },
-				(draft, event) => {
-					draft.status = "failed";
-					draft.phase = "closed";
-					draft.failure = { code: "runtime_failure", message };
-					event.emit("runtime_failed", { message });
-					return true;
-				},
-			);
+			await this.options.store.mutate(runId, `runtime-failed:${hashJson(message)}`, { message }, (draft, event) => {
+				if (draft.status !== "running") return false;
+				draft.status = "failed";
+				draft.phase = "closed";
+				draft.failure = { code: "runtime_failure", message };
+				event.emit("runtime_failed", { message });
+				return true;
+			});
 		} catch {
 			// The original execution error remains the relevant failure when storage is unavailable.
 		}

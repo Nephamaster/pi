@@ -47,7 +47,6 @@ describe("PiNodeWorker", () => {
 					fauxToolCall("report_node_blocked", {
 						reason: "Required source access is unavailable",
 						missing_conditions: ["Source credentials"],
-						affected_requirement_ids: ["deliver-result"],
 						attempted_actions: ["Checked supplied materials"],
 						evidence: [],
 						needed_to_resume: ["Provide source credentials"],
@@ -82,7 +81,7 @@ describe("PiNodeWorker", () => {
 				node,
 				inputSubmissions: [],
 				inputBindings: [],
-				taskContext: { objectives: [], requirements: [], materials: [], unresolvedFacts: [] },
+				taskContext: { materials: [], unresolvedFacts: [] },
 				forbiddenMutableReadPaths: [],
 				feedback: [],
 			};
@@ -94,7 +93,7 @@ describe("PiNodeWorker", () => {
 				node,
 				inputSubmissions: [],
 				inputBindings: [],
-				taskContext: { objectives: [], requirements: [], materials: [], unresolvedFacts: [] },
+				taskContext: { materials: [], unresolvedFacts: [] },
 				forbiddenMutableReadPaths: [],
 				feedback: [{ type: "quality_rework", issue: "revise" }],
 			});

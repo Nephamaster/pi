@@ -181,6 +181,7 @@ examples/ipd-extension.ts 后，Provider 的 tools 中增加：
 
 - ipd：创建 Run；
 - ipd_get_run：读取状态；
+- ipd_cancel_run：按用户明确要求取消 Run；
 - ipd_read_events：按游标读取事件；
 - ipd_get_result：读取终态结果。
 
@@ -1115,6 +1116,8 @@ submit_review
 ```text
 Overall decision: PASS | REWORK | BLOCKED
 Per criterion: PASS | FAIL | BLOCKED
+Evidence identity: submission_id + node_id + output_id + criterion_id
+Failed criterion: required_rework + rework_targets[{node_id, output_id}]
 ```
 
 Review tool 本身只捕获候选；Approval、返工流转、下游放行仍由 Runtime 决定。
@@ -1128,6 +1131,7 @@ Review tool 本身只捕获候选；Approval、返工流转、下游放行仍由
 ```text
 ipd
 ipd_get_run
+ipd_cancel_run
 ipd_read_events
 ipd_get_result
 ```
@@ -1140,6 +1144,7 @@ IPD Tool 的返回文本也使用稳定标签：
 ```text
 <ipd_run_receipt>...</ipd_run_receipt>
 <ipd_run_status>...</ipd_run_status>
+<ipd_run_cancelled>...</ipd_run_cancelled>
 <ipd_run_events>...</ipd_run_events>
 <ipd_run_result>...</ipd_run_result>
 ```

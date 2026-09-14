@@ -33,13 +33,14 @@ describe("IPD create-run tool", () => {
 		expect(schema.properties).not.toHaveProperty("requirements");
 
 		const task = "Prepare a deck for management. Final delivery must be exactly one PPTX file.";
-		await tool.execute(
+		const firstResult = await tool.execute(
 			"call-1",
 			{ request_id: "request-1", skill_name: "pptx", task },
 			undefined,
 			undefined,
 			{} as ExtensionContext,
 		);
+		expect(firstResult.terminate).toBe(true);
 
 		expect(createRun).toHaveBeenCalledWith(
 			"request-1",
@@ -70,5 +71,41 @@ describe("IPD create-run tool", () => {
 			{} as ExtensionContext,
 		);
 		expect(createRun).toHaveBeenCalledWith("request-2", expect.objectContaining({ materials }), "pptx");
+	});
+
+	it("exposes explicit Run cancellation", async () => {
+		const tools: ToolDefinition[] = [];
+		const api = {
+			registerTool(tool: ToolDefinition) {
+				tools.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const cancelled = {
+			runId: "run-1",
+			revision: 4,
+			phase: "closed" as const,
+			status: "cancelled" as const,
+			nodes: [],
+			rounds: [],
+			submissions: [],
+			reviews: [],
+			approvals: [],
+			mechanicalChecks: [],
+			events: [],
+			operations: {},
+		};
+		const cancelRun = vi.fn<IpdService["cancelRun"]>().mockResolvedValue(cancelled);
+		registerIpdCreateRunTool(api, async () => ({ cancelRun }) as unknown as IpdService);
+		const tool = tools.find((candidate) => candidate.name === "ipd_cancel_run");
+		if (!tool) throw new Error("IPD cancel tool was not registered");
+		const result = await tool.execute(
+			"cancel-1",
+			{ run_id: "run-1", reason: "No longer needed" },
+			undefined,
+			undefined,
+			{} as ExtensionContext,
+		);
+		expect(cancelRun).toHaveBeenCalledWith("run-1", "No longer needed");
+		expect(result.content.find((item) => item.type === "text")?.text).toContain('"status":"cancelled"');
 	});
 });

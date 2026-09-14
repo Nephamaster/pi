@@ -63,8 +63,6 @@ describe("node prompt projections", () => {
 			inputBindings: [],
 			taskContext: {
 				rawTask: fixture.taskInput.raw_task,
-				objectives: fixture.taskInput.objectives,
-				requirements: fixture.taskInput.requirements,
 				materials: fixture.taskInput.materials,
 				unresolvedFacts: fixture.taskInput.unresolved_facts,
 			},
@@ -96,8 +94,6 @@ describe("node prompt projections", () => {
 			inputBindings: [],
 			taskContext: {
 				rawTask: fixture.taskInput.raw_task,
-				objectives: fixture.taskInput.objectives,
-				requirements: fixture.taskInput.requirements,
 				materials: fixture.taskInput.materials,
 				unresolvedFacts: fixture.taskInput.unresolved_facts,
 			},
@@ -169,7 +165,7 @@ describe("node prompt projections", () => {
 					approvalReviewNodeIds: [],
 				},
 			],
-			taskContext: { objectives: [], requirements: [], materials: [], unresolvedFacts: [] },
+			taskContext: { materials: [], unresolvedFacts: [] },
 			forbiddenMutableReadPaths: [],
 			feedback: [
 				{

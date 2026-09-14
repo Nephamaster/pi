@@ -52,10 +52,13 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 	}
 
 	async create(input: PiNodeSessionCreateInput): Promise<NodeSessionHandle> {
-		for (const skill of input.participant.lockedSkills) {
-			if ((await hashSkillPackage(skill.baseDir)) !== skill.hash)
-				throw new Error(`Locked Skill content changed: ${skill.id}`);
-		}
+		const verifyLockedSkills = async (): Promise<void> => {
+			for (const skill of input.participant.lockedSkills) {
+				if ((await hashSkillPackage(skill.baseDir)) !== skill.hash)
+					throw new Error(`Locked Skill content changed: ${skill.id}`);
+			}
+		};
+		await verifyLockedSkills();
 		const cardModel = input.participant.agentCard.model;
 		let model: Model<Api> | undefined;
 		if (cardModel.selection === "run_default") model = input.runDefaultModel;
@@ -100,6 +103,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 							],
 							deniedReadRoots: input.getDeniedReadRoots,
 							allowReadOwnWritePaths: input.allowReadOwnWritePaths,
+							beforeRead: verifyLockedSkills,
 						}),
 					},
 					...(input.getCurrentContext
@@ -141,6 +145,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 					],
 					deniedReadRoots: input.getDeniedReadRoots,
 					allowReadOwnWritePaths: input.allowReadOwnWritePaths,
+					beforeExec: verifyLockedSkills,
 				}),
 			);
 		}
@@ -161,6 +166,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 				return session.isIdle;
 			},
 			async prompt(text) {
+				await verifyLockedSkills();
 				await session.prompt(text);
 				const lastMessage = session.messages.at(-1);
 				if (lastMessage?.role === "assistant" && lastMessage.stopReason === "error")
