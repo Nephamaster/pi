@@ -145,6 +145,9 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 					],
 					deniedReadRoots: input.getDeniedReadRoots,
 					allowReadOwnWritePaths: input.allowReadOwnWritePaths,
+					requiredCommands: [
+						...new Set(input.participant.lockedSkills.flatMap((skill) => skill.requiredCommands ?? [])),
+					],
 					beforeExec: verifyLockedSkills,
 				}),
 			);

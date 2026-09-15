@@ -15,6 +15,17 @@ export interface DashboardNode {
 	agent: string;
 	objective: string;
 	responsibilities: string[];
+	workRequirements: string[];
+	nonResponsibilities: string[];
+	constraints: string[];
+	requiredCapabilities: string[];
+	tools: string[];
+	skills: string[];
+	permissions: {
+		readPaths: string[];
+		writePaths: string[];
+		externalActions: boolean;
+	};
 	inputs: string[];
 	outputs: string[];
 	activeRoundId?: string;
@@ -112,6 +123,7 @@ export function buildDashboardSnapshot(
 	const nodes = workflowNodes.map((node): DashboardNode => {
 		const runtime = runtimeNodes.get(node.node_id);
 		const effective = effectiveNodes.get(node.node_id);
+		const participant = node.agents[0];
 		return {
 			id: node.node_id,
 			name: node.name,
@@ -120,6 +132,17 @@ export function buildDashboardSnapshot(
 			agent: effective?.agents[0]?.agentCard.name ?? node.agents[0]?.agent_ref.id ?? "Unassigned",
 			objective: node.contract.objective,
 			responsibilities: [...node.contract.responsibilities],
+			workRequirements: [...node.contract.work_requirements],
+			nonResponsibilities: [...node.contract.non_responsibilities],
+			constraints: [...node.contract.constraints],
+			requiredCapabilities: [...participant.required_capabilities],
+			tools: participant.tools.map((tool) => tool.id),
+			skills: participant.skills.map((skill) => skill.id),
+			permissions: {
+				readPaths: [...participant.permissions.read_paths],
+				writePaths: [...participant.permissions.write_paths],
+				externalActions: participant.permissions.external_actions,
+			},
 			inputs: node.inputs.map(inputLabel),
 			outputs: node.kind === "execution" ? node.outputs.map((output) => output.output_id) : node.targets.map(targetLabel),
 			...(runtime?.activeRoundId ? { activeRoundId: runtime.activeRoundId } : {}),
@@ -236,8 +259,9 @@ function workflowEdges(nodes: readonly WorkflowNode[]): DashboardEdge[] {
 }
 
 function inputLabel(input: WorkflowNode["inputs"][number]): string {
-	if (input.kind === "task_material") return `material:${input.material_id}`;
-	return `${input.source.node_id}.${input.source.output_id} (${input.availability})`;
+	if (input.kind === "task_material") return `任务材料：${input.material_id}`;
+	const availability = input.availability === "approved" ? "已批准" : "已提交";
+	return `${input.source.node_id}.${input.source.output_id}（${availability}）`;
 }
 
 function targetLabel(target: Extract<WorkflowNode, { kind: "review" }>["targets"][number]): string {

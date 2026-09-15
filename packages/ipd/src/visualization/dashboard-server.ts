@@ -56,7 +56,7 @@ export class IpdDashboardServer {
 			...(isWildcardHost(this.host)
 				? {
 						shareHint:
-							"Dashboard is bound to all interfaces; replace 127.0.0.1 in the URL with this machine's LAN IP for other viewers.",
+							"看板已绑定全部网络接口；如需让其他设备访问，请将 URL 中的 127.0.0.1 替换为本机局域网 IP。",
 					}
 				: {}),
 		};
@@ -164,7 +164,7 @@ export class IpdDashboardServer {
 			.reverse()
 			.map((runId) => `<li><a href="/runs/${encodeURIComponent(runId)}">${escapeHtml(runId)}</a></li>`)
 			.join("");
-		return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IPD Runs</title><style>body{font:14px system-ui;background:#0a0d12;color:#e8edf5;padding:28px;max-width:900px;margin:auto}a{color:#8ab4ff}li{margin:10px 0}</style></head><body><h1>IPD Runs</h1>${links ? `<ul>${links}</ul>` : "<p>No Runs registered in this process yet.</p>"}</body></html>`;
+		return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IPD 运行列表</title><style>body{font:14px Inter,"PingFang SC","Microsoft YaHei",system-ui;background:#fff;color:#172033;padding:28px;max-width:900px;margin:auto}a{color:#1769e0}li{margin:10px 0}</style></head><body><h1>IPD 运行列表</h1>${links ? `<ul>${links}</ul>` : "<p>当前进程尚未注册 IPD 运行。</p>"}</body></html>`;
 	}
 }
 

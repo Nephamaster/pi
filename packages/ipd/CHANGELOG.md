@@ -35,9 +35,16 @@
 - Reduced IPD Run creation input to request ID, Skill name, the verbatim user task, and optional user-supplied task
   materials; derived objectives, requirements, and unresolved facts now start empty instead of being authored by the outer Agent.
 - Changed Review submissions to bind evidence and criterion-level rework to exact Submission node/output identities.
+- Changed generated Run IDs to contain only the UTC creation timestamp.
+- Changed the IPD Dashboard to a Chinese light theme with Markdown task rendering, stable live-refresh controls, and
+  richer node details.
 
 ### Fixed
 
+- Prevented sandbox-runtime bridge socket failures by using a short per-command temporary directory for `TMPDIR`,
+  `TMP`, and `TEMP` instead of a Run-scoped path.
+- Fixed Linux Bash isolation hiding authorized Workspace, sealed input, Skill, command-runtime, and seccomp paths by
+  replacing the unsupported `allowRead` setting with schema-compatible sibling denies and pre-created write roots.
 - Included the live visualization and snapshot URLs directly in successful IPD Run creation receipts.
 - Invalidated every Approval issued by a stale joint Review and made all required Review nodes part of Run completion.
 - Applied node read scopes consistently to read, grep, find, and ls, and isolated each sealed Submission output.

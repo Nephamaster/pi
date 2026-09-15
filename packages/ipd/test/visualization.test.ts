@@ -53,6 +53,12 @@ describe("IPD visualization", () => {
 		expect(snapshot.selection.rationale).toContain("production and independent review");
 		expect(snapshot.workflow.source).toBe("candidate");
 		expect(snapshot.workflow.nodes.map((node) => node.id)).toEqual(["produce", "review-produce"]);
+		expect(snapshot.workflow.nodes[0]).toMatchObject({
+			workRequirements: ["Use the supplied material"],
+			nonResponsibilities: ["Approve the result"],
+			requiredCapabilities: ["production"],
+			permissions: { readPaths: ["."], writePaths: ["outputs/produce"], externalActions: false },
+		});
 		expect(snapshot.workflow.edges).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ from: "produce", to: "review-produce", kind: "dependency" }),
@@ -66,7 +72,15 @@ describe("IPD visualization", () => {
 		const snapshot = buildDashboardSnapshot(state, [processSpec]);
 		const page = renderDashboardPage({ runId: state.runId, initialSnapshot: snapshot });
 		expect(page).toContain("<!doctype html>");
-		expect(page).toContain("IPD Run Observatory");
+		expect(page).toContain('<html lang="zh-CN">');
+		expect(page).toContain("IPD 运行看板");
+		expect(page).toContain("IPD Selection");
+		expect(page).toContain('class="task-markdown scroll-panel"');
+		expect(page).toContain("color-scheme:light");
+		expect(page).toContain(".task-markdown{height:310px");
+		expect(page).toContain(".selection-rationale{max-height:190px");
+		expect(page).toContain("function renderMarkdown(value)");
+		expect(page).toContain("selectionApplicabilityOpen=previousDetails.open");
 		expect(page).toContain(state.taskInput!.raw_task.text);
 		expect(page).not.toMatch(/<script\s+src=/i);
 		expect(page).not.toMatch(/<link[^>]+stylesheet[^>]+href=/i);
@@ -90,13 +104,13 @@ describe("IPD visualization", () => {
 		const link = await server.registerRun(state.runId);
 		const live = await fetch(link.url);
 		expect(live.status).toBe(200);
-		expect(await live.text()).toContain("Workflow Design & Execution");
+		expect(await live.text()).toContain("工作流设计与执行");
 		const snapshot = await fetch(link.snapshotUrl);
 		expect(snapshot.status).toBe(200);
 		expect(snapshot.headers.get("content-disposition")).toContain("attachment");
 		const body = await snapshot.text();
 		expect(body).toContain(state.taskInput!.raw_task.text);
-		expect(body).toContain("Standalone snapshot");
+		expect(body).toContain("离线快照");
 	});
 
 	it("projects the latest RunState on every live API request", async () => {

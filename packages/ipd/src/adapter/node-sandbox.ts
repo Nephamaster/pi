@@ -1,9 +1,10 @@
 // 复用 Pi 的 sandbox-runtime 策略，为 IPD 节点的 Bash 提供 OS 级文件系统与网络隔离。
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
 	type BashOperations,
 	createBashToolDefinition,
@@ -19,6 +20,11 @@ function unique(values: readonly string[]): string[] {
 	return [...new Set(values.map((value) => resolve(value)))];
 }
 
+function contains(root: string, target: string): boolean {
+	const value = relative(root, target);
+	return value === "" || (!value.startsWith("..") && !isAbsolute(value));
+}
+
 function resolveSandboxCli(): string {
 	try {
 		const entry = require.resolve("@anthropic-ai/sandbox-runtime");
@@ -30,9 +36,91 @@ function resolveSandboxCli(): string {
 	}
 }
 
-function sandboxRunsRoot(workspace: string): string {
-	// <project>/.pi/ipd/runs/<run_id>/workspace -> <project>/.pi/ipd/runs
-	return dirname(dirname(resolve(workspace)));
+function enclosingNodeModules(path: string): string | undefined {
+	let current = dirname(resolve(path));
+	while (dirname(current) !== current) {
+		if (basename(current) === "node_modules") return current;
+		current = dirname(current);
+	}
+	return undefined;
+}
+
+function executableRuntimeRoot(path: string): string {
+	const directory = dirname(path);
+	return basename(directory) === "bin" ? dirname(directory) : directory;
+}
+
+async function resolveExecutable(command: string, pathValue: string | undefined): Promise<string | undefined> {
+	const candidates = command.includes(sep)
+		? [resolve(command)]
+		: (pathValue ?? "")
+				.split(delimiter)
+				.filter(Boolean)
+				.map((directory) => resolve(directory, command));
+	for (const candidate of candidates) {
+		try {
+			await access(candidate, constants.X_OK);
+			return candidate;
+		} catch {
+			// Try the next PATH entry.
+		}
+	}
+	return undefined;
+}
+
+async function runtimeReadRoots(
+	cliPath: string,
+	requiredCommands: readonly string[],
+	pathValue: string | undefined,
+): Promise<string[]> {
+	const roots = [executableRuntimeRoot(process.execPath)];
+	const nodeModules = enclosingNodeModules(cliPath);
+	if (nodeModules) roots.push(nodeModules);
+	for (const command of new Set(["socat", ...requiredCommands])) {
+		const executable = await resolveExecutable(command, pathValue);
+		if (!executable) continue;
+		roots.push(executableRuntimeRoot(executable));
+		try {
+			roots.push(executableRuntimeRoot(await realpath(executable)));
+		} catch {
+			// The executable passed access() but disappeared; command execution will report the race.
+		}
+	}
+	return unique(roots);
+}
+
+export async function denyReadExcept(root: string, allowedRoots: readonly string[]): Promise<string[]> {
+	const protectedRoot = resolve(root);
+	const allowed = unique(allowedRoots).filter((candidate) => contains(protectedRoot, candidate));
+	if (allowed.length === 0) return [protectedRoot];
+	if (allowed.includes(protectedRoot)) return [];
+	const denied: string[] = [];
+	const visit = async (directory: string, candidates: readonly string[]): Promise<void> => {
+		let entries: string[];
+		try {
+			entries = await readdir(directory);
+		} catch (error) {
+			if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
+			throw error;
+		}
+		const allowedChildren = new Map<string, string[]>();
+		for (const candidate of candidates) {
+			const child = relative(directory, candidate).split(sep)[0];
+			if (!child) continue;
+			const values = allowedChildren.get(child) ?? [];
+			values.push(candidate);
+			allowedChildren.set(child, values);
+		}
+		for (const entry of entries) {
+			if (!allowedChildren.has(entry)) denied.push(join(directory, entry));
+		}
+		for (const [child, childCandidates] of allowedChildren) {
+			const childPath = join(directory, child);
+			if (!childCandidates.includes(childPath)) await visit(childPath, childCandidates);
+		}
+	};
+	await visit(protectedRoot, allowed);
+	return unique(denied);
 }
 
 export interface NodeSandboxOptions {
@@ -43,56 +131,68 @@ export interface NodeSandboxOptions {
 	additionalReadRoots?: () => readonly string[];
 	deniedReadRoots?: () => readonly string[];
 	allowReadOwnWritePaths?: boolean;
+	requiredCommands?: readonly string[];
 	beforeExec?: () => Promise<void>;
 }
 
 function nodeSandboxOperations(options: NodeSandboxOptions): BashOperations {
 	const workspace = resolve(options.workspace);
-	const runsRoot = sandboxRunsRoot(workspace);
 	const sandboxRoot = join(options.sessionDirectory, "sandbox", options.participantId);
 	const sandboxHome = join(sandboxRoot, "home");
-	const sandboxTmp = join(sandboxRoot, "tmp");
 	const cliPath = resolveSandboxCli();
 
 	return {
 		async exec(command, cwd, { onData, signal, timeout, env }) {
 			await options.beforeExec?.();
-			await Promise.all([mkdir(sandboxHome, { recursive: true }), mkdir(sandboxTmp, { recursive: true })]);
 			const configuredReadRoots = options.permissions.read_paths.map((path) => resolve(workspace, path));
 			const writeRoots = options.permissions.write_paths.map((path) => resolve(workspace, path));
+			const additionalReadRoots = options.additionalReadRoots?.() ?? [];
+			const deniedMutableRoots = (options.deniedReadRoots?.() ?? []).map((path) => resolve(workspace, path));
+			await Promise.all([
+				mkdir(sandboxHome, { recursive: true }),
+				...writeRoots.map((path) => mkdir(path, { recursive: true })),
+			]);
+			const runtimeRoots = await runtimeReadRoots(
+				cliPath,
+				options.requiredCommands ?? [],
+				env?.PATH ?? process.env.PATH,
+			);
 			const effectiveReadRoots = unique([
 				...configuredReadRoots,
 				...(options.allowReadOwnWritePaths ? writeRoots : []),
-				...(options.additionalReadRoots?.() ?? []),
+				...additionalReadRoots,
+				...runtimeRoots,
 				sandboxHome,
-				sandboxTmp,
 			]);
-			const deniedMutableRoots = (options.deniedReadRoots?.() ?? []).map((path) => resolve(workspace, path));
+			const protectedReadDenies = await denyReadExcept(homedir(), effectiveReadRoots);
+			const configDirectory = await mkdtemp(join(tmpdir(), "pi-ipd-srt-"));
 			const settings = {
 				network: {
 					allowedDomains: options.permissions.external_actions ? ["*"] : [],
 					deniedDomains: [],
 				},
 				filesystem: {
-					// Reads are deny-then-allow in sandbox-runtime. Deny the host home and the complete IPD runs area,
-					// then reopen only this Run workspace plus exact frozen/Skill roots. Mutable outputs owned by other
-					// nodes remain explicitly denied even though the current workspace is available as the shell cwd.
-					denyRead: unique([homedir(), runsRoot, join(workspace, "outputs"), ...deniedMutableRoots]),
-					allowRead: unique([workspace, ...effectiveReadRoots]),
+					// sandbox-runtime exposes denyRead but no allowRead. Hide siblings along each authorized Home path
+					// instead of hiding an ancestor that contains the workspace, Skills, or sandbox helper binaries.
+					denyRead: unique([...protectedReadDenies, ...deniedMutableRoots]),
 					// Writes are allow-only. Runtime-private HOME/TMP are writable but isolated from the host profile.
-					allowWrite: unique([...writeRoots, sandboxHome, sandboxTmp]),
+					allowWrite: unique([...writeRoots, sandboxHome, configDirectory]),
 					denyWrite: [],
 				},
 			};
-			const configDirectory = await mkdtemp(join(tmpdir(), "pi-ipd-srt-"));
 			const settingsFile = join(configDirectory, "settings.json");
-			await writeFile(settingsFile, JSON.stringify(settings), "utf8");
+			try {
+				await writeFile(settingsFile, JSON.stringify(settings), "utf8");
+			} catch (error) {
+				await rm(configDirectory, { recursive: true, force: true });
+				throw error;
+			}
 			const childEnv: NodeJS.ProcessEnv = {
 				...env,
 				HOME: sandboxHome,
-				TMPDIR: sandboxTmp,
-				TMP: sandboxTmp,
-				TEMP: sandboxTmp,
+				TMPDIR: configDirectory,
+				TMP: configDirectory,
+				TEMP: configDirectory,
 				XDG_CONFIG_HOME: join(sandboxHome, ".config"),
 				XDG_CACHE_HOME: join(sandboxHome, ".cache"),
 			};

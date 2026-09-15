@@ -9,7 +9,7 @@ function inlineScript(page: string): string {
 }
 
 describe("IPD visualization generated script", () => {
-	it("emits syntactically valid JavaScript for the live dashboard", () => {
+	function pageScript(): string {
 		const fixture = createCompilerFixture();
 		const snapshot = buildDashboardSnapshot(
 			{
@@ -32,13 +32,30 @@ describe("IPD visualization generated script", () => {
 			},
 			[fixture.processSpec],
 		);
-		const page = renderDashboardPage({
-			runId: fixture.runId,
-			liveEndpoint: `/api/runs/${fixture.runId}`,
-			snapshotUrl: `/runs/${fixture.runId}/snapshot.html`,
-			initialSnapshot: snapshot,
-		});
+		return inlineScript(
+			renderDashboardPage({
+				runId: fixture.runId,
+				liveEndpoint: `/api/runs/${fixture.runId}`,
+				snapshotUrl: `/runs/${fixture.runId}/snapshot.html`,
+				initialSnapshot: snapshot,
+			}),
+		);
+	}
 
-		expect(() => new Function(inlineScript(page))).not.toThrow();
+	it("emits syntactically valid JavaScript for the live dashboard", () => {
+		expect(() => new Function(pageScript())).not.toThrow();
+	});
+
+	it("renders common Markdown blocks without trusting embedded HTML", () => {
+		const script = pageScript();
+		const helpers = script.slice(0, script.indexOf("function displayPhase"));
+		const renderMarkdown = new Function(`${helpers}; return renderMarkdown;`)() as (value: string) => string;
+		const rendered = renderMarkdown("# 标题\n\n**重点**\n\n1. 第一项\n2. 第二项\n\n<script>alert(1)</script>");
+
+		expect(rendered).toContain("<h1>标题</h1>");
+		expect(rendered).toContain("<strong>重点</strong>");
+		expect(rendered).toContain("<ol><li>第一项</li><li>第二项</li></ol>");
+		expect(rendered).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+		expect(rendered).not.toContain("<script>alert(1)</script>");
 	});
 });

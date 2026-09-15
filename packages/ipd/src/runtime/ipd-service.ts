@@ -1,5 +1,4 @@
 // 提供 Run 创建、后台执行、查询、事件和结果服务。
-import { randomUUID } from "node:crypto";
 import type { CompilerAssetCatalog } from "../compiler/types.ts";
 import type { LockedSkill } from "../contracts/baseline.ts";
 import type { JsonValue } from "../contracts/primitives.ts";
@@ -48,9 +47,8 @@ export interface CreateRunReceipt {
 	visualizationError?: string;
 }
 
-export function createRunId(now = Date.now(), uuid = randomUUID()): string {
-	const timestamp = new Date(now).toISOString().replaceAll("-", "").replaceAll(":", "").replace(".", "");
-	return `${timestamp}-${uuid}`;
+export function createRunId(now = Date.now()): string {
+	return new Date(now).toISOString().replaceAll("-", "").replaceAll(":", "").replace(".", "");
 }
 
 export class IpdService {

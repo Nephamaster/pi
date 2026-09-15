@@ -23,10 +23,8 @@ describe("IpdService", () => {
 	const roots: string[] = [];
 	afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
-	it("includes the UTC creation time in default Run IDs", () => {
-		expect(createRunId(Date.parse("2026-09-08T12:34:56.789Z"), "00000000-0000-4000-8000-000000000000")).toBe(
-			"20260908T123456789Z-00000000-0000-4000-8000-000000000000",
-		);
+	it("uses only the UTC creation time in default Run IDs", () => {
+		expect(createRunId(Date.parse("2026-09-08T12:34:56.789Z"))).toBe("20260908T123456789Z");
 	});
 
 	it("records unexpected preparation exceptions as blocked preparation failures", async () => {
