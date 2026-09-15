@@ -89,6 +89,22 @@ async function runtimeReadRoots(
 	return unique(roots);
 }
 
+async function canonicalDenyRoots(paths: readonly string[]): Promise<string[]> {
+	const canonical: string[] = [];
+	for (const path of unique(paths)) {
+		try {
+			canonical.push(await realpath(path));
+		} catch (error) {
+			if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+			canonical.push(path);
+		}
+	}
+	const roots = unique(canonical);
+	return roots.filter(
+		(candidate, index) => !roots.some((root, rootIndex) => rootIndex !== index && contains(root, candidate)),
+	);
+}
+
 export async function denyReadExcept(root: string, allowedRoots: readonly string[]): Promise<string[]> {
 	const protectedRoot = resolve(root);
 	const allowed = unique(allowedRoots).filter((candidate) => contains(protectedRoot, candidate));
@@ -120,7 +136,7 @@ export async function denyReadExcept(root: string, allowedRoots: readonly string
 		}
 	};
 	await visit(protectedRoot, allowed);
-	return unique(denied);
+	return canonicalDenyRoots(denied);
 }
 
 export interface NodeSandboxOptions {

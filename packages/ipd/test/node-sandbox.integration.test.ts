@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createNodeSandboxedBashTool } from "../src/adapter/node-sandbox.ts";
@@ -29,12 +29,14 @@ sandboxDescribe("IPD node Bash sandbox integration", () => {
 		const approvedInput = join(root, "sealed", "input.txt");
 		const skillFile = join(root, "skill", "SKILL.md");
 		const deniedInput = join(root, "private", "secret.txt");
+		const deniedLinkTarget = join(root, "private", "workflow");
 		await mkdir(workspace, { recursive: true });
 		await Promise.all([
 			mkdir(join(root, "sealed"), { recursive: true }),
 			mkdir(join(root, "skill"), { recursive: true }),
-			mkdir(join(root, "private"), { recursive: true }),
+			mkdir(deniedLinkTarget, { recursive: true }),
 		]);
+		await symlink(deniedLinkTarget, join(root, "workflow"));
 		await writeFile(approvedInput, "approved input\n");
 		await writeFile(skillFile, "authorized skill\n");
 		await writeFile(deniedInput, "secret\n");

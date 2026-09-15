@@ -1,6 +1,6 @@
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -38,6 +38,23 @@ describe("IPD node Bash sandbox", () => {
 		expect(denied).toContain(deniedNestedSibling);
 		expect(denied).not.toContain(root);
 		expect(denied).not.toContain(allowed);
+	});
+
+	it("canonicalizes denied symlinks and removes targets already covered by a denied parent", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-read-deny-links-"));
+		roots.push(root);
+		const allowed = join(root, "project", "runs", "current", "workspace");
+		const deniedParent = join(root, "private");
+		const linkTarget = join(deniedParent, "workflow");
+		const link = join(root, "project", "workflow");
+		await Promise.all([mkdir(allowed, { recursive: true }), mkdir(linkTarget, { recursive: true })]);
+		await symlink(linkTarget, link);
+
+		const denied = await denyReadExcept(root, [allowed]);
+
+		expect(denied).toContain(deniedParent);
+		expect(denied).not.toContain(link);
+		expect(denied).not.toContain(linkTarget);
 	});
 
 	it("uses a short per-command temp directory for sandbox-runtime bridge sockets", async () => {

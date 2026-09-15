@@ -48,6 +48,7 @@
   `TMP`, and `TEMP` instead of a Run-scoped path.
 - Fixed Linux Bash isolation hiding authorized Workspace, sealed input, Skill, command-runtime, and seccomp paths by
   replacing the unsupported `allowRead` setting with schema-compatible sibling denies and pre-created write roots.
+- Fixed bwrap initialization when a denied symbolic link points inside an already denied parent directory.
 - Included the live visualization and snapshot URLs directly in successful IPD Run creation receipts.
 - Invalidated every Approval issued by a stale joint Review and made all required Review nodes part of Run completion.
 - Applied node read scopes consistently to read, grep, find, and ls, and isolated each sealed Submission output.
