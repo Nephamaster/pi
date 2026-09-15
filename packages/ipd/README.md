@@ -20,6 +20,14 @@ Each execution or review node currently binds one AgentCard and one persistent P
 come from typed inputs and remain a DAG; review rework returns to the responsible execution Session without changing
 the frozen acceptance criteria.
 
+## Interactive launch
+
+In Pi interactive mode, run `/ipd` to select an executable ProcessSpec, optionally select a compatible saved Workflow
+asset, enter the verbatim task in a multiline editor, and attach task materials. Selecting a ProcessSpec skips the
+Process Selector. Selecting both a ProcessSpec and a Workflow asset also skips the Workflow Designer: IPD rebinds the
+template to the current TaskInput and ProcessSelection, compiles it deterministically, and activates Runtime only when
+the template remains valid. Workflow templates already contain their node AgentCard assignments.
+
 ## Main capabilities
 
 - TaskInput and ProcessSpec v2, WorkflowDefinition v3, ExecutionBaseline, and Runtime state contracts.

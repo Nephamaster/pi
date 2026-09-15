@@ -75,9 +75,11 @@ describe("IPD visualization", () => {
 		expect(page).toContain('<html lang="zh-CN">');
 		expect(page).toContain("IPD 运行看板");
 		expect(page).toContain("IPD Selection");
+		expect(page).toContain('class="card task-card"');
 		expect(page).toContain('class="task-markdown scroll-panel"');
 		expect(page).toContain("color-scheme:light");
-		expect(page).toContain(".task-markdown{height:310px");
+		expect(page).toContain(".task-markdown{height:310px;min-height:310px;flex:1 1 310px");
+		expect(page).toContain("font-size:12px");
 		expect(page).toContain(".selection-rationale{max-height:190px");
 		expect(page).toContain("function renderMarkdown(value)");
 		expect(page).toContain("selectionApplicabilityOpen=previousDetails.open");

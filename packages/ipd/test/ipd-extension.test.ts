@@ -1,12 +1,19 @@
-import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { registerIpdCreateRunTool } from "../src/index.ts";
+import { hashJson, registerIpdCreateRunTool } from "../src/index.ts";
 import type { IpdService } from "../src/runtime/ipd-service.ts";
+import { createCompilerFixture } from "./fixtures.ts";
 
 describe("IPD create-run tool", () => {
 	it("accepts only identity, Skill, verbatim task, and optional user materials", async () => {
 		const tools: ToolDefinition[] = [];
 		const api = {
+			registerCommand() {},
 			registerTool(tool: ToolDefinition) {
 				tools.push(tool);
 			},
@@ -73,9 +80,94 @@ describe("IPD create-run tool", () => {
 		expect(createRun).toHaveBeenCalledWith("request-2", expect.objectContaining({ materials }), "pptx");
 	});
 
+	it("starts a template-backed Run from the interactive /ipd command", async () => {
+		const fixture = createCompilerFixture();
+		fixture.workflow.nodes[0].agents[0].skills = [{ id: "pptx" }];
+		let commandHandler: ((args: string, context: ExtensionCommandContext) => Promise<void>) | undefined;
+		const api = {
+			registerCommand(
+				name: string,
+				command: { handler: (args: string, context: ExtensionCommandContext) => Promise<void> },
+			) {
+				if (name === "ipd") commandHandler = command.handler;
+			},
+			registerTool() {},
+		} as unknown as ExtensionAPI;
+		const workflowTemplate = {
+			workflow: fixture.workflow,
+			hash: hashJson(fixture.workflow),
+			source: "/templates/example-workflow/1.0.0.json",
+		};
+		const createRunFromTemplates = vi.fn<IpdService["createRunFromTemplates"]>().mockResolvedValue({
+			runId: "run-template",
+			accepted: true,
+			phase: "intake",
+			status: "running",
+		});
+		const service = {
+			listProcessSpecTemplates: () => [fixture.processSpec],
+			listWorkflowTemplates: async () => [workflowTemplate],
+			listRunSkills: () => [
+				{
+					id: "pptx",
+					hash: "a".repeat(64),
+					source: "test",
+					filePath: "/skills/pptx/SKILL.md",
+					baseDir: "/skills/pptx",
+					description: "Create presentations",
+					allowedTools: ["bash"],
+				},
+			],
+			createRunFromTemplates,
+		} as unknown as IpdService;
+		registerIpdCreateRunTool(api, async () => service);
+		if (!commandHandler) throw new Error("/ipd command was not registered");
+		const task = "  Create the requested presentation.\nPreserve this text.  ";
+		const select = vi
+			.fn()
+			.mockResolvedValueOnce("Delivery Process · delivery-process@1.0.0")
+			.mockResolvedValueOnce("Example Workflow · example-workflow@1.0.0");
+		const confirm = vi.fn().mockResolvedValue(false);
+		const input = vi
+			.fn()
+			.mockResolvedValueOnce("Source brief")
+			.mockResolvedValueOnce("/inputs/brief.md")
+			.mockResolvedValueOnce("text/markdown");
+		const notify = vi.fn();
+		await commandHandler("", {
+			hasUI: true,
+			ui: { select, confirm, input, editor: vi.fn().mockResolvedValue(task), notify },
+		} as unknown as ExtensionCommandContext);
+
+		expect(createRunFromTemplates).toHaveBeenCalledOnce();
+		const [requestId, taskInput, runSkillId, templates] = createRunFromTemplates.mock.calls[0];
+		expect(requestId).toMatch(/^ipd-command-\d+$/);
+		expect(taskInput).toMatchObject({
+			task_input_id: requestId,
+			raw_task: { text: task, source: "user-command:/ipd" },
+			materials: [
+				{
+					material_id: "brief",
+					description: "Source brief",
+					reference: "/inputs/brief.md",
+					media_type: "text/markdown",
+				},
+			],
+		});
+		expect(runSkillId).toBe("pptx");
+		expect(templates).toEqual({
+			processSpecId: "delivery-process",
+			processSpecVersion: "1.0.0",
+			workflowId: "example-workflow",
+			workflowVersion: "1.0.0",
+		});
+		expect(notify).toHaveBeenCalledWith("IPD Run run-template 已启动", "info");
+	});
+
 	it("exposes explicit Run cancellation", async () => {
 		const tools: ToolDefinition[] = [];
 		const api = {
+			registerCommand() {},
 			registerTool(tool: ToolDefinition) {
 				tools.push(tool);
 			},

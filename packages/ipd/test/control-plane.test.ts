@@ -7,6 +7,7 @@ import {
 	BootstrapWorkflowDesigner,
 	FileRunStore,
 	FileWorkflowAssetStore,
+	hashJson,
 	IpdControlPlane,
 	ProcessSelectionBlockedError,
 	WorkflowDesignBlockedError,
@@ -76,6 +77,58 @@ describe("IpdControlPlane", () => {
 				),
 			),
 		).toEqual(result.baseline.workflow);
+	});
+
+	it("rebinds and compiles a selected Workflow template without invoking control-role Agents", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-control-template-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		fixture.taskInput.task_input_id = "new-task";
+		fixture.taskInput.raw_task.text = "Use the selected templates for this new task";
+		const store = new FileRunStore();
+		const control = new IpdControlPlane(
+			store,
+			{
+				async select() {
+					throw new Error("Process Selector must not run");
+				},
+			},
+			{
+				async design() {
+					throw new Error("Workflow Designer must not run");
+				},
+			},
+			new FileWorkflowAssetStore({ directory: join(root, ".pi", "ipd", "workflow") }),
+		);
+		const result = await control.prepare({
+			projectRoot: root,
+			runId: "run-template",
+			taskInput: fixture.taskInput,
+			runSkill: runSkill(),
+			processSpecs: [fixture.processSpec],
+			assets: fixture.assets,
+			selectedProcessSpec: fixture.processSpec,
+			workflowTemplate: {
+				workflow: fixture.workflow,
+				hash: hashJson(fixture.workflow),
+				source: "/templates/example-workflow/1.0.0.json",
+			},
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("Selected Workflow template did not compile");
+		expect(result.baseline.workflow.task_input_ref).toEqual({
+			id: "new-task",
+			hash: hashJson(fixture.taskInput),
+		});
+		const state = await store.read("run-template");
+		expect(state.phase).toBe("compile");
+		expect(state.processSelection?.rationale).toContain("/ipd");
+		expect(state.events.map((event) => event.type)).toEqual([
+			"process_selected",
+			"process_staffing_checked",
+			"workflow_template_selected",
+		]);
 	});
 
 	it("records a formal selection block without starting Workflow design", async () => {

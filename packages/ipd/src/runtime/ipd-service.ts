@@ -5,8 +5,11 @@ import type { JsonValue } from "../contracts/primitives.ts";
 import type { ProcessSpec } from "../contracts/process-spec.ts";
 import type { FinalSubmissionRecord, RunEvent, RunState } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
+import type { WorkflowDefinition } from "../contracts/workflow.ts";
 import type { IpdControlPlane, PrepareRunResult } from "../control/control-plane.ts";
 import { hashJson } from "../ir/hash.ts";
+import type { WorkflowAssetRecord } from "../ir/types.ts";
+import type { WorkflowAssetStore } from "../registry/workflow-asset-store.ts";
 import { prepareRunDirectory, type RunDirectory } from "./run-directory.ts";
 import type { FileRunStore } from "./run-store.ts";
 import { finalApprovedSubmissionIds, markRunCancelled } from "./runtime-state.ts";
@@ -33,6 +36,7 @@ export interface IpdServiceOptions {
 	executionIdentity?: JsonValue;
 	createControlPlane(runId: string, runSkill: LockedSkill): IpdControlPlane;
 	createRuntime(directory: RunDirectory): WorkflowRuntime;
+	workflowAssets?: WorkflowAssetStore;
 	visualizer?: IpdRunVisualizer;
 	idFactory?: () => string;
 	onClose?: () => Promise<void>;
@@ -45,6 +49,13 @@ export interface CreateRunReceipt {
 	status: RunState["status"];
 	visualization?: IpdVisualizationLink;
 	visualizationError?: string;
+}
+
+export interface IpdRunTemplateSelection {
+	processSpecId: string;
+	processSpecVersion: string;
+	workflowId?: string;
+	workflowVersion?: string;
 }
 
 export function createRunId(now = Date.now()): string {
@@ -79,6 +90,41 @@ export class IpdService {
 		const result = this.createRunOnce(this.idFactory(), taskInput, runSkillId);
 		this.requests.set(requestId, { hash, result });
 		return result;
+	}
+
+	createRunFromTemplates(
+		requestId: string,
+		taskInput: TaskInput,
+		runSkillId: string,
+		templates: IpdRunTemplateSelection,
+	): Promise<CreateRunReceipt> {
+		const hash = hashJson({ taskInput, runSkillId, templates });
+		const existing = this.requests.get(requestId);
+		if (existing) {
+			if (existing.hash !== hash) throw new Error(`create_run request ID conflict: ${requestId}`);
+			return existing.result;
+		}
+		const result = this.createRunOnce(this.idFactory(), taskInput, runSkillId, templates);
+		this.requests.set(requestId, { hash, result });
+		return result;
+	}
+
+	listProcessSpecTemplates(): ProcessSpec[] {
+		return this.options.processSpecs.filter((spec) => spec.default_executable).map((spec) => structuredClone(spec));
+	}
+
+	listRunSkills(): LockedSkill[] {
+		return this.options.assets.skills.map((skill) => structuredClone(skill));
+	}
+
+	async listWorkflowTemplates(processSpecId: string, processSpecVersion: string): Promise<WorkflowAssetRecord[]> {
+		const spec = this.options.processSpecs.find(
+			(item) => item.process_spec_id === processSpecId && item.version === processSpecVersion,
+		);
+		if (!spec || !this.options.workflowAssets) return [];
+		return (await this.options.workflowAssets.list())
+			.filter((record) => workflowMatchesProcessSpec(record.workflow, spec))
+			.map((record) => structuredClone(record));
 	}
 
 	async getRun(runId: string): Promise<RunState> {
@@ -128,9 +174,30 @@ export class IpdService {
 		return this.options.store.subscribe(runId, listener);
 	}
 
-	private async createRunOnce(runId: string, taskInput: TaskInput, runSkillId: string): Promise<CreateRunReceipt> {
+	private async createRunOnce(
+		runId: string,
+		taskInput: TaskInput,
+		runSkillId: string,
+		templates?: IpdRunTemplateSelection,
+	): Promise<CreateRunReceipt> {
 		const runSkill = this.options.assets.skills.find((skill) => skill.id === runSkillId);
 		if (!runSkill) throw new Error(`Unknown Run Skill: ${runSkillId}`);
+		let selectedProcessSpec: ProcessSpec | undefined;
+		let workflowTemplate: WorkflowAssetRecord | undefined;
+		if (templates) {
+			selectedProcessSpec = this.options.processSpecs.find(
+				(spec) => spec.process_spec_id === templates.processSpecId && spec.version === templates.processSpecVersion,
+			);
+			if (!selectedProcessSpec)
+				throw new Error(`Unknown ProcessSpec template: ${templates.processSpecId}@${templates.processSpecVersion}`);
+			if (templates.workflowId || templates.workflowVersion) {
+				if (!templates.workflowId || !templates.workflowVersion)
+					throw new Error("Workflow template ID and version must be provided together");
+				workflowTemplate = await this.options.workflowAssets?.get(templates.workflowId, templates.workflowVersion);
+				if (!workflowTemplate)
+					throw new Error(`Unknown Workflow template: ${templates.workflowId}@${templates.workflowVersion}`);
+			}
+		}
 		const controlPlane = this.options.createControlPlane(runId, runSkill);
 		const input = {
 			projectRoot: this.options.projectRoot,
@@ -140,6 +207,8 @@ export class IpdService {
 			processSpecs: this.options.processSpecs,
 			assets: this.options.assets,
 			executionIdentity: this.options.executionIdentity,
+			selectedProcessSpec,
+			workflowTemplate,
 		};
 		const directory = await controlPlane.accept(input);
 		this.startBackground(runId, controlPlane, controlPlane.prepareAccepted(input, directory));
@@ -223,4 +292,15 @@ export class IpdService {
 			// The original execution error remains the relevant failure when storage is unavailable.
 		}
 	}
+}
+
+function workflowMatchesProcessSpec(workflow: WorkflowDefinition, spec: ProcessSpec): boolean {
+	const expected = new Set([
+		...spec.required_activities.map((item) => `process_activity:${item.activity_id}`),
+		...spec.required_deliverables.map((item) => `process_deliverable:${item.deliverable_id}`),
+		...spec.required_reviews.map((item) => `process_review:${item.review_id}`),
+		...spec.workflow_rules.map((item) => `process_rule:${item.rule_id}`),
+	]);
+	const actual = new Set(workflow.requirement_coverage.map((item) => `${item.source}:${item.requirement_id}`));
+	return expected.size === actual.size && [...expected].every((item) => actual.has(item));
 }

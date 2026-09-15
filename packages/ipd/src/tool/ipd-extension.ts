@@ -1,5 +1,10 @@
 // 定义外部 Pi 可调用的 IPD 创建和只读查询工具。
-import { defineTool, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+	defineTool,
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import Type, { type Static } from "typebox";
 import { NonEmptyStringSchema } from "../contracts/primitives.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
@@ -48,9 +53,154 @@ function taskInput(input: CreateRunInput): TaskInput {
 	};
 }
 
+const AUTOMATIC_PROCESS = "由 IPD 自动选择流程规范";
+const AUTOMATIC_WORKFLOW = "由 IPD 设计工作流";
+
+async function collectMaterials(
+	context: ExtensionCommandContext,
+	requiredMaterialIds: readonly string[],
+): Promise<TaskInput["materials"] | undefined> {
+	const materials: TaskInput["materials"] = [];
+	const collect = async (materialId: string): Promise<boolean> => {
+		const description = await context.ui.input(`材料 ${materialId} 的说明`, "例如：用户提供的需求文档");
+		if (description === undefined) return false;
+		const reference = await context.ui.input(`材料 ${materialId} 的位置`, "文件路径、URL 或其他可解析引用");
+		if (reference === undefined) return false;
+		if (!description.trim() || !reference.trim()) {
+			context.ui.notify("材料说明和材料位置不能为空", "error");
+			return false;
+		}
+		const mediaType = await context.ui.input(`材料 ${materialId} 的媒体类型（可选）`, "例如：text/markdown");
+		if (mediaType === undefined) return false;
+		materials.push({
+			material_id: materialId,
+			description: description.trim(),
+			reference: reference.trim(),
+			...(mediaType.trim() ? { media_type: mediaType.trim() } : {}),
+		});
+		return true;
+	};
+	for (const materialId of requiredMaterialIds) {
+		context.ui.notify(`工作流模板要求提供材料：${materialId}`, "info");
+		if (!(await collect(materialId))) return undefined;
+	}
+	while (await context.ui.confirm("任务材料", materials.length === 0 ? "是否添加任务材料？" : "是否继续添加材料？")) {
+		const materialId = `material-${materials.length + 1}`;
+		if (!(await collect(materialId))) return undefined;
+	}
+	return materials;
+}
+
+async function chooseRunSkill(
+	context: ExtensionCommandContext,
+	service: IpdService,
+	workflow?: Awaited<ReturnType<IpdService["listWorkflowTemplates"]>>[number],
+): Promise<string | undefined> {
+	const available = service
+		.listRunSkills()
+		.filter((skill) => !["process-selection", "workflow-design"].includes(skill.id));
+	const workflowSkillIds = new Set(
+		workflow?.workflow.nodes.flatMap((node) =>
+			node.agents.flatMap((agent) => agent.skills.map((skill) => skill.id)),
+		) ?? [],
+	);
+	const candidates =
+		workflowSkillIds.size > 0 ? available.filter((skill) => workflowSkillIds.has(skill.id)) : available;
+	if (candidates.length === 1) return candidates[0].id;
+	if (candidates.length === 0) {
+		context.ui.notify("没有可用于该任务的 Skill", "error");
+		return undefined;
+	}
+	const labels = candidates.map((skill) => `${skill.id} · ${skill.description}`);
+	const selected = await context.ui.select("选择任务 Skill", labels);
+	return selected === undefined ? undefined : candidates[labels.indexOf(selected)]?.id;
+}
+
+function registerIpdCommand(pi: ExtensionAPI, serviceProvider: IpdServiceProvider): void {
+	pi.registerCommand("ipd", {
+		description: "通过交互界面创建 IPD Run，可选择流程规范和已保存的工作流模板",
+		handler: async (args, context) => {
+			if (!context.hasUI) {
+				context.ui.notify("/ipd 需要可交互的 Pi 界面", "error");
+				return;
+			}
+			try {
+				const service = await serviceProvider(context);
+				const processSpecs = service.listProcessSpecTemplates();
+				const processLabels = processSpecs.map((spec) => `${spec.name} · ${spec.process_spec_id}@${spec.version}`);
+				const processChoice = await context.ui.select("选择 IPD 模板", [AUTOMATIC_PROCESS, ...processLabels]);
+				if (processChoice === undefined) return;
+				const processSpec =
+					processChoice === AUTOMATIC_PROCESS ? undefined : processSpecs[processLabels.indexOf(processChoice)];
+
+				let workflowTemplate: Awaited<ReturnType<IpdService["listWorkflowTemplates"]>>[number] | undefined;
+				if (processSpec) {
+					const workflows = await service.listWorkflowTemplates(processSpec.process_spec_id, processSpec.version);
+					const workflowLabels = workflows.map(
+						(template) =>
+							`${template.workflow.name} · ${template.workflow.workflow_id}@${template.workflow.workflow_version}`,
+					);
+					const workflowChoice = await context.ui.select("选择工作流模板", [
+						AUTOMATIC_WORKFLOW,
+						...workflowLabels,
+					]);
+					if (workflowChoice === undefined) return;
+					if (workflowChoice !== AUTOMATIC_WORKFLOW)
+						workflowTemplate = workflows[workflowLabels.indexOf(workflowChoice)];
+				}
+
+				const runSkillId = await chooseRunSkill(context, service, workflowTemplate);
+				if (!runSkillId) return;
+				const task = await context.ui.editor("输入任务描述", args.trim());
+				if (task === undefined) return;
+				if (!task.trim()) {
+					context.ui.notify("任务描述不能为空", "error");
+					return;
+				}
+				const requiredMaterialIds = [
+					...new Set(
+						workflowTemplate?.workflow.nodes.flatMap((node) =>
+							node.inputs
+								.filter((input) => input.kind === "task_material" && input.required)
+								.map((input) => (input.kind === "task_material" ? input.material_id : "")),
+						) ?? [],
+					),
+				].filter(Boolean);
+				const materials = await collectMaterials(context, requiredMaterialIds);
+				if (materials === undefined) return;
+				const requestId = `ipd-command-${Date.now()}`;
+				const input: TaskInput = {
+					schema_version: 2,
+					task_input_id: requestId,
+					raw_task: { text: task, source: "user-command:/ipd" },
+					materials,
+					unresolved_facts: [],
+				};
+				const receipt = processSpec
+					? await service.createRunFromTemplates(requestId, input, runSkillId, {
+							processSpecId: processSpec.process_spec_id,
+							processSpecVersion: processSpec.version,
+							...(workflowTemplate
+								? {
+										workflowId: workflowTemplate.workflow.workflow_id,
+										workflowVersion: workflowTemplate.workflow.workflow_version,
+									}
+								: {}),
+						})
+					: await service.createRun(requestId, input, runSkillId);
+				const visualization = receipt.visualization ? `\n看板：${receipt.visualization.url}` : "";
+				context.ui.notify(`IPD Run ${receipt.runId} 已启动${visualization}`, "info");
+			} catch (error) {
+				context.ui.notify(`IPD 启动失败：${error instanceof Error ? error.message : String(error)}`, "error");
+			}
+		},
+	});
+}
+
 export type IpdServiceProvider = (context: ExtensionContext) => Promise<IpdService>;
 
 export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdServiceProvider): void {
+	registerIpdCommand(pi, serviceProvider);
 	pi.registerTool(
 		defineTool({
 			name: "ipd",

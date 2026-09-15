@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	BootstrapProcessSelector,
 	BootstrapWorkflowDesigner,
@@ -10,6 +10,7 @@ import {
 	createRunId,
 	FileRunStore,
 	FileWorkflowAssetStore,
+	hashJson,
 	IpdControlPlane,
 	IpdService,
 	MechanicalChecker,
@@ -136,6 +137,71 @@ describe("IpdService", () => {
 		expect(cancelled.phase).toBe("closed");
 		expect(cancelled.events.filter((event) => event.type === "run_cancelled")).toHaveLength(1);
 		expect(cancelled.events.some((event) => event.type === "preparation_failed")).toBe(false);
+	});
+
+	it("resolves selected templates and starts Runtime without Selector or Designer Agents", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-template-service-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		const store = new FileRunStore();
+		const workflowAssets = new FileWorkflowAssetStore({ directory: join(root, ".pi", "ipd", "workflow") });
+		await workflowAssets.save(fixture.workflow, hashJson(fixture.workflow));
+		const control = new IpdControlPlane(
+			store,
+			{
+				async select() {
+					throw new Error("Process Selector must not run");
+				},
+			},
+			{
+				async design() {
+					throw new Error("Workflow Designer must not run");
+				},
+			},
+			workflowAssets,
+		);
+		const activate = vi.fn().mockResolvedValue(undefined);
+		const run = vi.fn().mockResolvedValue(undefined);
+		const service = new IpdService({
+			store,
+			createControlPlane: () => control,
+			processSpecs: [fixture.processSpec],
+			workflowAssets,
+			assets: {
+				...fixture.assets,
+				skills: [
+					{
+						id: "test-skill",
+						hash: "a".repeat(64),
+						source: "test",
+						filePath: "/test/SKILL.md",
+						baseDir: "/test",
+						description: "Test Skill",
+						allowedTools: [],
+					},
+				],
+			},
+			projectRoot: root,
+			idFactory: () => "run-template",
+			createRuntime: () => ({ activate, run }) as unknown as WorkflowRuntime,
+		});
+
+		expect(service.listProcessSpecTemplates().map((spec) => spec.process_spec_id)).toEqual(["delivery-process"]);
+		expect(await service.listWorkflowTemplates("delivery-process", "1.0.0")).toHaveLength(1);
+		await service.createRunFromTemplates("request-template", fixture.taskInput, "test-skill", {
+			processSpecId: "delivery-process",
+			processSpecVersion: "1.0.0",
+			workflowId: "example-workflow",
+			workflowVersion: "1.0.0",
+		});
+		for (let count = 0; count < 50 && activate.mock.calls.length === 0; count++)
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+		expect(activate).toHaveBeenCalledOnce();
+		expect(run).toHaveBeenCalledOnce();
+		expect((await service.getRun("run-template")).events.map((event) => event.type)).toContain(
+			"workflow_template_selected",
+		);
 	});
 
 	it("creates once and exposes query-only progress and result APIs", async () => {

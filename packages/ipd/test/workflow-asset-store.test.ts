@@ -34,6 +34,16 @@ describe("FileWorkflowAssetStore", () => {
 		const reused = await store.save(workflow, hash);
 		expect(reused.reused).toBe(true);
 		expect(reused.record.source).toBe(created.record.source);
+		expect(await store.get(workflow.workflow_id, workflow.workflow_version)).toEqual(created.record);
+		expect(await store.list()).toEqual([created.record]);
+	});
+
+	it("returns an empty catalog when the Workflow directory does not exist", async () => {
+		const root = await createRoot();
+		const store = new FileWorkflowAssetStore({ directory: join(root, "missing") });
+
+		expect(await store.list()).toEqual([]);
+		expect(await store.get("missing", "1.0.0")).toBeUndefined();
 	});
 
 	it("treats an incompatible legacy Asset at the same version as a version conflict", async () => {

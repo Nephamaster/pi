@@ -1,5 +1,6 @@
 // 原子保存不可覆盖的版本化 Workflow 资产。
-import { link, mkdir, open, readFile, unlink } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { access, link, mkdir, open, readdir, readFile, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { type WorkflowDefinition, WorkflowDefinitionSchema } from "../contracts/workflow.ts";
@@ -26,6 +27,8 @@ export class WorkflowAssetWriteError extends Error {
 
 export interface WorkflowAssetStore {
 	save(workflow: WorkflowDefinition, hash: string): Promise<WorkflowAssetWriteResult>;
+	list(): Promise<WorkflowAssetRecord[]>;
+	get(id: string, version: string): Promise<WorkflowAssetRecord | undefined>;
 }
 
 export interface FileWorkflowAssetStoreOptions {
@@ -91,6 +94,50 @@ export class FileWorkflowAssetStore implements WorkflowAssetStore {
 			);
 		}
 		return { record: { workflow: existing, hash, source: path }, reused };
+	}
+
+	async list(): Promise<WorkflowAssetRecord[]> {
+		let directories: Dirent[];
+		try {
+			directories = await readdir(this.directory, { withFileTypes: true });
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+			throw error;
+		}
+		const records: WorkflowAssetRecord[] = [];
+		const extension = this.format === "json" ? ".json" : ".yaml";
+		for (const directory of directories
+			.filter((entry) => entry.isDirectory())
+			.sort((a, b) => a.name.localeCompare(b.name))) {
+			const path = join(this.directory, directory.name);
+			const files = (await readdir(path, { withFileTypes: true }))
+				.filter((entry) => entry.isFile() && entry.name.endsWith(extension))
+				.sort((a, b) => a.name.localeCompare(b.name));
+			for (const file of files) {
+				const source = join(path, file.name);
+				const workflow = await this.read(source);
+				records.push({ workflow, hash: hashJson(workflow), source });
+			}
+		}
+		return records;
+	}
+
+	async get(id: string, version: string): Promise<WorkflowAssetRecord | undefined> {
+		const extension = this.format === "json" ? "json" : "yaml";
+		const source = join(this.directory, id, `${version}.${extension}`);
+		try {
+			await access(source);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+			throw error;
+		}
+		const workflow = await this.read(source);
+		if (workflow.workflow_id !== id || workflow.workflow_version !== version)
+			throw new WorkflowAssetWriteError(
+				"version_conflict",
+				`Workflow Asset identity does not match its path: expected ${id}@${version}`,
+			);
+		return { workflow, hash: hashJson(workflow), source };
 	}
 
 	private async read(path: string): Promise<WorkflowDefinition> {

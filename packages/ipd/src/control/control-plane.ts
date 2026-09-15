@@ -9,6 +9,7 @@ import type { RunState } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
+import type { WorkflowAssetRecord } from "../ir/types.ts";
 import type { WorkflowAssetStore } from "../registry/workflow-asset-store.ts";
 import { WorkflowAssetWriteError } from "../registry/workflow-asset-store.ts";
 import { prepareRunDirectory, type RunDirectory } from "../runtime/run-directory.ts";
@@ -67,6 +68,8 @@ export interface PrepareRunInput {
 	processSpecs: readonly ProcessSpec[];
 	assets: CompilerAssetCatalog;
 	executionIdentity?: JsonValue;
+	selectedProcessSpec?: ProcessSpec;
+	workflowTemplate?: WorkflowAssetRecord;
 }
 
 export type PrepareRunResult =
@@ -134,25 +137,32 @@ export class IpdControlPlane {
 	}
 
 	async prepareAccepted(input: PrepareRunInput, directory: RunDirectory): Promise<PrepareRunResult> {
-		await this.setPreparationPhase(input.runId, "selection", "selection");
 		let selection: ProcessSelection;
-		try {
-			selection = await this.selector.select(input.runId, input.taskInput, input.processSpecs);
-		} catch (error) {
-			if (!(error instanceof ProcessSelectionBlockedError)) throw error;
-			return this.block(input.runId, directory, [
-				`Process selection blocked: ${error.message}`,
-				...error.unresolvedFactRefs.map((id) => `Unresolved fact: ${id}`),
-			]);
+		let spec: ProcessSpec;
+		if (input.selectedProcessSpec) {
+			spec = input.selectedProcessSpec;
+			selection = explicitProcessSelection(input.runId, input.taskInput, spec);
+		} else {
+			await this.setPreparationPhase(input.runId, "selection", "selection");
+			try {
+				selection = await this.selector.select(input.runId, input.taskInput, input.processSpecs);
+			} catch (error) {
+				if (!(error instanceof ProcessSelectionBlockedError)) throw error;
+				return this.block(input.runId, directory, [
+					`Process selection blocked: ${error.message}`,
+					...error.unresolvedFactRefs.map((id) => `Unresolved fact: ${id}`),
+				]);
+			}
+			if (!(await this.isRunning(input.runId))) return { ok: false, directory, diagnostics: ["Run cancelled"] };
+			const selected = input.processSpecs.find(
+				(item) =>
+					item.process_spec_id === selection.process_spec_ref.id &&
+					item.version === selection.process_spec_ref.version,
+			);
+			if (!selected || hashJson(selected) !== selection.process_spec_ref.hash)
+				return this.block(input.runId, directory, ["Selected ProcessSpec is unavailable or changed"]);
+			spec = selected;
 		}
-		if (!(await this.isRunning(input.runId))) return { ok: false, directory, diagnostics: ["Run cancelled"] };
-		const spec = input.processSpecs.find(
-			(item) =>
-				item.process_spec_id === selection.process_spec_ref.id &&
-				item.version === selection.process_spec_ref.version,
-		);
-		if (!spec || hashJson(spec) !== selection.process_spec_ref.hash)
-			return this.block(input.runId, directory, ["Selected ProcessSpec is unavailable or changed"]);
 
 		const staffingDiagnostics = validateProcessSpecStaffing(spec, input.assets.agentCards);
 		await this.store.mutate(input.runId, "process-selected", { selection: hashJson(selection) }, (draft, event) => {
@@ -182,6 +192,8 @@ export class IpdControlPlane {
 				staffingDiagnostics.map((item) => `${item.path}: ${item.message}`),
 				"process_spec_unstaffable",
 			);
+		if (input.workflowTemplate)
+			return this.prepareWorkflowTemplate(input, directory, selection, spec, input.workflowTemplate);
 
 		let diagnostics: string[] = [];
 		for (let revision = 1; revision <= 10; revision++) {
@@ -268,6 +280,54 @@ export class IpdControlPlane {
 		return this.block(input.runId, directory, diagnostics);
 	}
 
+	private async prepareWorkflowTemplate(
+		input: PrepareRunInput,
+		directory: RunDirectory,
+		selection: ProcessSelection,
+		spec: ProcessSpec,
+		template: WorkflowAssetRecord,
+	): Promise<PrepareRunResult> {
+		if (hashJson(template.workflow) !== template.hash)
+			return this.block(input.runId, directory, ["Selected Workflow template content Hash is invalid"]);
+		const workflow: WorkflowDefinition = {
+			...structuredClone(template.workflow),
+			task_input_ref: { id: input.taskInput.task_input_id, hash: hashJson(input.taskInput) },
+			process_selection_ref: { id: selection.process_selection_id, hash: hashJson(selection) },
+		};
+		await this.store.mutate(
+			input.runId,
+			`workflow-template-selected:${template.hash}`,
+			{ source: template.source },
+			(draft, event) => {
+				if (draft.status !== "running") return false;
+				draft.phase = "compile";
+				draft.workflowCandidate = structuredClone(workflow);
+				event.emit("workflow_template_selected", {
+					workflowId: workflow.workflow_id,
+					workflowVersion: workflow.workflow_version,
+					source: template.source,
+				});
+				return true;
+			},
+		);
+		const compiled = compileWorkflow({
+			runId: input.runId,
+			workflow,
+			taskInput: input.taskInput,
+			processSelection: selection,
+			processSpec: spec,
+			assets: input.assets,
+			executionIdentity: input.executionIdentity,
+		});
+		if (compiled.ok) return { ok: true, baseline: compiled.baseline, directory };
+		return this.block(
+			input.runId,
+			directory,
+			compiled.report.diagnostics.map((item) => `${item.path}: ${item.message}`),
+			"workflow_template_invalid",
+		);
+	}
+
 	private async setPreparationPhase(runId: string, phase: "selection" | "design", operationId: string): Promise<void> {
 		await this.store.mutate(runId, `prepare-phase:${operationId}`, { phase }, (draft) => {
 			if (draft.status !== "running") return false;
@@ -300,4 +360,26 @@ export class IpdControlPlane {
 		);
 		return { ok: false, directory, diagnostics };
 	}
+}
+
+function explicitProcessSelection(runId: string, task: TaskInput, spec: ProcessSpec): ProcessSelection {
+	return {
+		schema_version: 2,
+		process_selection_id: `${runId}:selection`,
+		run_id: runId,
+		task_input_ref: { id: task.task_input_id, hash: hashJson(task) },
+		process_spec_ref: {
+			id: spec.process_spec_id,
+			version: spec.version,
+			hash: hashJson(spec),
+		},
+		rationale: "Selected explicitly by the user through /ipd.",
+		process_requirement_refs: [
+			...spec.required_activities.map((item) => item.activity_id),
+			...spec.required_deliverables.map((item) => item.deliverable_id),
+			...spec.required_reviews.map((item) => item.review_id),
+			...spec.workflow_rules.map((item) => item.rule_id),
+		],
+		unresolved_fact_refs: [],
+	};
 }

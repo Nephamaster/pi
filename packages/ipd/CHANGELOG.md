@@ -18,6 +18,8 @@
   affected requirements, evidence, and recovery conditions.
 - Added Run-level cancellation, bounded node concurrency, round timeouts, quality-rework limits, and isolated runtime
   mutation/round metrics.
+- Added an interactive `/ipd` launcher for choosing ProcessSpec and saved Workflow templates, entering the verbatim
+  task, and attaching task materials; selected Workflow templates bypass control-role Agent preparation.
 
 ### Changed
 
@@ -38,6 +40,7 @@
 - Changed generated Run IDs to contain only the UTC creation timestamp.
 - Changed the IPD Dashboard to a Chinese light theme with Markdown task rendering, stable live-refresh controls, and
   richer node details.
+- Changed the Dashboard task panel to use 12px text and expand its scroll viewport to the full card height.
 
 ### Fixed
 

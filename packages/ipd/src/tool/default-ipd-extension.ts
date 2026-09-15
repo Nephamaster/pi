@@ -112,9 +112,13 @@ export function registerDefaultIpdExtension(pi: ExtensionAPI): void {
 	registerIpdCreateRunTool(pi, async (context) => {
 		const model = context.model as Model<Api> | undefined;
 		if (!model) throw new Error("Current Pi session has no configured model");
+		const commandContext = context as ExtensionContext & {
+			getSystemPromptOptions?: () => { skills?: readonly Skill[] };
+		};
+		const effectiveSkills = commandContext.getSystemPromptOptions?.().skills ?? activeSkills;
 		const toolDefinitions = executableTools(pi).filter((tool) => !OUTER_IPD_TOOLS.has(tool.name));
 		const skillHashes = await Promise.all(
-			activeSkills.map(async (skill) => ({ path: skill.filePath, hash: await hashSkillPackage(skill.baseDir) })),
+			effectiveSkills.map(async (skill) => ({ path: skill.filePath, hash: await hashSkillPackage(skill.baseDir) })),
 		);
 		const key = JSON.stringify({
 			cwd: context.cwd,
@@ -136,7 +140,7 @@ export function registerDefaultIpdExtension(pi: ExtensionAPI): void {
 		});
 		const existing = services.get(key);
 		if (existing) return existing;
-		const service = createDefaultService(context, model, activeSkills, toolDefinitions);
+		const service = createDefaultService(context, model, effectiveSkills, toolDefinitions);
 		services.set(key, service);
 		void service.catch(() => {
 			if (services.get(key) === service) services.delete(key);
@@ -233,6 +237,7 @@ async function createDefaultService(
 		projectRoot: context.cwd,
 		processSpecs: assembled.processSpecs,
 		assets,
+		workflowAssets,
 		executionIdentity,
 		visualizer: dashboard,
 		onClose: () => telemetry.flush(),
