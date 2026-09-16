@@ -1,10 +1,10 @@
 // 用 Pi AgentSession 实现流程选择者和工作流设计师。
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import Type, { type Static, type TSchema } from "typebox";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import Type, { type Static } from "typebox";
 import { NodeSessionAdapter, type NodeSessionEventEnvelope } from "../adapter/node-session-adapter.ts";
-import { PiNodeSessionFactory } from "../adapter/pi-node-session-factory.ts";
+import { type PiNodeSessionCreateInput, PiNodeSessionFactory } from "../adapter/pi-node-session-factory.ts";
 import { loadPrompt } from "../adapter/prompt-loader.ts";
 import { renderAgentRuntimeProfile } from "../adapter/render-agent-profile.ts";
 import type { IpdSessionSettings } from "../adapter/session-policy.ts";
@@ -73,116 +73,83 @@ export interface PiControlRoleOptions {
 	onSessionEvent?: (event: NodeSessionEventEnvelope) => void;
 }
 
-class PiStructuredRole<TSchemaValue extends TSchema> {
-	private readonly capture = new SubmissionCapture<Static<TSchemaValue>>();
-	private readonly adapter: NodeSessionAdapter<Parameters<PiNodeSessionFactory["create"]>[0]>;
-	private readonly options: PiControlRoleOptions;
-	private readonly tool;
-	private readonly additionalTools: readonly ToolDefinition[];
-	private cancelled = false;
-
-	constructor(
-		options: PiControlRoleOptions,
-		schema: TSchemaValue,
-		name: string,
-		description: string,
-		validate?: (value: Static<TSchemaValue>) => readonly string[],
-		additionalTools: readonly ToolDefinition[] = [],
-	) {
-		this.options = options;
-		this.additionalTools = additionalTools;
-		this.adapter = new NodeSessionAdapter(new PiNodeSessionFactory(options), options.onSessionEvent, {
-			maxToolCalls: 40,
-			maxToolErrors: 5,
-		});
-		this.tool = createSubmissionTool({
-			name,
-			label: name,
-			description,
-			parameters: schema,
-			capture: this.capture,
-			validate,
-		});
-	}
-
-	async run(
-		runId: string,
-		roleId: string,
-		roundId: string,
-		systemPrompt: string,
-		prompt: string,
-	): Promise<Static<TSchemaValue>> {
-		this.capture.beginRound();
-		await this.adapter.create({
-			runId,
-			nodeId: roleId,
-			participantId: roleId,
-			createInput: {
-				nodeId: roleId,
-				workspace: this.options.workspace,
-				sessionDirectory: this.options.sessionDirectory,
-				systemPrompt,
-				participant: {
-					participantId: roleId,
-					agentCard: this.options.agentCard,
-					lockedSkills: [...(this.options.skills ?? [])],
-					lockedTools: [...(this.options.tools ?? [])],
-					lockedKnowledgeBases: [],
-				},
-				runDefaultModel: this.options.model,
-				runDefaultThinkingLevel: this.options.thinkingLevel,
-				controlTools: [...this.additionalTools, this.tool],
-			},
-		});
-		if (this.cancelled) {
-			await this.adapter.release(runId, roleId, roleId);
-			throw new Error(`${roleId} was cancelled`);
-		}
-		await this.adapter.dispatch(runId, roleId, roleId, roundId, prompt);
-		const value = this.capture.value;
-		if (!value) throw new Error(`${roleId} did not submit a structured result`);
-		return value;
-	}
-
-	async cancel(runId: string, roleId: string): Promise<void> {
-		this.cancelled = true;
-		const binding = this.adapter.inspect(runId, roleId, roleId);
-		if (binding && binding.status !== "released") await this.adapter.release(runId, roleId, roleId);
-	}
-}
-
 export class PiProcessSelector implements ProcessSelector {
 	private readonly options: PiControlRoleOptions;
 	private readonly selectionSkill: LockedSkill;
-	private readonly active = new Map<string, PiStructuredRole<typeof ProcessSelectionDecisionSchema>>();
+	private readonly sessions: NodeSessionAdapter<
+		PiNodeSessionCreateInput,
+		SubmissionCapture<Static<typeof ProcessSelectionDecisionSchema>>
+	>;
 	constructor(options: PiControlRoleOptions, selectionSkill: LockedSkill) {
 		this.options = {
 			...options,
 			skills: [...(options.skills ?? []).filter((skill) => skill.id !== selectionSkill.id), selectionSkill],
 		};
 		this.selectionSkill = selectionSkill;
+		this.sessions = new NodeSessionAdapter(new PiNodeSessionFactory(this.options), options.onSessionEvent, {
+			maxToolCalls: 40,
+			maxToolErrors: 5,
+		});
 	}
 	async select(runId: string, task: TaskInput, specs: readonly ProcessSpec[]): Promise<ProcessSelection> {
-		const role = new PiStructuredRole(
-			this.options,
-			ProcessSelectionDecisionSchema,
-			"submit_process_selection",
-			"Submit the selected ProcessSpec or a blocked selection result. Use exact registered IDs, versions, and ProcessSpec requirement references. Runtime validates and records the candidate decision.",
-			(decision) => validateProcessSelectionDecision(decision, task, specs),
-			createProcessSpecCatalogTools(specs),
+		const roleId = "process-selector";
+		if (this.sessions.getState(runId, roleId, roleId))
+			throw new Error("Process selection already has a bound Session");
+		const capture = this.sessions.bindState(
+			runId,
+			roleId,
+			roleId,
+			() => new SubmissionCapture<Static<typeof ProcessSelectionDecisionSchema>>(),
 		);
-		this.active.set(runId, role);
+		const tool = createSubmissionTool({
+			name: "submit_process_selection",
+			label: "submit_process_selection",
+			description:
+				"Submit the selected ProcessSpec or a blocked selection result. Use exact registered IDs, versions, and ProcessSpec requirement references. Runtime validates and records the candidate decision.",
+			parameters: ProcessSelectionDecisionSchema,
+			capture,
+			validate: (decision) => validateProcessSelectionDecision(decision, task, specs),
+		});
 		let decision: Static<typeof ProcessSelectionDecisionSchema>;
 		try {
-			decision = await role.run(
+			await this.sessions.create({
 				runId,
-				"process-selector",
+				nodeId: roleId,
+				participantId: roleId,
+				createInput: {
+					nodeId: roleId,
+					workspace: this.options.workspace,
+					sessionDirectory: this.options.sessionDirectory,
+					systemPrompt: `${loadPrompt("common")}\n\n${renderAgentRuntimeProfile(this.options.agentCard)}\n\n${loadPrompt("process-selector")}`,
+					participant: {
+						participantId: roleId,
+						agentCard: this.options.agentCard,
+						lockedSkills: [...(this.options.skills ?? [])],
+						lockedTools: [...(this.options.tools ?? [])],
+						lockedKnowledgeBases: [],
+					},
+					runDefaultModel: this.options.model,
+					runDefaultThinkingLevel: this.options.thinkingLevel,
+					controlTools: [...createProcessSpecCatalogTools(specs), tool],
+				},
+			});
+			decision = await this.sessions.dispatch(
+				runId,
+				roleId,
+				roleId,
 				"selection-1",
-				`${loadPrompt("common")}\n\n${renderAgentRuntimeProfile(this.options.agentCard)}\n\n${loadPrompt("process-selector")}`,
 				buildProcessSelectionPrompt(this.selectionSkill.id, task),
+				{
+					prepare: () => capture.beginRound(),
+					result: () => {
+						const value = capture.value;
+						if (!value) throw new Error("process-selector did not submit a structured result");
+						return value;
+					},
+				},
 			);
 		} finally {
-			if (this.active.get(runId) === role) this.active.delete(runId);
+			await this.sessions.releaseRun(runId);
 		}
 		if (decision.status === "blocked")
 			throw new ProcessSelectionBlockedError(
@@ -215,7 +182,7 @@ export class PiProcessSelector implements ProcessSelector {
 	}
 
 	cancelRun(runId: string): Promise<void> {
-		return this.active.get(runId)?.cancel(runId, "process-selector") ?? Promise.resolve();
+		return this.sessions.releaseRun(runId);
 	}
 }
 
@@ -287,7 +254,6 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 			tools: WorkflowDraftToolset;
 			blockCapture: SubmissionCapture<WorkflowDesignBlock>;
 			initialized: boolean;
-			cancelled: boolean;
 		}
 	>();
 
@@ -342,7 +308,6 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				tools,
 				blockCapture,
 				initialized: false,
-				cancelled: false,
 			};
 			this.active.set(runId, active);
 			await active.adapter.create({
@@ -366,10 +331,6 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 					controlTools: [...tools.tools, ...createAgentCardCatalogTools(this.agentCards), blockTool],
 				},
 			});
-			if (active.cancelled) {
-				await active.adapter.release(runId, "workflow-designer", "workflow-designer");
-				throw new Error("workflow-designer was cancelled");
-			}
 			await active.adapter.dispatch(
 				runId,
 				"workflow-designer",
@@ -378,8 +339,6 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				buildWorkflowDesignMethodPrompt(this.designSkill.id),
 			);
 		}
-		active.tools.resetSubmitted();
-		active.blockCapture.beginRound();
 		const prompt = active.initialized
 			? buildWorkflowDesignRevisionPrompt(draft.revision, compilerDiagnostics)
 			: buildInitialWorkflowDesignPrompt(
@@ -390,17 +349,22 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 					this.assetSummary,
 					compilerDiagnostics,
 				);
-		await active.adapter.dispatch(
+		const { submitted, blocked } = await active.adapter.dispatch(
 			runId,
 			"workflow-designer",
 			"workflow-designer",
 			`design-${draft.revision + 1}`,
 			prompt,
+			{
+				prepare: () => {
+					active.tools.resetSubmitted();
+					active.blockCapture.beginRound();
+				},
+				result: () => ({ submitted: active.tools.getSubmitted(), blocked: active.blockCapture.value }),
+			},
 		);
 		active.initialized = true;
-		const submitted = active.tools.getSubmitted();
 		if (submitted) return submitted;
-		const blocked = active.blockCapture.value;
 		if (blocked) throw new WorkflowDesignBlockedError(blocked);
 		throw new Error("Workflow Designer did not submit a valid Draft or structured blocked result");
 	}
@@ -408,10 +372,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 	async cancelRun(runId: string): Promise<void> {
 		const active = this.active.get(runId);
 		if (!active) return;
-		active.cancelled = true;
-		const binding = active.adapter.inspect(runId, "workflow-designer", "workflow-designer");
-		if (binding && binding.status !== "released")
-			await active.adapter.release(runId, "workflow-designer", "workflow-designer");
+		await active.adapter.releaseRun(runId);
 		this.active.delete(runId);
 	}
 }

@@ -32,9 +32,6 @@ import {
 } from "./structured-submissions.ts";
 
 interface WorkerBinding {
-	runId: string;
-	nodeId: string;
-	participantId: string;
 	kind: "execution" | "review";
 	capture: SubmissionCapture<SubmitArtifact> | SubmissionCapture<SubmitReview>;
 	blockedCapture?: SubmissionCapture<ReportNodeBlocked>;
@@ -58,9 +55,6 @@ export interface PiNodeWorkerOptions {
 	onSessionEvent?: (event: NodeSessionEventEnvelope) => void;
 }
 
-const keyOf = (work: NodeRoundWork) =>
-	`${work.runId}\0${work.node.definition.node_id}\0${work.node.agents[0].participantId}`;
-
 export function classifyWorkerError(error: unknown): NodeWorkerError {
 	if (error instanceof NodeWorkerError) return error;
 	const message = error instanceof Error ? error.message : String(error);
@@ -81,8 +75,7 @@ export function classifyWorkerError(error: unknown): NodeWorkerError {
 
 export class PiNodeWorker implements NodeWorker {
 	private readonly options: PiNodeWorkerOptions;
-	private readonly sessions: NodeSessionAdapter<PiNodeSessionCreateInput>;
-	private readonly bindings = new Map<string, WorkerBinding>();
+	private readonly sessions: NodeSessionAdapter<PiNodeSessionCreateInput, WorkerBinding>;
 
 	constructor(options: PiNodeWorkerOptions) {
 		this.options = options;
@@ -171,7 +164,11 @@ export class PiNodeWorker implements NodeWorker {
 		submission: SubmitArtifact,
 		signal?: AbortSignal,
 	): Promise<string | undefined> {
-		const binding = this.bindings.get(keyOf(work));
+		const binding = this.sessions.getState(
+			work.runId,
+			work.node.definition.node_id,
+			work.node.agents[0].participantId,
+		);
 		if (!binding?.environment) return undefined;
 		if (work.node.definition.kind !== "execution")
 			throw new NodeSubmissionProtocolError("Only execution nodes can export Artifact submissions");
@@ -208,11 +205,7 @@ export class PiNodeWorker implements NodeWorker {
 
 	async runExecution(work: NodeRoundWork): Promise<SubmitArtifact | { kind: "blocked"; report: ReportNodeBlocked }> {
 		const binding = this.binding(work, "execution");
-		binding.capture.beginRound();
-		binding.blockedCapture?.beginRound();
-		await this.dispatch(work, binding);
-		const value = binding.capture.value;
-		const blocked = binding.blockedCapture?.value;
+		const { value, blocked } = await this.dispatch(work, binding);
 		if (value && blocked)
 			throw new NodeSubmissionProtocolError("Execution node submitted both an Artifact and a block");
 		if (blocked) return { kind: "blocked", report: blocked };
@@ -222,9 +215,7 @@ export class PiNodeWorker implements NodeWorker {
 
 	async runReview(work: NodeRoundWork): Promise<SubmitReview> {
 		const binding = this.binding(work, "review");
-		binding.capture.beginRound();
-		await this.dispatch(work, binding);
-		const value = binding.capture.value;
+		const { value } = await this.dispatch(work, binding);
 		if (!value) throw new NodeSubmissionProtocolError("Review node did not call submit_review");
 		return value as SubmitReview;
 	}
@@ -234,12 +225,20 @@ export class PiNodeWorker implements NodeWorker {
 	}
 
 	private binding(work: NodeRoundWork, kind: "execution" | "review"): WorkerBinding {
-		const key = keyOf(work);
-		const existing = this.bindings.get(key);
+		const existing = this.sessions.getState(
+			work.runId,
+			work.node.definition.node_id,
+			work.node.agents[0].participantId,
+		);
 		if (existing) {
 			if (existing.kind !== kind)
 				throw new NodeWorkerError("configuration", "Node kind changed after Session binding", false);
-			return existing;
+			return this.sessions.bindState(
+				work.runId,
+				work.node.definition.node_id,
+				work.node.agents[0].participantId,
+				() => existing,
+			);
 		}
 		const capture =
 			kind === "execution" ? new SubmissionCapture<SubmitArtifact>() : new SubmissionCapture<SubmitReview>();
@@ -275,40 +274,27 @@ export class PiNodeWorker implements NodeWorker {
 				}),
 			);
 		const participant = work.node.agents[0];
-		const binding = {
-			runId: work.runId,
-			nodeId: work.node.definition.node_id,
-			participantId: participant.participantId,
+		return this.sessions.bindState(work.runId, work.node.definition.node_id, participant.participantId, () => ({
 			kind,
 			capture,
 			blockedCapture,
 			tools,
 			additionalReadRoots: [],
 			deniedReadRoots: [],
-		};
-		this.bindings.set(key, binding);
-		return binding;
+		}));
 	}
 
 	async releaseRun(runId: string): Promise<void> {
-		for (const [key, binding] of this.bindings) {
-			if (binding.runId !== runId) continue;
-			await this.sessions.release(binding.runId, binding.nodeId, binding.participantId);
-			this.bindings.delete(key);
-		}
+		await this.sessions.releaseRun(runId);
 		await this.options.environmentManager?.releaseRun(runId);
 	}
 
-	private async dispatch(work: NodeRoundWork, binding: WorkerBinding): Promise<void> {
+	private async dispatch(
+		work: NodeRoundWork,
+		binding: WorkerBinding,
+	): Promise<{ value?: SubmitArtifact | SubmitReview; blocked?: ReportNodeBlocked }> {
 		const participant = work.node.agents[0];
-		binding.currentContext = renderCurrentRoundContext(work);
-		binding.additionalReadRoots = [
-			...work.inputSubmissions.flatMap((submission) => submission.outputs.map((output) => output.sealedRoot)),
-			...work.taskContext.materials.flatMap((material) =>
-				isAbsolute(material.reference) ? [material.reference] : [],
-			),
-		];
-		binding.deniedReadRoots = [...work.forbiddenMutableReadPaths];
+
 		try {
 			const environmentTools = binding.environment
 				? createEnvironmentToolDefinitions({
@@ -347,12 +333,29 @@ export class PiNodeWorker implements NodeWorker {
 					environmentPaths: binding.environment?.binding.paths,
 				},
 			});
-			await this.sessions.dispatch(
+			return await this.sessions.dispatch(
 				work.runId,
 				work.node.definition.node_id,
 				participant.participantId,
 				work.roundId,
 				buildNodeRoundPrompt(work),
+				{
+					prepare: () => {
+						binding.capture.beginRound();
+						binding.blockedCapture?.beginRound();
+						binding.currentContext = renderCurrentRoundContext(work);
+						binding.additionalReadRoots = [
+							...work.inputSubmissions.flatMap((submission) =>
+								submission.outputs.map((output) => output.sealedRoot),
+							),
+							...work.taskContext.materials.flatMap((material) =>
+								isAbsolute(material.reference) ? [material.reference] : [],
+							),
+						];
+						binding.deniedReadRoots = [...work.forbiddenMutableReadPaths];
+					},
+					result: () => ({ value: binding.capture.value, blocked: binding.blockedCapture?.value }),
+				},
 			);
 		} catch (error) {
 			if (error instanceof NodeWorkerError || error instanceof NodeSubmissionProtocolError) throw error;

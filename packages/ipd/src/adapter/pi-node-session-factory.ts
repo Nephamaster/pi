@@ -2,6 +2,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
+	type AgentSession,
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 	type ModelRuntime,
@@ -18,7 +19,7 @@ import { NodeWorkerError } from "../runtime/node-worker.ts";
 import { createCurrentRoundContextExtension, type VirtualContextFile } from "./node-context.ts";
 import { createNodeFileScopeExtension } from "./node-file-scope.ts";
 import { createNodeSandboxedBashTool } from "./node-sandbox.ts";
-import type { NodeSessionFactory, NodeSessionHandle } from "./node-session-adapter.ts";
+import type { NodeSessionFactory } from "./node-session-adapter.ts";
 import { type IpdSessionSettings, projectIpdSessionSettings } from "./session-policy.ts";
 import { createSubmissionResultExtension } from "./structured-submissions.ts";
 
@@ -63,14 +64,16 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 		this.sessionSettings = projectIpdSessionSettings(options.sessionSettings);
 	}
 
-	async create(input: PiNodeSessionCreateInput): Promise<NodeSessionHandle> {
-		const verifyLockedSkills = async (): Promise<void> => {
-			if (input.environmentCwd) return;
-			for (const skill of input.participant.lockedSkills) {
-				if ((await hashSkillPackage(skill.baseDir)) !== skill.hash)
-					throw new NodeWorkerError("configuration", `Locked Skill content changed: ${skill.id}`);
-			}
-		};
+	async validate(input: PiNodeSessionCreateInput): Promise<void> {
+		if (input.environmentCwd) return;
+		for (const skill of input.participant.lockedSkills) {
+			if ((await hashSkillPackage(skill.baseDir)) !== skill.hash)
+				throw new NodeWorkerError("configuration", `Locked Skill content changed: ${skill.id}`);
+		}
+	}
+
+	async create(input: PiNodeSessionCreateInput): Promise<AgentSession> {
+		const verifyLockedSkills = () => this.validate(input);
 		await verifyLockedSkills();
 		const cardModel = input.participant.agentCard.model;
 		let model: Model<Api> | undefined;
@@ -204,30 +207,6 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 			tools: allowedTools,
 			customTools,
 		});
-		const session = created.session;
-		return {
-			get sessionId() {
-				return session.sessionId;
-			},
-			get isIdle() {
-				return session.isIdle;
-			},
-			async prompt(text) {
-				await verifyLockedSkills();
-				// Pi waits for its own retries and compaction before this promise settles.
-				await session.prompt(text);
-				const lastMessage = session.messages.at(-1);
-				if (lastMessage?.role === "assistant" && lastMessage.stopReason === "error")
-					throw new NodeWorkerError(
-						"transient",
-						lastMessage.errorMessage ?? "Model request failed without an error message",
-					);
-				if (lastMessage?.role === "assistant" && lastMessage.stopReason === "aborted")
-					throw new NodeWorkerError("cancelled", lastMessage.errorMessage ?? "Model request aborted");
-			},
-			abort: () => session.abort(),
-			dispose: () => session.dispose(),
-			subscribe: (listener) => session.subscribe(listener),
-		};
+		return created.session;
 	}
 }

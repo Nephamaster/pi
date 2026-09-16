@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import Type from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
+import { NodeSessionAdapter } from "../src/adapter/node-session-adapter.ts";
 import { PiNodeSessionFactory } from "../src/adapter/pi-node-session-factory.ts";
 import type { IpdSessionSettings } from "../src/adapter/session-policy.ts";
 import { createSubmissionTool, SubmissionCapture } from "../src/adapter/structured-submissions.ts";
@@ -104,22 +105,32 @@ describe("IPD native session contract", () => {
 			},
 		});
 		const sessionDirectory = join(root, "sessions");
-		const session = await new PiNodeSessionFactory({
+		const factory = new PiNodeSessionFactory({
 			agentDir: root,
 			modelRuntime,
 			customTools: [unboundTool],
 			sessionSettings: options.sessionSettings,
-		}).create({
+		});
+		const input = {
 			nodeId: "produce",
 			workspace: root,
 			sessionDirectory,
 			systemPrompt: "Complete the synthetic task and submit its result.",
 			participant,
 			runDefaultModel: model,
-			runDefaultThinkingLevel: "off",
+			runDefaultThinkingLevel: "off" as const,
 			controlTools: [recordWork, submission, ...(options.extraTools ?? [])],
 			getCurrentContext: options.getCurrentContext,
+		};
+		const session = await factory.create(input);
+		const adapter = new NodeSessionAdapter({ create: async () => session, validate: () => factory.validate(input) });
+		await adapter.create({
+			runId: "run",
+			nodeId: "produce",
+			participantId: participant.participantId,
+			createInput: input,
 		});
+		const prompt = (text: string) => adapter.dispatch("run", "produce", participant.participantId, "round", text);
 		const events: AgentSessionEvent[] = [];
 		const unsubscribe = session.subscribe((event) => events.push(event));
 		cleanups.push(async () => {
@@ -130,13 +141,24 @@ describe("IPD native session contract", () => {
 				session.dispose();
 			}
 		});
-		return { root, faux, session, capture, events, markerPath, sessionDirectory };
+		return { root, faux, session, prompt, capture, events, markerPath, sessionDirectory };
 	}
 
 	it("keeps native retry and compaction enabled in isolated default settings", () => {
 		const settings = SettingsManager.inMemory({}, { projectTrusted: false });
 		expect(settings.getRetrySettings().enabled).toBe(true);
 		expect(settings.getCompactionSettings().enabled).toBe(true);
+	});
+
+	it("exposes the actual Pi session and persisted identity without another session facade", async () => {
+		const { session, prompt, faux } = await createFixture();
+		faux.setResponses([fauxAssistantMessage("Saved.")]);
+		expect(typeof session.compact).toBe("function");
+		expect(typeof session.steer).toBe("function");
+		expect(session.sessionManager.getSessionId()).toBe(session.sessionId);
+		await prompt("Save this synthetic session.");
+		expect(session.sessionFile).toBeDefined();
+		expect(SessionManager.open(session.sessionFile!).getSessionId()).toBe(session.sessionId);
 	});
 
 	it("retries the model inside one prompt without replaying completed work, then terminates on capture", async () => {
@@ -151,7 +173,7 @@ describe("IPD native session contract", () => {
 			fauxAssistantMessage([fauxToolCall("submit_contract", { result: "accepted" })], { stopReason: "toolUse" }),
 		]);
 
-		await fixture.session.prompt(task);
+		await fixture.prompt(task);
 
 		expect(fixture.faux.state.callCount).toBe(3);
 		expect(await readFile(fixture.markerPath, "utf8")).toBe("done\n");
@@ -192,7 +214,7 @@ describe("IPD native session contract", () => {
 			},
 		]);
 
-		await fixture.session.prompt("Submit the result, correcting invalid fields when necessary.");
+		await fixture.prompt("Submit the result, correcting invalid fields when necessary.");
 
 		expect(fixture.faux.state.callCount).toBe(2);
 		expect(fixture.capture.value).toEqual({ result: "accepted" });
@@ -229,11 +251,11 @@ describe("IPD native session contract", () => {
 			},
 		]);
 
-		await fixture.session.prompt("Produce the first candidate.");
+		await fixture.prompt("Produce the first candidate.");
 		expect(fixture.capture.value).toEqual({ result: "accepted" });
 		fixture.capture.beginRound();
 		expect(fixture.capture.value).toBeUndefined();
-		await fixture.session.prompt("Apply the supplied review feedback and submit a new candidate.");
+		await fixture.prompt("Apply the supplied review feedback and submit a new candidate.");
 
 		expect(fixture.capture.value).toEqual({ result: "accepted" });
 		expect(fixture.session.sessionId).toBe(sessionId);
@@ -245,7 +267,7 @@ describe("IPD native session contract", () => {
 		const fixture = await createFixture();
 		fixture.faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "invalid_api_key" })]);
 
-		await expect(fixture.session.prompt("Produce the result.")).rejects.toMatchObject({
+		await expect(fixture.prompt("Produce the result.")).rejects.toMatchObject({
 			message: "invalid_api_key",
 			retryable: false,
 		});
@@ -268,7 +290,7 @@ describe("IPD native session contract", () => {
 					fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
 				),
 			);
-			await expect(fixture.session.prompt("Try once under the selected policy.")).rejects.toMatchObject({
+			await expect(fixture.prompt("Try once under the selected policy.")).rejects.toMatchObject({
 				retryable: false,
 			});
 			expect(fixture.faux.state.callCount).toBe(enabled ? 2 : 1);
@@ -280,7 +302,7 @@ describe("IPD native session contract", () => {
 	it("reports a model abort as cancellation, not a missing submission that should be corrected", async () => {
 		const fixture = await createFixture();
 		fixture.faux.setResponses([fauxAssistantMessage("", { stopReason: "aborted", errorMessage: "aborted" })]);
-		await expect(fixture.session.prompt("Cancelled work.")).rejects.toMatchObject({
+		await expect(fixture.prompt("Cancelled work.")).rejects.toMatchObject({
 			kind: "cancelled",
 			retryable: false,
 		});
@@ -322,7 +344,7 @@ describe("IPD native session contract", () => {
 				});
 			},
 		]);
-		await fixture.session.prompt("Inspect the picture, record work and submit.");
+		await fixture.prompt("Inspect the picture, record work and submit.");
 		const files = (await readdir(fixture.sessionDirectory)).filter((file) => file.endsWith(".jsonl"));
 		const persisted = await readFile(join(fixture.sessionDirectory, files[0]), "utf8");
 		expect(persisted).toContain(image.data);
@@ -363,9 +385,9 @@ describe("IPD native session contract", () => {
 			fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
 			...Array.from({ length: 4 }, () => finishOrSummarize),
 		]);
-		await fixture.session.prompt("seed old history");
-		await fixture.session.prompt("seed recent history");
-		await fixture.session.prompt("run the large tool");
+		await fixture.prompt("seed old history");
+		await fixture.prompt("seed recent history");
+		await fixture.prompt("run the large tool");
 		expect(resumed).toBe(true);
 		expect(fixture.capture.value).toEqual({ result: "accepted" });
 		expect(

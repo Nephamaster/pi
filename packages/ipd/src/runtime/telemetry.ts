@@ -8,7 +8,7 @@ import type { WorkflowRuntimeMetric } from "./workflow-runtime.ts";
 export type IpdTelemetryMetric =
 	| ({ source: "run_store" } & RunMutationMetric)
 	| ({ source: "workflow_runtime" } & WorkflowRuntimeMetric)
-	| (Pick<NodeSessionEventEnvelope, "runId" | "nodeId" | "participantId" | "roundId"> & {
+	| (Pick<NodeSessionEventEnvelope, "runId" | "nodeId" | "participantId" | "roundId" | "sessionId"> & {
 			source: "pi_session";
 			eventType: NodeSessionEventEnvelope["event"]["type"];
 			data: Record<string, string | number | boolean>;
@@ -26,7 +26,7 @@ export class FileIpdTelemetry {
 
 	/** Project native events, never prompts, tool payloads, images, summaries or provider errors. */
 	recordSessionEvent(envelope: NodeSessionEventEnvelope): void {
-		const { runId, nodeId, participantId, roundId, event } = envelope;
+		const { runId, nodeId, participantId, roundId, sessionId, event } = envelope;
 		let data: Record<string, string | number | boolean>;
 		switch (event.type) {
 			case "agent_start":
@@ -56,7 +56,16 @@ export class FileIpdTelemetry {
 			default:
 				return;
 		}
-		this.record({ source: "pi_session", runId, nodeId, participantId, roundId, eventType: event.type, data });
+		this.record({
+			source: "pi_session",
+			runId,
+			nodeId,
+			participantId,
+			roundId,
+			sessionId,
+			eventType: event.type,
+			data,
+		});
 	}
 
 	record(metric: IpdTelemetryMetric): void {

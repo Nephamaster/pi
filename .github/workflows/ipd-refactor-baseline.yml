@@ -77,6 +77,7 @@ jobs:
         run: >-
           node node_modules/@biomejs/biome/bin/biome check --error-on-warnings
           packages/ipd/src/adapter/node-context.ts
+          packages/ipd/src/adapter/node-session-adapter.ts
           packages/ipd/src/adapter/pi-node-session-factory.ts
           packages/ipd/src/adapter/pi-node-worker.ts
           packages/ipd/src/adapter/session-policy.ts
@@ -87,6 +88,10 @@ jobs:
           packages/ipd/src/tool/default-ipd-extension.ts
           packages/ipd/src/index.ts
           packages/ipd/test/native-session-contract.test.ts
+          packages/ipd/test/node-session-adapter.test.ts
+          packages/ipd/test/pi-node-worker.test.ts
+          packages/ipd/test/pi-node-session-factory.test.ts
+          packages/ipd/test/pi-control-roles.test.ts
           packages/ipd/test/session-policy.test.ts
           packages/ipd/test/structured-submissions.test.ts
           packages/ipd/test/node-context.test.ts
@@ -126,6 +131,7 @@ jobs:
           test/pi-node-session-factory.test.ts
           test/node-session-adapter.test.ts
           test/pi-node-worker.test.ts
+          test/pi-control-roles.test.ts
           test/control-plane.test.ts
           test/workflow-draft.test.ts
           test/runtime-state.test.ts
@@ -155,6 +161,10 @@ jobs:
             packages/ipd/src/tool/default-ipd-extension.ts \
             packages/ipd/src/index.ts \
             packages/ipd/test/native-session-contract.test.ts \
+            packages/ipd/test/node-session-adapter.test.ts \
+            packages/ipd/test/pi-node-worker.test.ts \
+            packages/ipd/test/pi-node-session-factory.test.ts \
+            packages/ipd/test/pi-control-roles.test.ts \
             packages/ipd/test/session-policy.test.ts \
             packages/ipd/test/structured-submissions.test.ts \
             packages/ipd/test/node-context.test.ts \

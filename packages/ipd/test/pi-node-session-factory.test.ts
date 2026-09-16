@@ -102,6 +102,12 @@ describe("PiNodeSessionFactory", () => {
 		expect(observedSystemPrompt).toContain("Execute the supplied work round.");
 		expect(observedSystemPrompt).toContain("analysis-skill");
 		expect(observedSystemPrompt).toContain(join(skillDir, "SKILL.md"));
+		expect(adapter.inspect("run-1", "produce", "producer")?.sessionFile).toBeDefined();
+		await writeFile(join(skillDir, "SKILL.md"), "changed after binding");
+		await expect(adapter.dispatch("run-1", "produce", "producer", "round-4", "continue")).rejects.toMatchObject({
+			kind: "configuration",
+		});
+		expect(faux.state.callCount).toBe(3);
 		await adapter.release("run-1", "produce", "producer");
 	});
 });

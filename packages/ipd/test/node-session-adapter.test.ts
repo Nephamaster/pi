@@ -4,6 +4,8 @@ import { NodeSessionAdapter, type NodeSessionFactory, type NodeSessionHandle } f
 
 class FakeSession implements NodeSessionHandle {
 	readonly sessionId: string;
+	readonly sessionFile = "/tmp/fake-session.jsonl";
+	readonly messages: NodeSessionHandle["messages"] = [];
 	isIdle = true;
 	disposed = false;
 	hold = false;
@@ -81,6 +83,94 @@ class DelayedFactory implements NodeSessionFactory<string> {
 }
 
 describe("NodeSessionAdapter", () => {
+	it("does not let rejected overlapping work reset a capture or replace current context", async () => {
+		const factory = new FakeFactory();
+		const adapter = new NodeSessionAdapter(factory);
+		await adapter.create({ runId: "run", nodeId: "node", participantId: "p", createInput: "frozen" });
+		factory.session.hold = true;
+		let context = "";
+		const running = adapter.dispatch("run", "node", "p", "round-1", "first", {
+			prepare: () => {
+				context = "first";
+			},
+			result: () => context,
+		});
+		await Promise.resolve();
+		await Promise.resolve();
+		await expect(
+			adapter.dispatch("run", "node", "p", "round-2", "overlap", {
+				prepare: () => {
+					context = "overwritten";
+				},
+				result: () => context,
+			}),
+		).rejects.toThrow("active round");
+		expect(context).toBe("first");
+		await factory.session.abort();
+		expect(await running).toBe("first");
+	});
+
+	it("isolates diagnostic observer failures from successful execution", async () => {
+		const factory = new FakeFactory();
+		const adapter = new NodeSessionAdapter(factory, () => {
+			throw new Error("broken diagnostic sink");
+		});
+		await adapter.create({ runId: "run", nodeId: "node", participantId: "p", createInput: "config" });
+		await adapter.dispatch("run", "node", "p", "round", "task");
+		expect(adapter.inspect("run", "node", "p")).toMatchObject({
+			status: "idle",
+			sessionFile: factory.session.sessionFile,
+		});
+	});
+
+	it("releases a session that is still being created without resurrecting its binding", async () => {
+		const factory = new DelayedFactory();
+		const adapter = new NodeSessionAdapter(factory);
+		const creation = adapter.create({ runId: "run", nodeId: "node", participantId: "p", createInput: "config" });
+		const rejected = expect(creation).rejects.toThrow("released");
+		const release = adapter.releaseRun("run");
+		factory.release();
+		await rejected;
+		await release;
+		await expect(
+			adapter.create({ runId: "run", nodeId: "node", participantId: "p", createInput: "replacement" }),
+		).rejects.toThrow("cannot be recreated");
+	});
+
+	it("does not prompt after cancellation during pre-dispatch validation", async () => {
+		const session = new FakeSession();
+		let resume: () => void = () => {};
+		const validation = new Promise<void>((resolve) => {
+			resume = resolve;
+		});
+		const adapter = new NodeSessionAdapter({ create: async () => session, validate: () => validation });
+		await adapter.create({ runId: "run", nodeId: "node", participantId: "p", createInput: "config" });
+		const dispatch = adapter.dispatch("run", "node", "p", "round", "task");
+		const rejected = expect(dispatch).rejects.toMatchObject({ kind: "cancelled" });
+		await adapter.stop("run", "node", "p", "round");
+		resume();
+		await rejected;
+		expect(session.prompts).toEqual([]);
+	});
+
+	it("retains a failed cleanup for retry and disposes a lost session", async () => {
+		const factory = new FakeFactory();
+		const adapter = new NodeSessionAdapter(factory);
+		await adapter.create({ runId: "run", nodeId: "node", participantId: "p", createInput: "config" });
+		const abort = factory.session.abort.bind(factory.session);
+		let calls = 0;
+		factory.session.abort = async () => {
+			if (++calls === 1) throw new Error("cleanup interrupted");
+			await abort();
+		};
+		adapter.markLost("run", "node", "p");
+		await expect(adapter.releaseRun("run")).rejects.toThrow("cleanup interrupted");
+		expect(factory.session.disposed).toBe(false);
+		await adapter.releaseRun("run");
+		await adapter.releaseRun("run");
+		expect(calls).toBe(2);
+		expect(factory.session.disposed).toBe(true);
+	});
 	it("keeps one Session bound across multiple work rounds", async () => {
 		const factory = new FakeFactory();
 		const rounds: Array<string | undefined> = [];
@@ -133,7 +223,7 @@ describe("NodeSessionAdapter", () => {
 		await Promise.resolve();
 		await expect(adapter.dispatch("run-1", "node-1", "p1", "round-2", "overlap")).rejects.toThrow("active round");
 		await adapter.stop("run-1", "node-1", "p1", "round-1");
-		await running;
+		await expect(running).rejects.toMatchObject({ kind: "cancelled" });
 		expect(factory.session.disposed).toBe(false);
 		await adapter.dispatch("run-1", "node-1", "p1", "round-2", "continue");
 		expect(factory.session.prompts).toEqual(["long task", "continue"]);

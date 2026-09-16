@@ -67,6 +67,7 @@ describe("PiNodeWorker", () => {
 			const compiled = compileWorkflow(createCompilerFixture());
 			if (!compiled.ok) throw new Error("Fixture did not compile");
 			const node = compiled.baseline.nodes.find((item) => item.definition.node_id === "produce")!;
+			let overlap: Promise<unknown> | undefined;
 			const worker = new PiNodeWorker({
 				agentDir: root,
 				workspace: root,
@@ -74,6 +75,15 @@ describe("PiNodeWorker", () => {
 				modelRuntime,
 				model,
 				thinkingLevel: "off",
+				onSessionEvent: ({ event }) => {
+					if (event.type === "tool_execution_end" && event.toolName === "submit_artifact" && !overlap) {
+						// The first candidate is already captured, but its native prompt has not settled.
+						overlap = worker.runExecution({ ...firstRound, roundId: "overlap" }).then(
+							() => "unexpectedly accepted",
+							(error: unknown) => error,
+						);
+					}
+				},
 			});
 			const firstRound: NodeRoundWork = {
 				runId: "run-1",
@@ -87,6 +97,7 @@ describe("PiNodeWorker", () => {
 			};
 			await expect(worker.runExecution(firstRound)).rejects.toBeInstanceOf(NodeSubmissionProtocolError);
 			const first = await worker.runExecution(firstRound);
+			expect(await overlap).toMatchObject({ message: expect.stringContaining("active round") });
 			const second = await worker.runExecution({
 				runId: "run-1",
 				roundId: "round-2",
@@ -130,6 +141,7 @@ describe("PiNodeWorker", () => {
 			expect(contexts[0]).not.toContain("task_context");
 			expect(contexts[0]).toContain("submit_artifact");
 			expect(contexts[0]).toContain("report_node_blocked");
+			await worker.releaseRun("run-1");
 		} finally {
 			faux.unregister();
 		}

@@ -53,7 +53,13 @@ describe("IPD native session policy", () => {
 		roots.push(root);
 		const file = join(root, "metrics.ndjson");
 		const telemetry = new FileIpdTelemetry(file);
-		const identity = { runId: "run", nodeId: "node", participantId: "worker", roundId: "round" };
+		const identity = {
+			sessionId: "session",
+			runId: "run",
+			nodeId: "node",
+			participantId: "worker",
+			roundId: "round",
+		};
 		telemetry.recordSessionEvent({
 			...identity,
 			event: {
