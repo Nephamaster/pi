@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- Fixed Amazon Bedrock one-hour cache writes being priced at the five-minute rate ([#9457](https://github.com/earendil-works/pi/issues/9457)).
 - Added `RetryPolicy.maxAgentDelayMs` support to cap shared assistant retry backoff for summarization calls ([#8826](https://github.com/earendil-works/pi/issues/8826)).
 - Fixed quadratic CPU usage when draining buffered `EventStream` events ([#9055](https://github.com/earendil-works/pi/issues/9055)).
 - Fixed Mistral Medium reasoning requests to use `reasoning_effort` for all reasoning-capable `mistral-medium-*` model IDs instead of the unsupported `prompt_mode` ([#8700](https://github.com/earendil-works/pi/issues/8700)).
@@ -19,6 +20,7 @@
 - Removed GPT-5.4 and GPT-5.4 mini from the OpenAI Codex catalog after they became unavailable to ChatGPT accounts ([#9394](https://github.com/earendil-works/pi/issues/9394)).
 - Fixed Mistral-hosted GLM-5.2 reasoning requests to use `reasoning_effort` instead of the ignored `prompt_mode` ([#9375](https://github.com/earendil-works/pi/issues/9375)).
 - Fixed OpenAI-compatible Responses errors to identify the actual provider instead of always labeling them as OpenAI errors ([#9298](https://github.com/earendil-works/pi/issues/9298)).
+- Fixed Baseten requests to send session-affinity headers from `sessionId` for automatic prompt-cache routing ([#9629](https://github.com/earendil-works/pi/issues/9629)).
 
 ## [0.85.1] - 2026-09-05
 

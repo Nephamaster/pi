@@ -42,7 +42,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      PI_OFFLINE: "1"
       PI_SKIP_VERSION_CHECK: "1"
     steps:
       - name: Checkout
@@ -63,10 +62,24 @@ jobs:
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
 
+      # Source imports require generated catalog JSON, absent in a clean clone.
+      # Hydrate through the repository's strict data-only path; do not mock models.
+      - name: Hydrate and validate generated model data
+        id: models
+        run: |
+          npm run hydrate:model-data
+          npm run check:model-data
+
       - name: Check existing entry-point dependency boundaries
         run: node scripts/check-entry-graphs.mjs
 
+      - name: Check new test formatting and lint
+        run: node node_modules/@biomejs/biome/bin/biome check --error-on-warnings packages/ipd/test/native-session-contract.test.ts
+
       - name: Verify native session and tool behavior with faux providers
+        if: ${{ !cancelled() && steps.models.outcome == 'success' }}
+        env:
+          PI_OFFLINE: "1"
         working-directory: packages/coding-agent
         run: >-
           node ../../node_modules/vitest/dist/cli.js --run
@@ -79,6 +92,9 @@ jobs:
           test/tools.test.ts
 
       - name: Verify IPD integration and preserved governance
+        if: ${{ !cancelled() && steps.models.outcome == 'success' }}
+        env:
+          PI_OFFLINE: "1"
         working-directory: packages/ipd
         run: >-
           node ../../node_modules/vitest/dist/cli.js --run
