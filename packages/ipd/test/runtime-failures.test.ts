@@ -65,9 +65,9 @@ describe("WorkflowRuntime failure classification", () => {
 		);
 		await runtime.activate(compiled.baseline, fixture.taskInput);
 		const result = await runtime.run();
-		expect(result.status).toBe("blocked");
+		expect(result.status).toBe("paused");
 		expect(calls).toBe(1);
-		expect(result.events.at(-2)).toMatchObject({
+		expect(result.events.find((event) => event.type === "round_blocked")).toMatchObject({
 			type: "round_blocked",
 			data: { kind: "transient", message: "submission storage is read-only" },
 		});

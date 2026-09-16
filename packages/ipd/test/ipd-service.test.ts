@@ -83,61 +83,70 @@ describe("IpdService", () => {
 		expect(state.events.some((event) => event.type === "runtime_failed")).toBe(false);
 	});
 
-	it("cancels a Run during preparation without recording a later failure", async () => {
-		const root = await mkdtemp(join(tmpdir(), "pi-ipd-preparation-cancel-"));
-		roots.push(root);
-		const fixture = createCompilerFixture();
-		const store = new FileRunStore();
-		let finishSelection: (() => void) | undefined;
-		const selection = new Promise<typeof fixture.processSelection>((resolve) => {
-			finishSelection = () => resolve(fixture.processSelection);
-		});
-		const control = new IpdControlPlane(
-			store,
-			{
-				select: async () => selection,
-				async cancelRun() {
-					finishSelection?.();
-				},
-			},
-			{
-				async design() {
-					throw new Error("designer should not run");
-				},
-			},
-			new FileWorkflowAssetStore({ directory: join(root, ".pi", "ipd", "workflow") }),
-		);
-		const service = new IpdService({
-			store,
-			createControlPlane: () => control,
-			processSpecs: [fixture.processSpec],
-			assets: {
-				...fixture.assets,
-				skills: [
-					{
-						id: "test-skill",
-						hash: "a".repeat(64),
-						source: "test",
-						filePath: "/test/SKILL.md",
-						baseDir: "/test",
-						description: "Test Skill",
-						allowedTools: [],
+	it.each([false, true])(
+		"cancels during preparation with bounded cleanup (uncooperative=%s)",
+		async (uncooperative) => {
+			const root = await mkdtemp(join(tmpdir(), "pi-ipd-preparation-cancel-"));
+			roots.push(root);
+			const fixture = createCompilerFixture();
+			const store = new FileRunStore();
+			let finishSelection: (() => void) | undefined;
+			const selection = new Promise<typeof fixture.processSelection>((resolve) => {
+				finishSelection = () => resolve(fixture.processSelection);
+			});
+			const control = new IpdControlPlane(
+				store,
+				{
+					select: async () => selection,
+					async cancelRun() {
+						if (!uncooperative) finishSelection?.();
 					},
-				],
-			},
-			projectRoot: root,
-			idFactory: () => "run-cancelled",
-			createRuntime: () => {
-				throw new Error("runtime should not start");
-			},
-		});
-		await service.createRun("request-cancelled", fixture.taskInput, "test-skill");
-		const cancelled = await service.cancelRun("run-cancelled", "Stopped by test");
-		expect(cancelled.status).toBe("cancelled");
-		expect(cancelled.phase).toBe("closed");
-		expect(cancelled.events.filter((event) => event.type === "run_cancelled")).toHaveLength(1);
-		expect(cancelled.events.some((event) => event.type === "preparation_failed")).toBe(false);
-	});
+				},
+				{
+					async design() {
+						throw new Error("designer should not run");
+					},
+				},
+				new FileWorkflowAssetStore({ directory: join(root, ".pi", "ipd", "workflow") }),
+			);
+			const service = new IpdService({
+				store,
+				createControlPlane: () => control,
+				processSpecs: [fixture.processSpec],
+				assets: {
+					...fixture.assets,
+					skills: [
+						{
+							id: "test-skill",
+							hash: "a".repeat(64),
+							source: "test",
+							filePath: "/test/SKILL.md",
+							baseDir: "/test",
+							description: "Test Skill",
+							allowedTools: [],
+						},
+					],
+				},
+				projectRoot: root,
+				idFactory: () => "run-cancelled",
+				cleanupTimeoutMs: 30,
+				createRuntime: () => {
+					throw new Error("runtime should not start");
+				},
+			});
+			await service.createRun("request-cancelled", fixture.taskInput, "test-skill");
+			const cancelled = await service.cancelRun("run-cancelled", "Stopped by test");
+			expect(cancelled.status).toBe("cancelled");
+			expect(cancelled.phase).toBe("closed");
+			expect(cancelled.events.filter((event) => event.type === "run_cancelled")).toHaveLength(1);
+			expect(cancelled.events.some((event) => event.type === "preparation_failed")).toBe(false);
+			if (uncooperative) {
+				expect(cancelled.cleanup?.status).toBe("failed");
+				finishSelection?.();
+				await expect.poll(async () => (await service.getRun("run-cancelled")).cleanup?.status).toBe("complete");
+			}
+		},
+	);
 
 	it("resolves selected templates and starts Runtime without Selector or Designer Agents", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-template-service-"));
@@ -287,6 +296,7 @@ describe("IpdService", () => {
 		expect((await service.createRun("request-1", fixture.taskInput, "test-skill")).runId).toBe(receipt.runId);
 		for (let count = 0; count < 50 && (await service.getRun("run-1")).status === "running"; count++)
 			await new Promise((resolve) => setTimeout(resolve, 10));
+		await expect.poll(async () => (await service.getRun("run-1")).cleanup?.status).toBe("complete");
 		const before = await service.getRun("run-1");
 		const events = await service.readEvents("run-1", 0);
 		const result = await service.getResult("run-1");

@@ -139,6 +139,9 @@ jobs:
           test/runtime-rework.test.ts
           test/p0-runtime-safety.test.ts
           test/workflow-runtime.test.ts
+          test/run-lifecycle.test.ts
+          test/environment-manager.test.ts
+          test/ipd-extension.test.ts
           test/submission-store.test.ts
           test/failure-boundaries.test.ts
           test/ipd-service.test.ts

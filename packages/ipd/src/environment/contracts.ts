@@ -247,8 +247,20 @@ export interface PreparedEnvironment {
 	image?: DockerImageIdentity;
 }
 
+export interface EnvironmentProgressReference {
+	nodeId: string;
+	participantId: string;
+	workspace: string;
+	environment: { leaseId: string; generation: number; bindingId: string; identity: string; workspaceHash: string };
+}
+
 export interface EnvironmentProvider {
 	readonly kind: ExecutionProfile["provider"];
+	suspend?(
+		lease: EnvironmentLease,
+		signal?: AbortSignal,
+	): Promise<{ workspace: string; identity: string; workspaceHash: string }>;
+	verifyResume?(lease: EnvironmentLease, identity: string, workspaceHash: string, signal?: AbortSignal): Promise<void>;
 	prepare(
 		request: { leaseId: string; runId: string; binding: EnvironmentBinding },
 		signal?: AbortSignal,

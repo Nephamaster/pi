@@ -373,4 +373,52 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			await current.manager.releaseRun("run-code-node24");
 		}
 	}, 120_000);
+
+	it.each(["code-node24", "office-pptx"] as const)(
+		"retains the original %s lease and WIP across pause and resume",
+		async (profile) => {
+			const current = await environment(profile);
+			try {
+				await current.provider.writeFile(
+					current.lease,
+					current.round,
+					"/workspace/progress.txt",
+					Buffer.from("unapproved work\n"),
+				);
+				await current.provider.startProcess(current.lease, current.round, {
+					command: "sleep 60",
+					cwd: "/workspace",
+				});
+				const saved = await current.manager.suspendRun(`run-${profile}`);
+				expect(saved).toHaveLength(1);
+				expect(saved[0].environment.leaseId).toBe(current.lease.leaseId);
+				await writeFile(join(saved[0].workspace, "progress.txt"), "changed outside the paused container");
+				await expect(current.manager.verifyResume(saved[0].environment)).rejects.toMatchObject({
+					code: "environment_lost",
+				});
+				await writeFile(join(saved[0].workspace, "progress.txt"), "unapproved work\n");
+				await expect(
+					current.provider.readFile(current.lease, current.round, "/workspace/progress.txt"),
+				).rejects.toMatchObject({ code: "policy_denied" });
+				await current.manager.verifyResume(saved[0].environment);
+				const resumed = await current.manager.bindRound(current.lease.leaseId, {
+					roundId: current.round.roundId,
+					inputs: [],
+					allowedOperations: ["read", "write", "exec", "process", "export"],
+				});
+				expect(resumed.generation).toBe(current.round.generation + 1);
+				const context = current.manager.context(current.lease.leaseId, resumed.roundId);
+				expect(context.lease.providerHandle).toBe(current.lease.providerHandle);
+				expect(
+					(await current.provider.readFile(context.lease, resumed, "/workspace/progress.txt")).toString(),
+				).toBe("unapproved work\n");
+				await expect(
+					current.provider.writeFile(current.lease, current.round, "/workspace/progress.txt", Buffer.from("late")),
+				).rejects.toMatchObject({ code: "policy_denied" });
+			} finally {
+				await current.manager.releaseRun(`run-${profile}`);
+			}
+		},
+		120_000,
+	);
 });

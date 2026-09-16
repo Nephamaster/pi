@@ -100,7 +100,13 @@ export class IpdControlPlane {
 	}
 
 	async cancelRun(runId: string): Promise<void> {
-		await Promise.allSettled([this.selector.cancelRun?.(runId), this.designer.cancelRun?.(runId)]);
+		const results = await Promise.allSettled([this.selector.cancelRun?.(runId), this.designer.cancelRun?.(runId)]);
+		const errors = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+		if (errors.length)
+			throw new AggregateError(
+				errors.map((result) => result.reason),
+				"Control sessions could not be released",
+			);
 	}
 
 	async accept(input: PrepareRunInput): Promise<RunDirectory> {

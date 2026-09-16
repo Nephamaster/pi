@@ -26,7 +26,7 @@ export function markRunCancelled(state: RunState): void {
 	state.status = "cancelled";
 	state.phase = "closed";
 	for (const round of state.rounds) {
-		if (round.status !== "active") continue;
+		if (round.status !== "active" && round.status !== "paused") continue;
 		round.status = "cancelled";
 		round.finishedAt = Date.now();
 	}
@@ -34,6 +34,7 @@ export function markRunCancelled(state: RunState): void {
 		if (node.status === "succeeded") continue;
 		node.status = "cancelled";
 		delete node.activeRoundId;
+		delete node.resumeRoundId;
 	}
 }
 

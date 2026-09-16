@@ -10,6 +10,28 @@ import type { IpdService } from "../src/runtime/ipd-service.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
 describe("IPD create-run tool", () => {
+	it.each(["pause", "resume"] as const)("routes %s to the owning Run service", async (action) => {
+		const tools: ToolDefinition[] = [];
+		const api = {
+			registerCommand() {},
+			registerTool(tool: ToolDefinition) {
+				tools.push(tool);
+			},
+		} as unknown as ExtensionAPI;
+		const operation = vi.fn().mockResolvedValue({
+			runId: "run",
+			phase: "execute",
+			status: action === "pause" ? "paused" : "running",
+			generation: 2,
+		});
+		const provider = vi.fn().mockResolvedValue({ pauseRun: operation, resumeRun: operation });
+		registerIpdCreateRunTool(api, provider);
+		const tool = tools.find((item) => item.name === `ipd_${action}_run`)!;
+		const context = {} as ExtensionContext;
+		await tool.execute("call", { run_id: "run" }, undefined, undefined, context);
+		expect(provider).toHaveBeenCalledWith(context, "run");
+		expect(operation).toHaveBeenCalledWith("run");
+	});
 	it("accepts only identity, Skill, verbatim task, and optional user materials", async () => {
 		const tools: ToolDefinition[] = [];
 		const api = {

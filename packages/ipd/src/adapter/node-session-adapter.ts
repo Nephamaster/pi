@@ -4,8 +4,8 @@ import { NodeWorkerError } from "../runtime/node-worker.ts";
 
 export type NodeSessionHandle = Pick<
 	AgentSession,
-	"sessionId" | "sessionFile" | "messages" | "isIdle" | "prompt" | "abort" | "dispose" | "subscribe"
->;
+	"sessionId" | "sessionFile" | "messages" | "isIdle" | "prompt" | "abort" | "dispose" | "subscribe" | "steer"
+> & { sessionManager: Pick<AgentSession["sessionManager"], "getLeafId"> };
 
 export interface NodeSessionFactory<TCreateInput> {
 	create(input: TCreateInput): Promise<NodeSessionHandle>;
@@ -20,11 +20,13 @@ export interface NodeSessionBindingInput<TCreateInput> {
 }
 
 export interface NodeSessionEventEnvelope {
+	generation?: number;
 	runId: string;
 	nodeId: string;
 	participantId: string;
 	sessionId: string;
 	sessionFile?: string;
+	entryId?: string;
 	roundId?: string;
 	event: AgentSessionEvent;
 }
@@ -37,6 +39,7 @@ export interface NodeSessionBindingSnapshot {
 	participantId: string;
 	sessionId: string;
 	sessionFile?: string;
+	entryId?: string;
 	status: NodeSessionBindingStatus;
 	activeRoundId?: string;
 }
@@ -47,6 +50,7 @@ export interface NodeSessionRoundLimits {
 }
 
 interface ActiveDispatch {
+	generation?: number;
 	roundId: string;
 	cancelled: boolean;
 	toolCalls: number;
@@ -70,6 +74,7 @@ interface BindingRecord<TState> {
 }
 
 interface RoundCallbacks<T> {
+	generation?: number;
 	prepare?(): void;
 	result(): T;
 }
@@ -146,6 +151,7 @@ export class NodeSessionAdapter<TCreateInput, TState = never> {
 								sessionId: session.sessionId,
 								sessionFile: session.sessionFile,
 								roundId: active?.roundId,
+								generation: active?.generation,
 								event,
 							});
 						} catch {
@@ -186,7 +192,13 @@ export class NodeSessionAdapter<TCreateInput, TState = never> {
 		if (!session) throw new NodeWorkerError("session_lost", "Node Session has not been created");
 		if (record.active || !session.isIdle)
 			throw new Error(`Node Session ${runId}/${nodeId}/${participantId} already has an active round`);
-		const active: ActiveDispatch = { roundId, cancelled: false, toolCalls: 0, toolErrors: 0 };
+		const active: ActiveDispatch = {
+			roundId,
+			generation: callbacks?.generation,
+			cancelled: false,
+			toolCalls: 0,
+			toolErrors: 0,
+		};
 		record.active = active;
 		try {
 			callbacks?.prepare?.();
@@ -251,6 +263,32 @@ export class NodeSessionAdapter<TCreateInput, TState = never> {
 			if (record.runId === runId) await this.release(runId, record.nodeId, record.participantId);
 	}
 
+	async pauseRun(runId: string): Promise<NodeSessionBindingSnapshot[]> {
+		const records = [...this.bindings.values()].filter((record) => record.runId === runId);
+		for (const record of records) if (record.active) record.active.cancelled = true;
+		await Promise.all(
+			records.map(async (record) => {
+				await record.creation;
+				await record.session?.abort();
+			}),
+		);
+		return records.filter((record) => record.session).map((record) => this.snapshot(record));
+	}
+
+	inspectRun(runId: string): NodeSessionBindingSnapshot[] {
+		return [...this.bindings.values()]
+			.filter((record) => record.runId === runId && record.session && !record.cleanupDone)
+			.map((record) => this.snapshot(record));
+	}
+
+	async requestCheckpoint(runId: string, nodeId: string, participantId: string): Promise<void> {
+		const record = this.requireBinding(runId, nodeId, participantId);
+		if (record.active && record.session)
+			await record.session.steer(
+				"The work-package soft deadline is approaching. Save current work, verified observations and remaining obligations to workspace files at the next safe turn boundary. Do not claim completion without the required submission and review.",
+			);
+	}
+
 	inspect(runId: string, nodeId: string, participantId: string): NodeSessionBindingSnapshot | undefined {
 		const record = this.bindings.get(bindingKey(runId, nodeId, participantId));
 		return record?.session ? this.snapshot(record) : undefined;
@@ -282,6 +320,7 @@ export class NodeSessionAdapter<TCreateInput, TState = never> {
 			participantId: record.participantId,
 			sessionId: record.session.sessionId,
 			sessionFile: record.session.sessionFile,
+			entryId: record.session.sessionManager.getLeafId() ?? undefined,
 			status: record.unavailable ?? (record.active ? "active" : "idle"),
 			activeRoundId: record.active?.roundId,
 		};

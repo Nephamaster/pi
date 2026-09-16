@@ -30,6 +30,7 @@ import {
 	assertVirtualPathAllowed,
 	assertVirtualWorkingDirectoryAllowed,
 	hashEnvironmentSource,
+	hashWorkspaceState,
 	materializeEnvironmentAssets,
 	materializeEnvironmentInputs,
 	normalizeVirtualPath,
@@ -54,6 +55,8 @@ interface DockerLeaseState {
 	currentRound?: RoundBinding;
 	assetHash?: string;
 	processes: Map<string, ProcessHandle>;
+	suspendedIdentity?: string;
+	suspendedWorkspaceHash?: string;
 }
 
 export interface DockerEnvironmentProviderOptions {
@@ -341,6 +344,11 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 	async bindRound(lease: EnvironmentLease, binding: RoundBinding, signal?: AbortSignal): Promise<void> {
 		const state = this.requiredState(lease);
 		throwIfAborted(signal);
+		if (state.suspendedIdentity) {
+			await this.verifyResume(lease, state.suspendedIdentity, state.suspendedWorkspaceHash!, signal);
+			await this.docker.run(["start", state.containerName], { signal });
+			state.suspendedIdentity = undefined;
+		}
 		await Promise.all(
 			[...state.processes.values()]
 				.filter((process) => process.state === "running")
@@ -797,11 +805,77 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		};
 	}
 
+	async suspend(
+		lease: EnvironmentLease,
+		signal?: AbortSignal,
+	): Promise<{ workspace: string; identity: string; workspaceHash: string }> {
+		const state = this.requiredState(lease);
+		if (!state.suspendedIdentity) {
+			const identity = await this.inspectIdentity(lease, signal);
+			// Stop the container, including untracked descendants; keep its private bind mounts and identity.
+			await this.docker.run(["stop", "--time", "1", state.containerName], { signal });
+			state.suspendedIdentity = identity;
+			state.currentRound = undefined;
+			for (const process of state.processes.values()) process.state = "stopped";
+		}
+		state.suspendedWorkspaceHash = await hashWorkspaceState(state.workspaceRoot);
+		return {
+			workspace: state.workspaceRoot,
+			identity: state.suspendedIdentity,
+			workspaceHash: state.suspendedWorkspaceHash,
+		};
+	}
+
+	async verifyResume(
+		lease: EnvironmentLease,
+		identity: string,
+		workspaceHash: string,
+		signal?: AbortSignal,
+	): Promise<void> {
+		const state = this.requiredState(lease);
+		if (state.suspendedIdentity !== identity || (await this.inspectIdentity(lease, signal)) !== identity)
+			throw new EnvironmentError("environment_lost", "The retained Docker container identity changed");
+		if (!(await lstat(state.workspaceRoot)).isDirectory())
+			throw new EnvironmentError("environment_lost", "The retained workspace is unavailable");
+		if (
+			state.suspendedWorkspaceHash !== workspaceHash ||
+			(await hashWorkspaceState(state.workspaceRoot)) !== workspaceHash
+		)
+			throw new EnvironmentError("environment_lost", "The retained workspace changed after its checkpoint");
+	}
+
+	private async inspectIdentity(lease: EnvironmentLease, signal?: AbortSignal): Promise<string> {
+		const state = this.requiredState(lease);
+		const result = await this.docker.run(
+			[
+				"container",
+				"inspect",
+				state.containerName,
+				"--format",
+				'{{.Id}}|{{.Image}}|{{index .Config.Labels "pi.ipd.controller"}}|{{index .Config.Labels "pi.ipd.lease"}}',
+			],
+			{ signal },
+		);
+		const identity = result.stdout.toString("utf8").trim();
+		const [id, image, controller, leaseId] = identity.split("|");
+		if (
+			!id ||
+			image !== state.binding.image?.contentId ||
+			controller !== this.controllerId ||
+			leaseId !== lease.leaseId
+		)
+			throw new EnvironmentError(
+				"environment_lost",
+				"Docker container ownership or image no longer matches the lease",
+			);
+		return identity;
+	}
+
 	async dispose(lease: EnvironmentLease, signal?: AbortSignal): Promise<void> {
 		const state = this.leases.get(lease.leaseId);
 		if (!state) return;
 		for (const process of state.processes.values()) await this.stopProcess(lease, process).catch(() => {});
-		await this.docker.run(["rm", "--force", state.containerName], { acceptedExitCodes: [0, 1] });
+		await this.docker.run(["rm", "--force", state.containerName], { signal });
 		this.leases.delete(lease.leaseId);
 		await rm(state.root, { recursive: true, force: true });
 		throwIfAborted(signal);

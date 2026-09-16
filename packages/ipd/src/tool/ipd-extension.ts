@@ -197,10 +197,41 @@ function registerIpdCommand(pi: ExtensionAPI, serviceProvider: IpdServiceProvide
 	});
 }
 
-export type IpdServiceProvider = (context: ExtensionContext) => Promise<IpdService>;
+export type IpdServiceProvider = (context: ExtensionContext, runId?: string) => Promise<IpdService>;
 
 export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdServiceProvider): void {
 	registerIpdCommand(pi, serviceProvider);
+	for (const action of ["pause", "resume"] as const) {
+		pi.registerTool(
+			defineTool({
+				name: `ipd_${action}_run`,
+				label: `${action === "pause" ? "Pause" : "Resume"} IPD Run`,
+				description:
+					action === "pause"
+						? "Pause a managed execution Run and retain its Session and work. Use only when the user requests a pause."
+						: "Resume a paused or blocked execution Run after its original Session, environment, inputs and approvals are verified. Use only when the user requests continuation.",
+				parameters: Type.Object({ run_id: NonEmptyStringSchema }, { additionalProperties: false }),
+				async execute(_toolCallId, input, _signal, _onUpdate, context) {
+					const service = await serviceProvider(context, input.run_id);
+					const state = await (action === "pause"
+						? service.pauseRun(input.run_id)
+						: service.resumeRun(input.run_id));
+					const view = {
+						run_id: state.runId,
+						phase: state.phase,
+						status: state.status,
+						generation: state.generation,
+						interruption: state.interruption,
+						cleanup: state.cleanup,
+					};
+					return {
+						content: [{ type: "text", text: wrapPromptBlock("ipd_run_status", JSON.stringify(view)) }],
+						details: view,
+					};
+				},
+			}),
+		);
+	}
 	pi.registerTool(
 		defineTool({
 			name: "ipd",
@@ -249,7 +280,7 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 			description: "Read the current registered state of one IPD Run without advancing it.",
 			parameters: Type.Object({ run_id: NonEmptyStringSchema }, { additionalProperties: false }),
 			async execute(_toolCallId, input, _signal, _onUpdate, context) {
-				const state = await (await serviceProvider(context)).getRun(input.run_id);
+				const state = await (await serviceProvider(context, input.run_id)).getRun(input.run_id);
 				const view = {
 					run_id: state.runId,
 					phase: state.phase,
@@ -258,6 +289,10 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 					last_event_sequence: state.events.at(-1)?.sequence ?? 0,
 					nodes: state.nodes,
 					failure: state.failure,
+					generation: state.generation,
+					interruption: state.interruption,
+					work_progress: state.workProgress,
+					cleanup: state.cleanup,
 				};
 				return {
 					content: [{ type: "text", text: wrapPromptBlock("ipd_run_status", JSON.stringify(view)) }],
@@ -271,7 +306,7 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 			name: "ipd_cancel_run",
 			label: "Cancel IPD Run",
 			description:
-				"Cancel one running IPD Run, stop active work, and persist a terminal cancelled state. Use only when the user explicitly requests cancellation.",
+				"Cancel a running, paused or blocked IPD Run, revoke submission eligibility, and attempt bounded cleanup. Use only when the user explicitly requests cancellation.",
 			parameters: Type.Object(
 				{
 					run_id: NonEmptyStringSchema,
@@ -280,7 +315,7 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 				{ additionalProperties: false },
 			),
 			async execute(_toolCallId, input, _signal, _onUpdate, context) {
-				const state = await (await serviceProvider(context)).cancelRun(input.run_id, input.reason);
+				const state = await (await serviceProvider(context, input.run_id)).cancelRun(input.run_id, input.reason);
 				const view = {
 					run_id: state.runId,
 					phase: state.phase,
@@ -304,7 +339,10 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 				{ additionalProperties: false },
 			),
 			async execute(_toolCallId, input, _signal, _onUpdate, context) {
-				const events = await (await serviceProvider(context)).readEvents(input.run_id, input.after_sequence ?? 0);
+				const events = await (await serviceProvider(context, input.run_id)).readEvents(
+					input.run_id,
+					input.after_sequence ?? 0,
+				);
 				return {
 					content: [{ type: "text", text: wrapPromptBlock("ipd_run_events", JSON.stringify(events)) }],
 					details: { events },
@@ -319,7 +357,7 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 			description: "Read the terminal result and Runtime-materialized user delivery of one IPD Run.",
 			parameters: Type.Object({ run_id: NonEmptyStringSchema }, { additionalProperties: false }),
 			async execute(_toolCallId, input, _signal, _onUpdate, context) {
-				const result = await (await serviceProvider(context)).getResult(input.run_id);
+				const result = await (await serviceProvider(context, input.run_id)).getResult(input.run_id);
 				const view = {
 					run_id: result.state.runId,
 					phase: result.state.phase,

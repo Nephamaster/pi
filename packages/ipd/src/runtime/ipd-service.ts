@@ -10,6 +10,7 @@ import type { IpdControlPlane, PrepareRunResult } from "../control/control-plane
 import { hashJson } from "../ir/hash.ts";
 import type { WorkflowAssetRecord } from "../ir/types.ts";
 import type { WorkflowAssetStore } from "../registry/workflow-asset-store.ts";
+import { bounded, isTerminal } from "./lifecycle.ts";
 import { prepareRunDirectory, type RunDirectory } from "./run-directory.ts";
 import type { FileRunStore } from "./run-store.ts";
 import { finalApprovedSubmissionIds, markRunCancelled } from "./runtime-state.ts";
@@ -40,6 +41,7 @@ export interface IpdServiceOptions {
 	visualizer?: IpdRunVisualizer;
 	idFactory?: () => string;
 	onClose?: () => Promise<void>;
+	cleanupTimeoutMs?: number;
 }
 
 export interface CreateRunReceipt {
@@ -62,25 +64,30 @@ export function createRunId(now = Date.now()): string {
 	return new Date(now).toISOString().replaceAll("-", "").replaceAll(":", "").replace(".", "");
 }
 
+interface ManagedRun {
+	controlPlane: IpdControlPlane;
+	runtime?: WorkflowRuntime;
+	promise?: Promise<void>;
+	cleanup?: Promise<void>;
+	transition?: Promise<unknown>;
+}
+
 export class IpdService {
 	private readonly options: IpdServiceOptions;
 	private readonly idFactory: () => string;
 	private readonly requests = new Map<string, { hash: string; result: Promise<CreateRunReceipt> }>();
-	private readonly active = new Map<
-		string,
-		{
-			controlPlane: IpdControlPlane;
-			runtime?: WorkflowRuntime;
-			promise: Promise<void>;
-		}
-	>();
+	private readonly managed = new Map<string, ManagedRun>();
+	private closed = false;
 
 	constructor(options: IpdServiceOptions) {
 		this.options = options;
+		if (!Number.isFinite(options.cleanupTimeoutMs ?? 5000) || (options.cleanupTimeoutMs ?? 5000) <= 0)
+			throw new Error("cleanupTimeoutMs must be positive");
 		this.idFactory = options.idFactory ?? (() => createRunId());
 	}
 
 	createRun(requestId: string, taskInput: TaskInput, runSkillId: string): Promise<CreateRunReceipt> {
+		if (this.closed) throw new Error("IPD service is closed");
 		const hash = hashJson({ taskInput, runSkillId });
 		const existing = this.requests.get(requestId);
 		if (existing) {
@@ -117,6 +124,14 @@ export class IpdService {
 		return this.options.assets.skills.map((skill) => structuredClone(skill));
 	}
 
+	ownsRun(runId: string, projectRoot = this.options.projectRoot): boolean {
+		return this.options.projectRoot === projectRoot && this.managed.has(runId);
+	}
+
+	hasManagedRuns(): boolean {
+		return this.managed.size > 0;
+	}
+
 	async listWorkflowTemplates(processSpecId: string, processSpecVersion: string): Promise<WorkflowAssetRecord[]> {
 		const spec = this.options.processSpecs.find(
 			(item) => item.process_spec_id === processSpecId && item.version === processSpecVersion,
@@ -148,26 +163,119 @@ export class IpdService {
 		};
 	}
 
-	async cancelRun(runId: string, reason = "Cancelled by user"): Promise<RunState> {
-		const state = await this.getRun(runId);
-		if (state.status !== "running") return state;
-		await this.options.store.mutate(runId, `cancel:${state.revision}`, { reason }, (draft, event) => {
-			if (draft.status !== "running") return false;
-			markRunCancelled(draft);
-			event.emit("run_cancelled", { reason });
-			return true;
+	pauseRun(runId: string, reason = "Paused by user"): Promise<RunState> {
+		return this.transition(runId, async () => {
+			const entry = this.managed.get(runId);
+			if (!entry?.runtime) throw new Error("Pause requires a managed Run with a frozen execution Baseline");
+			return entry.runtime.pause(reason);
 		});
-		const active = this.active.get(runId);
-		await active?.controlPlane.cancelRun(runId);
-		await active?.runtime?.cancel(reason);
-		if (active) await active.promise;
-		return this.getRun(runId);
+	}
+
+	resumeRun(runId: string): Promise<RunState> {
+		return this.transition(runId, async () => {
+			if (this.closed) throw new Error("IPD service is closed");
+			const entry = this.managed.get(runId);
+			if (!entry?.runtime)
+				throw new Error(
+					"Cannot resume: original Session/environment ownership is unavailable; no empty replacement will be created",
+				);
+			if (entry.promise)
+				await bounded(entry.promise, this.options.cleanupTimeoutMs ?? 5000, "Previous Run execution");
+			await entry.runtime.resume();
+			this.executeManaged(
+				runId,
+				entry,
+				entry.runtime.run().then(() => {}),
+			);
+			return this.getRun(runId);
+		});
+	}
+
+	cancelRun(runId: string, reason = "Cancelled by user"): Promise<RunState> {
+		return this.transition(runId, async () => {
+			const state = await this.getRun(runId);
+			if (!isTerminal(state.status))
+				await this.options.store.mutate(runId, `cancel:${state.revision}`, { reason }, (draft, event) => {
+					if (isTerminal(draft.status)) return false;
+					draft.generation = (draft.generation ?? 0) + 1;
+					markRunCancelled(draft);
+					event.emit("run_cancelled", { reason });
+					return true;
+				});
+			const entry = this.managed.get(runId);
+			if (entry) await this.cleanupRun(runId, entry);
+			else if (!isTerminal(state.status))
+				await this.setCleanup(runId, "failed", "Original live resource ownership is unavailable");
+			return this.getRun(runId);
+		});
+	}
+
+	private transition<T>(runId: string, action: () => Promise<T>): Promise<T> {
+		const entry = this.managed.get(runId);
+		if (!entry) return action();
+		const current = (entry.transition ?? Promise.resolve()).catch(() => {}).then(action);
+		entry.transition = current;
+		void current
+			.finally(() => {
+				if (entry.transition === current) entry.transition = undefined;
+			})
+			.catch(() => {});
+		return current;
 	}
 
 	async close(): Promise<void> {
-		await Promise.allSettled([...this.active.keys()].map((runId) => this.cancelRun(runId, "IPD service closed")));
+		this.closed = true;
+		await Promise.allSettled([...this.managed.keys()].map((runId) => this.cancelRun(runId, "IPD service closed")));
 		await this.options.visualizer?.close?.();
 		await this.options.onClose?.();
+	}
+
+	private async setCleanup(runId: string, status: "pending" | "failed" | "complete", message?: string): Promise<void> {
+		const state = await this.getRun(runId);
+		await this.options.store.mutate(
+			runId,
+			`resource-cleanup:${state.revision}:${status}`,
+			{ status, message: message ?? "" },
+			(draft, event) => {
+				draft.cleanup = {
+					status,
+					...(message ? { message } : {}),
+					resources: this.managed.get(runId)?.runtime?.inspectResources() ?? draft.cleanup?.resources,
+				};
+				event.emit("resource_cleanup", { status, ...(message ? { message } : {}) });
+				return true;
+			},
+		);
+	}
+
+	private async cleanupRun(runId: string, entry: ManagedRun): Promise<void> {
+		if (!entry.cleanup) {
+			const operation = (async () => {
+				await this.setCleanup(runId, "pending");
+				const results = await Promise.allSettled([entry.controlPlane.cancelRun(runId), entry.runtime?.release()]);
+				const errors = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+				if (errors.length)
+					throw new AggregateError(
+						errors.map((result) => result.reason),
+						"Run resource cleanup failed",
+					);
+				await entry.promise;
+				await this.setCleanup(runId, "complete");
+				if (this.managed.get(runId) === entry) this.managed.delete(runId);
+			})();
+			entry.cleanup = operation;
+			void operation
+				.finally(() => {
+					if (entry.cleanup === operation) entry.cleanup = undefined;
+				})
+				.catch(() => {});
+		}
+		try {
+			await bounded(entry.cleanup, this.options.cleanupTimeoutMs ?? 5000, "Run resource cleanup");
+		} catch (error) {
+			if ((await this.getRun(runId)).cleanup?.status !== "complete")
+				await this.setCleanup(runId, "failed", error instanceof Error ? error.message : String(error));
+		}
 	}
 
 	subscribeEvents(runId: string, listener: (events: readonly RunEvent[]) => void): () => void {
@@ -211,7 +319,10 @@ export class IpdService {
 			workflowTemplate,
 		};
 		const directory = await controlPlane.accept(input);
-		this.startBackground(runId, controlPlane, controlPlane.prepareAccepted(input, directory));
+		if (this.closed) {
+			this.managed.set(runId, { controlPlane });
+			await this.cancelRun(runId, "IPD service closed during acceptance");
+		} else this.startBackground(runId, controlPlane, controlPlane.prepareAccepted(input, directory));
 		const state = await this.getRun(runId);
 		const visualization = await this.visualizationReceipt(runId);
 		return { runId, accepted: true, phase: state.phase, status: state.status, ...visualization };
@@ -229,32 +340,37 @@ export class IpdService {
 	}
 
 	private startBackground(runId: string, controlPlane: IpdControlPlane, preparation: Promise<PrepareRunResult>): void {
-		if (this.active.has(runId)) return;
-		const active: { controlPlane: IpdControlPlane; runtime?: WorkflowRuntime; promise: Promise<void> } = {
-			controlPlane,
-			promise: Promise.resolve(),
-		};
-		const running = preparation
-			.then(
-				async (prepared) => {
-					if (!prepared.ok) return;
-					try {
-						if ((await this.getRun(runId)).status !== "running") return;
-						const runtime = this.options.createRuntime(prepared.directory);
-						active.runtime = runtime;
-						await runtime.activate(prepared.baseline);
-						await runtime.run();
-					} catch (error) {
-						await this.recordRuntimeFailure(runId, error);
-					}
-				},
-				async (error) => this.recordPreparationFailure(runId, error),
-			)
-			.finally(() => {
-				if (this.active.get(runId) === active) this.active.delete(runId);
+		if (this.managed.has(runId)) return;
+		const entry: ManagedRun = { controlPlane };
+		this.managed.set(runId, entry);
+		const operation = preparation.then(
+			async (prepared) => {
+				if (!prepared.ok || (await this.getRun(runId)).status !== "running") return;
+				try {
+					const runtime = this.options.createRuntime(prepared.directory);
+					await runtime.activate(prepared.baseline);
+					entry.runtime = runtime;
+					await runtime.run();
+				} catch (error) {
+					await this.recordRuntimeFailure(runId, error);
+				}
+			},
+			async (error) => this.recordPreparationFailure(runId, error),
+		);
+		this.executeManaged(runId, entry, operation);
+	}
+
+	private executeManaged(runId: string, entry: ManagedRun, operation: Promise<void>): void {
+		entry.promise = operation;
+		void operation
+			.catch((error) => this.recordRuntimeFailure(runId, error))
+			.finally(async () => {
+				if (entry.promise === operation) entry.promise = undefined;
+				if (isTerminal((await this.getRun(runId)).status)) await this.cleanupRun(runId, entry);
+			})
+			.catch(() => {
+				/* Resource ownership remains registered when state storage is unavailable. */
 			});
-		active.promise = running;
-		this.active.set(runId, active);
 	}
 
 	private async recordPreparationFailure(runId: string, error: unknown): Promise<void> {

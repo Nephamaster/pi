@@ -7,7 +7,7 @@ import type { TaskInput } from "./task-input.ts";
 import type { WorkflowDefinition } from "./workflow.ts";
 
 export type RunPhase = "intake" | "selection" | "design" | "compile" | "execute" | "closed";
-export type RunStatus = "running" | "blocked" | "succeeded" | "failed" | "cancelled";
+export type RunStatus = "running" | "paused" | "blocked" | "succeeded" | "failed" | "cancelled";
 export type NodeStatus =
 	| "waiting"
 	| "ready"
@@ -16,8 +16,17 @@ export type NodeStatus =
 	| "waiting_rework"
 	| "succeeded"
 	| "blocked"
+	| "paused"
 	| "cancelled";
-export type RoundStatus = "active" | "submitted" | "completed" | "blocked" | "invalidated" | "failed" | "cancelled";
+export type RoundStatus =
+	| "active"
+	| "paused"
+	| "submitted"
+	| "completed"
+	| "blocked"
+	| "invalidated"
+	| "failed"
+	| "cancelled";
 export type SubmissionStatus = "candidate" | "approved" | "rejected" | "stale";
 
 export interface PreparationDiagnosticRecord {
@@ -60,10 +69,13 @@ export interface NodeRuntimeRecord {
 	status: NodeStatus;
 	nextRound: number;
 	activeRoundId?: string;
+	resumeRoundId?: string;
 	block?: NodeBlockRecord;
 }
 
 export interface RoundRecord {
+	generation?: number;
+	attempt?: number;
 	roundId: string;
 	nodeId: string;
 	index: number;
@@ -177,6 +189,10 @@ export interface OperationRecord {
 }
 
 export interface RunState {
+	generation?: number;
+	interruption?: { reason: string; timestamp: number; baselineHash?: string };
+	workProgress?: WorkProgressReference[];
+	cleanup?: { status: "pending" | "failed" | "complete"; message?: string; resources?: RunResourceReference[] };
 	runId: string;
 	revision: number;
 	phase: RunPhase;
@@ -204,4 +220,25 @@ export interface RunState {
 	events: RunEvent[];
 	operations: Record<string, OperationRecord>;
 	failure?: { code: string; message: string };
+}
+
+/** References to retained work, never approved submissions or a duplicate conversation log. */
+export interface WorkProgressReference {
+	nodeId: string;
+	participantId: string;
+	sessionId?: string;
+	sessionFile?: string;
+	entryId?: string;
+	workspace: string;
+	workspaceHash?: string;
+	environment?: { leaseId: string; generation: number; bindingId: string; identity: string; workspaceHash: string };
+}
+
+export interface RunResourceReference {
+	nodeId: string;
+	participantId: string;
+	sessionId?: string;
+	sessionFile?: string;
+	leaseId?: string;
+	providerHandle?: string;
 }

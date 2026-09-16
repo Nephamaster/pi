@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added managed execution Run pause/resume, retained Session and workspace references, and configurable soft work-package deadlines.
 - Added IPD V2 TaskInput, ProcessSpec, WorkflowDefinition, ExecutionBaseline, Runtime state, and structured submission
   contracts.
 - Added versioned AgentCard, ProcessSpec, Skill, Tool, and Workflow asset assembly with semantic ProcessSpec
@@ -44,6 +45,7 @@
 
 ### Fixed
 
+- Retained ownership of blocked Runs, bounded cancellation and cleanup, and fenced late submissions by execution generation without consuming quality rework rounds.
 - Prevented sandbox-runtime bridge socket failures by using a short per-command temporary directory for `TMPDIR`,
   `TMP`, and `TEMP` instead of a Run-scoped path.
 - Fixed Linux Bash isolation hiding authorized Workspace, sealed input, Skill, command-runtime, and seccomp paths by

@@ -1,7 +1,7 @@
 // 校验虚拟路径并安全物化精确输入，拒绝符号链接和目录越界。
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { access, copyFile, lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { constants, createReadStream } from "node:fs";
+import { access, copyFile, lstat, mkdir, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { hashJson } from "../ir/hash.ts";
 import type {
@@ -223,4 +223,22 @@ export async function hashEnvironmentSource(path: string): Promise<string> {
 	await visit(root);
 	files.sort((left, right) => left.path.localeCompare(right.path));
 	return hashJson(files);
+}
+
+/** Checkpoint a stopped workspace without following project dependency symlinks. */
+export async function hashWorkspaceState(root: string): Promise<string> {
+	const hash = createHash("sha256");
+	const visit = async (path: string): Promise<void> => {
+		const stat = await lstat(path);
+		hash.update(JSON.stringify([relative(root, path), stat.mode]));
+		if (stat.isSymbolicLink()) hash.update(JSON.stringify(["link", await readlink(path)]));
+		else if (stat.isFile()) {
+			const fileHash = createHash("sha256");
+			for await (const chunk of createReadStream(path)) fileHash.update(chunk as Buffer);
+			hash.update(JSON.stringify(["file", fileHash.digest("hex")]));
+		} else if (stat.isDirectory()) for (const name of (await readdir(path)).sort()) await visit(join(path, name));
+		else hash.update("special-file");
+	};
+	await visit(root);
+	return hash.digest("hex");
 }

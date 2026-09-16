@@ -604,12 +604,13 @@ describe("WorkflowRuntime", () => {
 		);
 		await runtime.activate(compiled.baseline, fixture.taskInput);
 		const result = await runtime.run();
-		expect(result.status).toBe("blocked");
+		expect(result.status).toBe("paused");
+		expect(result.failure?.code).toBe("timeout");
 		expect(stoppedRound).toBe("produce:round:1");
 		expect(result.events).toContainEqual(
 			expect.objectContaining({
-				type: "round_blocked",
-				data: expect.objectContaining({ kind: "timeout" }),
+				type: "run_paused",
+				data: expect.objectContaining({ reason: "Round timed out: produce:round:1" }),
 			}),
 		);
 	});

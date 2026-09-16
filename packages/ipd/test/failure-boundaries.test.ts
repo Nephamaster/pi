@@ -52,9 +52,11 @@ describe("M7 failure boundaries", () => {
 			await runtime.activate(compiled.baseline, fixture.taskInput);
 			const state = await runtime.run();
 			expect(calls).toBe(1);
-			expect(state.status).toBe("blocked");
+			expect(state.status).toBe(failure.kind === "external_outcome_unknown" ? "blocked" : "paused");
 			expect(state.submissions).toHaveLength(0);
 			expect(state.rounds).toHaveLength(1);
+			if (failure.kind === "external_outcome_unknown")
+				await expect(runtime.resume()).rejects.toThrow("explicit reconciliation");
 			expect(state.events).toContainEqual(
 				expect.objectContaining({
 					type: "round_blocked",

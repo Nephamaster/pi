@@ -41,7 +41,15 @@ import { IpdDashboardServer } from "../visualization/dashboard-server.ts";
 import { registerIpdCreateRunTool } from "./ipd-extension.ts";
 
 const BUILTIN_TOOLS = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"]);
-const OUTER_IPD_TOOLS = new Set(["ipd", "ipd_get_run", "ipd_cancel_run", "ipd_read_events", "ipd_get_result"]);
+const OUTER_IPD_TOOLS = new Set([
+	"ipd",
+	"ipd_get_run",
+	"ipd_cancel_run",
+	"ipd_pause_run",
+	"ipd_resume_run",
+	"ipd_read_events",
+	"ipd_get_result",
+]);
 
 function executableTools(pi: ExtensionAPI): ToolDefinition[] {
 	if (!("getToolDefinitions" in pi))
@@ -117,11 +125,22 @@ export function registerDefaultIpdExtension(pi: ExtensionAPI): void {
 		activeSkills = [...(event.systemPromptOptions.skills ?? [])];
 	});
 	pi.on("session_shutdown", async () => {
-		await Promise.allSettled([...services.values()].map(async (service) => (await service).close()));
-		services.clear();
+		await Promise.allSettled(
+			[...services.entries()].map(async ([key, pending]) => {
+				const service = await pending;
+				await service.close();
+				if (!service.hasManagedRuns()) services.delete(key);
+			}),
+		);
 	});
 
-	registerIpdCreateRunTool(pi, async (context) => {
+	registerIpdCreateRunTool(pi, async (context, runId) => {
+		if (runId) {
+			for (const pending of services.values()) {
+				const existing = await pending.catch(() => undefined);
+				if (existing?.ownsRun(runId, context.cwd)) return existing;
+			}
+		}
 		const model = context.model as Model<Api> | undefined;
 		if (!model) throw new Error("Current Pi session has no configured model");
 		const sessionSettings = loadIpdSessionSettings(context.cwd, getAgentDir());
@@ -311,6 +330,7 @@ async function createDefaultService(
 		executionIdentity,
 		visualizer: dashboard,
 		onClose: () => telemetry.flush(),
+		cleanupTimeoutMs: runtimeInteger("PI_IPD_STOP_TIMEOUT_MS", 5000, 1),
 		createControlPlane: (runId, runSkill) => {
 			return new IpdControlPlane(
 				store,
@@ -397,6 +417,8 @@ async function createDefaultService(
 					maxConcurrentNodes: runtimeInteger("PI_IPD_MAX_CONCURRENT_NODES", 4, 1),
 					maxQualityReworkRounds: runtimeInteger("PI_IPD_MAX_QUALITY_REWORK_ROUNDS", 10, 0),
 					roundTimeoutMs: runtimeInteger("PI_IPD_ROUND_TIMEOUT_MS", 30 * 60 * 1000, 1),
+					stopTimeoutMs: runtimeInteger("PI_IPD_STOP_TIMEOUT_MS", 5000, 1),
+					softRoundTimeoutMs: runtimeInteger("PI_IPD_SOFT_ROUND_TIMEOUT_MS", 0, 0) || undefined,
 					onMetric: (metric) => telemetry.record({ source: "workflow_runtime", ...metric }),
 				},
 			),

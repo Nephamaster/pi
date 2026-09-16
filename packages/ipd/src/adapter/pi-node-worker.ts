@@ -6,9 +6,10 @@ import { isAbsolute, join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { RunResourceReference, WorkProgressReference } from "../contracts/runtime.ts";
 import { EnvironmentError } from "../environment/contracts.ts";
 import type { EnvironmentManager } from "../environment/manager.ts";
-import { hashEnvironmentSource } from "../environment/paths.ts";
+import { hashEnvironmentSource, hashWorkspaceState } from "../environment/paths.ts";
 import type { EnvironmentToolContext } from "../environment/tool-backend.ts";
 import { createEnvironmentToolDefinitions } from "../environment/tool-backend.ts";
 import { buildNodeRoundPrompt, buildNodeSystemPrompt } from "../runtime/node-prompts.ts";
@@ -285,8 +286,90 @@ export class PiNodeWorker implements NodeWorker {
 	}
 
 	async releaseRun(runId: string): Promise<void> {
-		await this.sessions.releaseRun(runId);
-		await this.options.environmentManager?.releaseRun(runId);
+		const results = await Promise.allSettled([
+			this.sessions.releaseRun(runId),
+			this.options.environmentManager?.releaseRun(runId),
+		]);
+		const errors = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+		if (errors.length)
+			throw new AggregateError(
+				errors.map((result) => result.reason),
+				"Node resources could not be released",
+			);
+	}
+
+	async pauseRun(runId: string): Promise<WorkProgressReference[]> {
+		const sessions = await this.sessions.pauseRun(runId);
+		const environments = (await this.options.environmentManager?.suspendRun(runId)) ?? [];
+		const result: WorkProgressReference[] = environments.map((item) => ({ ...item }));
+		for (const session of sessions) {
+			const reference = result.find(
+				(item) => item.nodeId === session.nodeId && item.participantId === session.participantId,
+			) ?? { nodeId: session.nodeId, participantId: session.participantId, workspace: this.options.workspace };
+			Object.assign(reference, {
+				sessionId: session.sessionId,
+				sessionFile: session.sessionFile,
+				entryId: session.entryId,
+			});
+			if (!result.includes(reference)) result.push(reference);
+		}
+		for (const reference of result)
+			if (!reference.environment) reference.workspaceHash = await hashWorkspaceState(reference.workspace);
+		return result;
+	}
+
+	inspectRun(runId: string): RunResourceReference[] {
+		return [
+			...this.sessions.inspectRun(runId).map(({ nodeId, participantId, sessionId, sessionFile }) => ({
+				nodeId,
+				participantId,
+				sessionId,
+				sessionFile,
+			})),
+			...(this.options.environmentManager?.inspectRun(runId) ?? []).map(
+				({ nodeId, participantId, leaseId, providerHandle }) => ({
+					nodeId,
+					participantId,
+					leaseId,
+					providerHandle,
+				}),
+			),
+		];
+	}
+
+	async validateResume(runId: string, progress: readonly WorkProgressReference[]): Promise<void> {
+		for (const reference of progress) {
+			if (reference.workspaceHash && (await hashWorkspaceState(reference.workspace)) !== reference.workspaceHash)
+				throw new NodeWorkerError("environment_lost", "Retained work changed after the checkpoint");
+			if (reference.sessionId) {
+				const session = this.sessions.inspect(runId, reference.nodeId, reference.participantId);
+				if (
+					!session ||
+					session.status !== "idle" ||
+					session.sessionId !== reference.sessionId ||
+					session.sessionFile !== reference.sessionFile ||
+					session.entryId !== reference.entryId
+				)
+					throw new NodeWorkerError("session_lost", "Original Session or history boundary is unavailable");
+			}
+			if (reference.environment) {
+				if (!this.options.environmentManager)
+					throw new NodeWorkerError("environment_lost", "Environment manager is unavailable");
+				await this.options.environmentManager.verifyResume(reference.environment);
+				const binding = this.sessions.getState(runId, reference.nodeId, reference.participantId);
+				for (const input of binding?.environment?.round.inputs ?? [])
+					if ((await hashEnvironmentSource(input.sourcePath)) !== input.contentHash)
+						throw new NodeWorkerError("environment_lost", "An input changed while work was paused");
+			}
+		}
+	}
+
+	requestCheckpoint(work: NodeRoundWork): Promise<void> {
+		return this.sessions.requestCheckpoint(
+			work.runId,
+			work.node.definition.node_id,
+			work.node.agents[0].participantId,
+		);
 	}
 
 	private async dispatch(
@@ -333,6 +416,7 @@ export class PiNodeWorker implements NodeWorker {
 					environmentPaths: binding.environment?.binding.paths,
 				},
 			});
+			work.signal?.throwIfAborted();
 			return await this.sessions.dispatch(
 				work.runId,
 				work.node.definition.node_id,
@@ -340,6 +424,7 @@ export class PiNodeWorker implements NodeWorker {
 				work.roundId,
 				buildNodeRoundPrompt(work),
 				{
+					generation: work.generation,
 					prepare: () => {
 						binding.capture.beginRound();
 						binding.blockedCapture?.beginRound();

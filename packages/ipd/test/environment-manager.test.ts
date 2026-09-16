@@ -138,6 +138,35 @@ class FauxProvider implements EnvironmentProvider {
 }
 
 describe("EnvironmentManager", () => {
+	it("keeps a prepared handle when cancellation cleanup fails before preparation returns", async () => {
+		const provider = new FauxProvider();
+		const controller = new AbortController();
+		provider.prepare = async ({ leaseId }) => {
+			controller.abort();
+			return { providerHandle: `faux:${leaseId}` };
+		};
+		provider.dispose = async () => {
+			if (++provider.disposeCalls === 1) throw new Error("cleanup failed");
+		};
+		const manager = new EnvironmentManager([provider]);
+		await expect(manager.prepare("run", binding("node"), controller.signal)).rejects.toThrow("cleanup failed");
+		await manager.releaseRun("run");
+		expect(provider.disposeCalls).toBe(2);
+	});
+	it("retains failed disposal ownership so cleanup can be retried", async () => {
+		const provider = new FauxProvider();
+		const manager = new EnvironmentManager([provider]);
+		const lease = await manager.prepare("run", binding("node"));
+		await manager.bindRound(lease.leaseId, { roundId: "round", inputs: [], allowedOperations: ["read"] });
+		provider.dispose = async () => {
+			if (++provider.disposeCalls === 1) throw new Error("Docker temporarily unavailable");
+		};
+		await expect(manager.releaseRun("run")).rejects.toMatchObject({ code: "environment_unavailable" });
+		expect(manager.context(lease.leaseId, "round").lease.state).toBe("disposing");
+		await manager.releaseRun("run");
+		expect(provider.disposeCalls).toBe(2);
+		expect(() => manager.context(lease.leaseId, "round")).toThrow("Unknown environment lease");
+	});
 	it("reuses one lease per node participant while preventing cross-node identity collisions", async () => {
 		const provider = new FauxProvider();
 		const manager = new EnvironmentManager([provider]);

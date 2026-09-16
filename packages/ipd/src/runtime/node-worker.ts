@@ -1,7 +1,12 @@
 // Node work and domain feedback. Model retries belong to Pi AgentSession.
 import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "../adapter/structured-submissions.ts";
 import type { EffectiveNode } from "../contracts/baseline.ts";
-import type { RoundInputBindingRecord, SubmissionRecord } from "../contracts/runtime.ts";
+import type {
+	RoundInputBindingRecord,
+	RunResourceReference,
+	SubmissionRecord,
+	WorkProgressReference,
+} from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { EnvironmentBinding, EnvironmentErrorCode } from "../environment/contracts.ts";
 
@@ -22,6 +27,9 @@ export interface RoundFeedback {
 }
 
 export interface NodeRoundWork {
+	generation?: number;
+	resuming?: boolean;
+	signal?: AbortSignal;
 	runId: string;
 	roundId: string;
 	node: EffectiveNode;
@@ -36,6 +44,10 @@ export interface NodeRoundWork {
 export type ExecutionNodeResult = SubmitArtifact | { kind: "blocked"; report: ReportNodeBlocked };
 
 export interface NodeWorker {
+	inspectRun?(runId: string): RunResourceReference[];
+	pauseRun?(runId: string): Promise<WorkProgressReference[]>;
+	validateResume?(runId: string, progress: readonly WorkProgressReference[]): Promise<void>;
+	requestCheckpoint?(work: NodeRoundWork): Promise<void>;
 	prepareRound?(work: NodeRoundWork, signal?: AbortSignal): Promise<void>;
 	exportSubmission?(
 		work: NodeRoundWork,

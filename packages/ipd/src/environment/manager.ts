@@ -7,6 +7,7 @@ import {
 	type EnvironmentInputBinding,
 	type EnvironmentLease,
 	type EnvironmentOperation,
+	type EnvironmentProgressReference,
 	type EnvironmentProvider,
 	type EnvironmentStaticAsset,
 	type RoundBinding,
@@ -102,7 +103,11 @@ export class EnvironmentManager {
 				lease.state = "ready";
 				return lease;
 			} catch (error) {
-				if (prepared) await provider.dispose(clonedLease(lease)).catch(() => {});
+				if (prepared) {
+					lease.state = "disposing";
+					// Keep the known handle registered if cleanup fails; releaseRun can retry it.
+					await provider.dispose(clonedLease(lease));
+				}
 				this.leasesByKey.delete(key);
 				this.leasesById.delete(lease.leaseId);
 				if (controller.signal.aborted && !(error instanceof EnvironmentError && error.code === "cancelled"))
@@ -194,6 +199,50 @@ export class EnvironmentManager {
 			});
 	}
 
+	async suspendRun(runId: string): Promise<EnvironmentProgressReference[]> {
+		const progress: EnvironmentProgressReference[] = [];
+		for (const managed of this.leasesById.values()) {
+			if (managed.lease.runId !== runId) continue;
+			await managed.preparePromise;
+			if (!managed.provider.suspend)
+				throw new EnvironmentError("environment_unavailable", "Provider does not support retaining paused work");
+			const saved = await managed.provider.suspend(clonedLease(managed.lease));
+			managed.lease.state = "idle";
+			progress.push({
+				nodeId: managed.lease.nodeId,
+				participantId: managed.lease.participantId,
+				workspace: saved.workspace,
+				environment: {
+					leaseId: managed.lease.leaseId,
+					generation: managed.lease.generation,
+					bindingId: managed.binding.bindingId,
+					identity: saved.identity,
+					workspaceHash: saved.workspaceHash,
+				},
+			});
+		}
+		return progress;
+	}
+
+	inspectRun(runId: string): EnvironmentLease[] {
+		return [...this.leasesById.values()]
+			.filter((managed) => managed.lease.runId === runId)
+			.map((managed) => clonedLease(managed.lease));
+	}
+
+	async verifyResume(reference: EnvironmentProgressReference["environment"]): Promise<void> {
+		const managed = this.requiredLease(reference.leaseId);
+		if (
+			managed.binding.bindingId !== reference.bindingId ||
+			managed.lease.generation !== reference.generation ||
+			managed.lease.state !== "idle"
+		)
+			throw new EnvironmentError("environment_lost", "Retained environment binding or generation changed");
+		if (!managed.provider.verifyResume)
+			throw new EnvironmentError("environment_lost", "Provider cannot verify retained work");
+		await managed.provider.verifyResume(clonedLease(managed.lease), reference.identity, reference.workspaceHash);
+	}
+
 	private requiredLease(leaseId: string): ManagedLease {
 		const managed = this.leasesById.get(leaseId);
 		if (!managed) throw new EnvironmentError("environment_lost", `Unknown environment lease: ${leaseId}`);
@@ -205,16 +254,13 @@ export class EnvironmentManager {
 		try {
 			await managed.preparePromise;
 		} catch {
-			return;
+			if (!managed.lease.providerHandle) return;
 		}
 		managed.lease.state = "disposing";
-		try {
-			await managed.provider.dispose(clonedLease(managed.lease), signal);
-			managed.lease.state = "disposed";
-			managed.lease.disposedAt = new Date().toISOString();
-		} finally {
-			this.leasesById.delete(managed.lease.leaseId);
-			this.leasesByKey.delete(leaseKey(managed.lease.runId, managed.binding));
-		}
+		await managed.provider.dispose(clonedLease(managed.lease), signal);
+		managed.lease.state = "disposed";
+		managed.lease.disposedAt = new Date().toISOString();
+		this.leasesById.delete(managed.lease.leaseId);
+		this.leasesByKey.delete(leaseKey(managed.lease.runId, managed.binding));
 	}
 }

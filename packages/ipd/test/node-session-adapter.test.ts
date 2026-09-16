@@ -6,6 +6,8 @@ class FakeSession implements NodeSessionHandle {
 	readonly sessionId: string;
 	readonly sessionFile = "/tmp/fake-session.jsonl";
 	readonly messages: NodeSessionHandle["messages"] = [];
+	readonly sessionManager = { getLeafId: () => null };
+	async steer(): Promise<void> {}
 	isIdle = true;
 	disposed = false;
 	hold = false;
