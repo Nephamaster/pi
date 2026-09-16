@@ -78,7 +78,10 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 		else {
 			model = this.modelRuntime.getModel(cardModel.provider, cardModel.id);
 			if (!model)
-				throw new NodeWorkerError("configuration", `Configured model is unavailable: ${cardModel.provider}/${cardModel.id}`);
+				throw new NodeWorkerError(
+					"configuration",
+					`Configured model is unavailable: ${cardModel.provider}/${cardModel.id}`,
+				);
 		}
 		const thinkingLevel =
 			cardModel.thinkingLevel === "inherit" ? input.runDefaultThinkingLevel : cardModel.thinkingLevel;
@@ -215,7 +218,10 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 				await session.prompt(text);
 				const lastMessage = session.messages.at(-1);
 				if (lastMessage?.role === "assistant" && lastMessage.stopReason === "error")
-					throw new NodeWorkerError("transient", lastMessage.errorMessage ?? "Model request failed without an error message");
+					throw new NodeWorkerError(
+						"transient",
+						lastMessage.errorMessage ?? "Model request failed without an error message",
+					);
 				if (lastMessage?.role === "assistant" && lastMessage.stopReason === "aborted")
 					throw new NodeWorkerError("cancelled", lastMessage.errorMessage ?? "Model request aborted");
 			},

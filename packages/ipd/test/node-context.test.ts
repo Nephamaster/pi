@@ -28,7 +28,7 @@ describe("node context image retention", () => {
 		let current: string | undefined = "current-round-1";
 		const callbacks: Array<(event: ContextEvent) => { messages: AgentMessage[] } | undefined> = [];
 		await createCurrentRoundContextExtension(() => current)({
-			on: (_name: string, handler: typeof callbacks[number]) => callbacks.push(handler),
+			on: (_name: string, handler: (typeof callbacks)[number]) => callbacks.push(handler),
 		} as unknown as ExtensionAPI);
 		const messages: AgentMessage[] = [
 			imageResult("old-image"),

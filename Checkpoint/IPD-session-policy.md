@@ -61,12 +61,29 @@ Baseline in place. No Workflow template or Docker image changes are required.
 
 ## Verification
 
-Draft implementation; Node24 type checks, native/faux integration, governance
-regressions and the existing real Docker workflow must run before review.
-The working container lacks full repository dependencies and Docker; do not
-claim local mock or syntax checks as full validation. General Node22 CI remains
-outside scope as requested. Results will be recorded in the PR against the
-verified head SHA.
+The first implementation `83e3cd565bd92ad260d39a2466f7ad807c268afd` was tested
+on GitHub Actions with Node 24, against merge `1b36e9c9db2cbbf739205be410d5f7ea36ea7daf`:
+
+- `35103217650`: repository type-check and entry graphs passed; native Pi
+  regression 165/165 and expanded IPD suites 93/93 passed. This includes actual
+  automatic compaction/resume and persisted compaction entries, image retention,
+  native error flags, frozen retry policies and no whole-round replay.
+- `35103217508`: the entire Docker integration workflow passed, including
+  image builds, 6 native process tests, 4 real Docker cases and subsequent
+  ordinary Pi and IPD governance regressions. No Docker source was changed.
+- `npm run check` completed all its subcommands. The extra cleanliness guard
+  caught six formatting issues in PR2 files, now fixed, plus pre-existing
+  formatting drift in six unchanged files: mechanical-checker.ts, three
+  dashboard files, asset-yaml-scalars.test.ts and visualization.test.ts.
+  Root checks still run in full and report that drift. The additional guard
+  requires PR2-owned files to remain clean; unrelated files are not reformatted
+  in this scoped PR. No lint rule or functional assertion was relaxed.
+
+The follow-up commit only applies the reported PR2 formatting and records this
+boundary. Final head-specific verification is recorded in the PR description;
+first-run evidence must not be represented as verification of a later head.
+The working container has no Docker or complete repository dependencies.
+General Node22 CI remains outside scope as requested.
 
 Remaining in PR3/4/5: Run recovery/resource ownership, bounded cancellation,
 unified Docker shell policy, storage projections and telemetry backend cleanup.

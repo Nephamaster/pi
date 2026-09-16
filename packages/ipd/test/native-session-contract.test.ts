@@ -264,7 +264,9 @@ describe("IPD native session contract", () => {
 			sessionSettings.retry.enabled = !enabled;
 			sessionSettings.retry.maxRetries = 5;
 			fixture.faux.setResponses(
-				Array.from({ length: 8 }, () => fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" })),
+				Array.from({ length: 8 }, () =>
+					fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
+				),
 			);
 			await expect(fixture.session.prompt("Try once under the selected policy.")).rejects.toMatchObject({
 				retryable: false,
@@ -278,7 +280,10 @@ describe("IPD native session contract", () => {
 	it("reports a model abort as cancellation, not a missing submission that should be corrected", async () => {
 		const fixture = await createFixture();
 		fixture.faux.setResponses([fauxAssistantMessage("", { stopReason: "aborted", errorMessage: "aborted" })]);
-		await expect(fixture.session.prompt("Cancelled work.")).rejects.toMatchObject({ kind: "cancelled", retryable: false });
+		await expect(fixture.session.prompt("Cancelled work.")).rejects.toMatchObject({
+			kind: "cancelled",
+			retryable: false,
+		});
 		expect(fixture.faux.state.callCount).toBe(1);
 		expect(fixture.capture.value).toBeUndefined();
 	});
@@ -312,7 +317,9 @@ describe("IPD native session contract", () => {
 				);
 				expect(result).toMatchObject({ content: [image] });
 				expect(JSON.stringify(request.messages.at(-1))).toContain("runtime-current-latest");
-				return fauxAssistantMessage(fauxToolCall("submit_contract", { result: "accepted" }), { stopReason: "toolUse" });
+				return fauxAssistantMessage(fauxToolCall("submit_contract", { result: "accepted" }), {
+					stopReason: "toolUse",
+				});
 			},
 		]);
 		await fixture.session.prompt("Inspect the picture, record work and submit.");
@@ -346,7 +353,9 @@ describe("IPD native session contract", () => {
 			resumed = true;
 			expect(JSON.stringify(request.messages)).toContain("saved-summary");
 			expect(JSON.stringify(request.messages.at(-1))).toContain("current-contract-after-compaction");
-			return fauxAssistantMessage(fauxToolCall("submit_contract", { result: "accepted" }), { stopReason: "toolUse" });
+			return fauxAssistantMessage(fauxToolCall("submit_contract", { result: "accepted" }), {
+				stopReason: "toolUse",
+			});
 		};
 		fixture.faux.setResponses([
 			fauxAssistantMessage(`old-history:${"a".repeat(800)}`),
@@ -359,9 +368,11 @@ describe("IPD native session contract", () => {
 		await fixture.session.prompt("run the large tool");
 		expect(resumed).toBe(true);
 		expect(fixture.capture.value).toEqual({ result: "accepted" });
-		expect(fixture.events.some(
-			(event) => event.type === "compaction_end" && event.result !== undefined && !event.aborted,
-		)).toBe(true);
+		expect(
+			fixture.events.some(
+				(event) => event.type === "compaction_end" && event.result !== undefined && !event.aborted,
+			),
+		).toBe(true);
 		const files = (await readdir(fixture.sessionDirectory)).filter((file) => file.endsWith(".jsonl"));
 		const entries = SessionManager.open(join(fixture.sessionDirectory, files[0])).getEntries();
 		expect(entries.some((entry) => entry.type === "compaction")).toBe(true);

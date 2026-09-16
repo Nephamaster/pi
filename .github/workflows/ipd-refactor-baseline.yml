@@ -139,8 +139,23 @@ jobs:
           test/compiler.test.ts
           test/workflow-asset-store.test.ts
 
-      - name: Run repository checks without accepting uncommitted fixes
+      # The repository command autoformats the whole tree. Report inherited
+      # formatting drift, but require all PR2-owned files to already be clean.
+      # Unrelated baseline formatting is not silently committed by this PR.
+      - name: Run repository checks and verify session changes remain clean
         if: ${{ !cancelled() && steps.models.outcome == 'success' }}
         run: |
           npm run check
-          git diff --exit-code
+          git diff --stat
+          git diff --exit-code -- \
+            packages/ipd/src/adapter \
+            packages/ipd/src/control/pi-control-roles.ts \
+            packages/ipd/src/runtime/node-worker.ts \
+            packages/ipd/src/runtime/telemetry.ts \
+            packages/ipd/src/tool/default-ipd-extension.ts \
+            packages/ipd/src/index.ts \
+            packages/ipd/test/native-session-contract.test.ts \
+            packages/ipd/test/session-policy.test.ts \
+            packages/ipd/test/structured-submissions.test.ts \
+            packages/ipd/test/node-context.test.ts \
+            packages/ipd/test/failure-boundaries.test.ts

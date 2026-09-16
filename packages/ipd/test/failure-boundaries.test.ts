@@ -55,10 +55,12 @@ describe("M7 failure boundaries", () => {
 			expect(state.status).toBe("blocked");
 			expect(state.submissions).toHaveLength(0);
 			expect(state.rounds).toHaveLength(1);
-			expect(state.events).toContainEqual(expect.objectContaining({
-				type: "round_blocked",
-				data: expect.objectContaining({ kind: failure.kind }),
-			}));
+			expect(state.events).toContainEqual(
+				expect.objectContaining({
+					type: "round_blocked",
+					data: expect.objectContaining({ kind: failure.kind }),
+				}),
+			);
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}

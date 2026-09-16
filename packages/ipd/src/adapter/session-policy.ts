@@ -20,6 +20,9 @@ export function loadIpdSessionSettings(cwd: string, agentDir: string): IpdSessio
 	const settings = SettingsManager.create(cwd, agentDir, { projectTrusted: false });
 	const errors = settings.drainErrors();
 	if (errors.length > 0)
-		throw new AggregateError(errors.map((item) => item.error), "Cannot load trusted Pi session settings");
+		throw new AggregateError(
+			errors.map((item) => item.error),
+			"Cannot load trusted Pi session settings",
+		);
 	return projectIpdSessionSettings(settings.getGlobalSettings());
 }
