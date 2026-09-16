@@ -21,6 +21,7 @@ export interface DashboardNode {
 	requiredCapabilities: string[];
 	tools: string[];
 	skills: string[];
+	environment?: { id: string; version: string; provider: string; image?: string };
 	permissions: {
 		readPaths: string[];
 		writePaths: string[];
@@ -123,6 +124,7 @@ export function buildDashboardSnapshot(
 	const nodes = workflowNodes.map((node): DashboardNode => {
 		const runtime = runtimeNodes.get(node.node_id);
 		const effective = effectiveNodes.get(node.node_id);
+		const environment = state.baseline?.environmentBindings.find((binding) => binding.nodeId === node.node_id);
 		const participant = node.agents[0];
 		return {
 			id: node.node_id,
@@ -138,6 +140,16 @@ export function buildDashboardSnapshot(
 			requiredCapabilities: [...participant.required_capabilities],
 			tools: participant.tools.map((tool) => tool.id),
 			skills: participant.skills.map((skill) => skill.id),
+			...(environment
+				? {
+						environment: {
+							id: environment.profileRef.id,
+							version: environment.profileRef.version,
+							provider: environment.provider,
+							...(environment.image ? { image: environment.image.contentId } : {}),
+						},
+					}
+				: {}),
 			permissions: {
 				readPaths: [...participant.permissions.read_paths],
 				writePaths: [...participant.permissions.write_paths],

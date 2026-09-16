@@ -15,6 +15,12 @@ import {
 } from "../contracts/process-spec.ts";
 import { type TaskInput, TaskInputSchema } from "../contracts/task-input.ts";
 import { type WorkflowDefinition, WorkflowDefinitionSchema } from "../contracts/workflow.ts";
+import { type EnvironmentBinding, EnvironmentError } from "../environment/contracts.ts";
+import {
+	createEnvironmentBinding,
+	mergeSkillEnvironmentRequirements,
+	resolveExecutionProfile,
+} from "../environment/profiles.ts";
 import { freezeDeep, hashJson } from "../ir/hash.ts";
 import { validateSchema } from "../ir/validation.ts";
 import type { CompilerAssetCatalog } from "./types.ts";
@@ -204,6 +210,66 @@ export function compileWorkflow(input: CompileWorkflowInput): CompileWorkflowRes
 			lockedKnowledgeBases: lockedResources(agent.knowledge_bases, input.assets.knowledgeBases),
 		})),
 	}));
+	const environmentBindings: EnvironmentBinding[] = [];
+	const environmentProfiles = input.assets.environmentProfiles;
+	const environmentPolicy = input.assets.environmentPolicy;
+	if ((environmentProfiles === undefined) !== (environmentPolicy === undefined))
+		diagnostics.push({
+			code: "environment_configuration_incomplete",
+			severity: "error",
+			path: "/environment",
+			message: "Environment Profiles and policy must be configured together",
+		});
+	else if (!environmentProfiles && workflow.nodes.some((node) => node.environment_ref !== undefined))
+		diagnostics.push({
+			code: "environment_unavailable",
+			severity: "error",
+			path: "/nodes",
+			message: "Workflow references an ExecutionProfile but no trusted environment registry is configured",
+		});
+	else if (environmentProfiles && environmentPolicy) {
+		for (const node of nodes) {
+			for (const participant of node.agents) {
+				try {
+					const profile = resolveExecutionProfile({
+						profiles: environmentProfiles,
+						policy: environmentPolicy,
+						explicitRef: node.definition.environment_ref,
+						requirements: mergeSkillEnvironmentRequirements(participant.lockedSkills),
+						requiredTools: participant.lockedTools.map((tool) => tool.id),
+					});
+					environmentBindings.push(
+						createEnvironmentBinding({
+							nodeId: node.definition.node_id,
+							participantId: participant.participantId,
+							profile,
+							readPaths: node.definition.agents[0].permissions.read_paths,
+							writePaths: node.definition.agents[0].permissions.write_paths,
+							skillHashes: participant.lockedSkills.map((skill) => skill.hash),
+							policy: environmentPolicy,
+						}),
+					);
+				} catch (error) {
+					const environmentError =
+						error instanceof EnvironmentError
+							? error
+							: new EnvironmentError(
+									"profile_incompatible",
+									error instanceof Error ? error.message : String(error),
+									{ cause: error },
+								);
+					diagnostics.push({
+						code: environmentError.code,
+						severity: "error",
+						path: `/nodes/${workflow.nodes.findIndex((item) => item.node_id === node.definition.node_id)}/environment_ref`,
+						message: environmentError.message,
+						nodeId: node.definition.node_id,
+					});
+				}
+			}
+		}
+	}
+	if (diagnostics.some((item) => item.severity === "error")) return { ok: false, report };
 	const baseline: ExecutionBaseline = {
 		baselineId: hashJson({
 			runId: input.runId,
@@ -221,12 +287,14 @@ export function compileWorkflow(input: CompileWorkflowInput): CompileWorkflowRes
 					model: agent.agentCard.model,
 				})),
 			),
+			environmentBindings,
 		}),
 		runId: input.runId,
 		workflow,
 		workflowHash,
 		processSpecRef: { ...selection.process_spec_ref },
 		nodes,
+		environmentBindings,
 		graph: validated.graph,
 		report,
 	};

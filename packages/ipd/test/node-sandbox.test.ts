@@ -16,6 +16,7 @@ describe("IPD node Bash sandbox", () => {
 	const roots: string[] = [];
 
 	afterEach(async () => {
+		delete process.env.IPD_SYNTHETIC_SECRET;
 		spawnMock.mockReset();
 		await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 	});
@@ -57,6 +58,19 @@ describe("IPD node Bash sandbox", () => {
 		expect(denied).not.toContain(linkTarget);
 	});
 
+	it("does not canonicalize a denied alias into an explicitly allowed target", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-read-allowed-alias-"));
+		roots.push(root);
+		const allowed = join(root, "allowed");
+		const alias = join(root, "alias");
+		await mkdir(allowed);
+		await symlink(allowed, alias);
+
+		const denied = await denyReadExcept(root, [allowed]);
+
+		expect(denied).not.toContain(allowed);
+	});
+
 	it("uses a short per-command temp directory for sandbox-runtime bridge sockets", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-node-sandbox-test-"));
 		roots.push(root);
@@ -85,6 +99,7 @@ describe("IPD node Bash sandbox", () => {
 		const tool = createNodeSandboxedBashTool({
 			workspace,
 			sessionDirectory: join(runDirectory, "sessions"),
+			nodeId: "deck-production",
 			participantId: `deck-production-agent-${"long-participant-segment-".repeat(4)}`,
 			permissions: {
 				read_paths: ["."],
@@ -93,7 +108,9 @@ describe("IPD node Bash sandbox", () => {
 			},
 			allowReadOwnWritePaths: true,
 		});
+		process.env.IPD_SYNTHETIC_SECRET = "must-not-reach-node";
 		await tool.execute("call-1", { command: "true" }, undefined, undefined, {} as never);
+		delete process.env.IPD_SYNTHETIC_SECRET;
 
 		const environment = spawnOptions?.env;
 		const commandTempDirectory = environment?.TMPDIR;
@@ -101,6 +118,7 @@ describe("IPD node Bash sandbox", () => {
 		if (process.platform !== "win32") expect(commandTempDirectory?.length).toBeLessThan(80);
 		expect(environment?.TMP).toBe(commandTempDirectory);
 		expect(environment?.TEMP).toBe(commandTempDirectory);
+		expect(environment?.IPD_SYNTHETIC_SECRET).toBeUndefined();
 		if (!settingsText) throw new Error("sandbox-runtime settings were not captured");
 		const settings = JSON.parse(await settingsText) as {
 			filesystem: { allowWrite: string[]; denyRead: string[] };
@@ -108,5 +126,27 @@ describe("IPD node Bash sandbox", () => {
 		expect(settings.filesystem).not.toHaveProperty("allowRead");
 		expect(settings.filesystem.denyRead).not.toContain(homedir());
 		expect(settings.filesystem.allowWrite).toContain(commandTempDirectory);
+	});
+
+	it("fails closed when a required environment command is unavailable", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-node-sandbox-command-"));
+		roots.push(root);
+		const workspace = join(root, "workspace");
+		await mkdir(workspace);
+		const tool = createNodeSandboxedBashTool({
+			workspace,
+			sessionDirectory: join(root, "sessions"),
+			nodeId: "node",
+			participantId: "participant",
+			permissions: { read_paths: ["."], write_paths: [], external_actions: false },
+			requiredCommands: ["ipd-command-that-does-not-exist"],
+		});
+
+		await expect(
+			tool.execute("call-1", { command: "true" }, undefined, undefined, {} as never),
+		).rejects.toMatchObject({
+			code: "environment_unavailable",
+		});
+		expect(spawnMock).not.toHaveBeenCalled();
 	});
 });

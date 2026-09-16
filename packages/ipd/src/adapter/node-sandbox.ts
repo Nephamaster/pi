@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Static } from "typebox";
 import type { NodePermissionsSchema } from "../contracts/workflow.ts";
+import { buildIsolatedEnvironment, EnvironmentError } from "../environment/contracts.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -78,7 +79,11 @@ async function runtimeReadRoots(
 	if (nodeModules) roots.push(nodeModules);
 	for (const command of new Set(["socat", ...requiredCommands])) {
 		const executable = await resolveExecutable(command, pathValue);
-		if (!executable) continue;
+		if (!executable)
+			throw new EnvironmentError(
+				"environment_unavailable",
+				`Required environment command is unavailable: ${command}`,
+			);
 		roots.push(executableRuntimeRoot(executable));
 		try {
 			roots.push(executableRuntimeRoot(await realpath(executable)));
@@ -89,7 +94,7 @@ async function runtimeReadRoots(
 	return unique(roots);
 }
 
-async function canonicalDenyRoots(paths: readonly string[]): Promise<string[]> {
+async function canonicalDenyRoots(paths: readonly string[], allowedRoots: readonly string[] = []): Promise<string[]> {
 	const canonical: string[] = [];
 	for (const path of unique(paths)) {
 		try {
@@ -100,8 +105,19 @@ async function canonicalDenyRoots(paths: readonly string[]): Promise<string[]> {
 		}
 	}
 	const roots = unique(canonical);
+	const allowed = await Promise.all(
+		unique(allowedRoots).map(async (path) => {
+			try {
+				return await realpath(path);
+			} catch {
+				return path;
+			}
+		}),
+	);
 	return roots.filter(
-		(candidate, index) => !roots.some((root, rootIndex) => rootIndex !== index && contains(root, candidate)),
+		(candidate, index) =>
+			!allowed.some((root) => contains(candidate, root) || contains(root, candidate)) &&
+			!roots.some((root, rootIndex) => rootIndex !== index && contains(root, candidate)),
 	);
 }
 
@@ -136,12 +152,13 @@ export async function denyReadExcept(root: string, allowedRoots: readonly string
 		}
 	};
 	await visit(protectedRoot, allowed);
-	return canonicalDenyRoots(denied);
+	return canonicalDenyRoots(denied, allowed);
 }
 
 export interface NodeSandboxOptions {
 	workspace: string;
 	sessionDirectory: string;
+	nodeId: string;
 	participantId: string;
 	permissions: Static<typeof NodePermissionsSchema>;
 	additionalReadRoots?: () => readonly string[];
@@ -153,7 +170,7 @@ export interface NodeSandboxOptions {
 
 function nodeSandboxOperations(options: NodeSandboxOptions): BashOperations {
 	const workspace = resolve(options.workspace);
-	const sandboxRoot = join(options.sessionDirectory, "sandbox", options.participantId);
+	const sandboxRoot = join(options.sessionDirectory, "sandbox", options.nodeId, options.participantId);
 	const sandboxHome = join(sandboxRoot, "home");
 	const cliPath = resolveSandboxCli();
 
@@ -163,7 +180,9 @@ function nodeSandboxOperations(options: NodeSandboxOptions): BashOperations {
 			const configuredReadRoots = options.permissions.read_paths.map((path) => resolve(workspace, path));
 			const writeRoots = options.permissions.write_paths.map((path) => resolve(workspace, path));
 			const additionalReadRoots = options.additionalReadRoots?.() ?? [];
-			const deniedMutableRoots = (options.deniedReadRoots?.() ?? []).map((path) => resolve(workspace, path));
+			const deniedMutableRoots = await canonicalDenyRoots(
+				(options.deniedReadRoots?.() ?? []).map((path) => resolve(workspace, path)),
+			);
 			await Promise.all([
 				mkdir(sandboxHome, { recursive: true }),
 				...writeRoots.map((path) => mkdir(path, { recursive: true })),
@@ -203,8 +222,13 @@ function nodeSandboxOperations(options: NodeSandboxOptions): BashOperations {
 				await rm(configDirectory, { recursive: true, force: true });
 				throw error;
 			}
+			const authorizedEnvironment = Object.fromEntries(
+				["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "COLORTERM", "TZ"]
+					.map((name) => [name, env?.[name]])
+					.filter((entry): entry is [string, string] => entry[1] !== undefined),
+			);
 			const childEnv: NodeJS.ProcessEnv = {
-				...env,
+				...buildIsolatedEnvironment({}, authorizedEnvironment),
 				HOME: sandboxHome,
 				TMPDIR: configDirectory,
 				TMP: configDirectory,

@@ -1,0 +1,62 @@
+name: IPD environment integration
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ipd-environment.yml"
+      - "packages/coding-agent/src/core/tools/**"
+      - "packages/ipd/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ipd-environment.yml"
+      - "packages/coding-agent/src/core/tools/**"
+      - "packages/ipd/**"
+
+concurrency:
+  group: ipd-environment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-docker-provider:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build trusted execution Profiles
+        run: ./packages/ipd/environments/build.sh
+
+      - name: Run real Docker Provider and Pi tool integration
+        env:
+          PI_IPD_DOCKER_INTEGRATION: "1"
+        working-directory: packages/ipd
+        run: node ../../node_modules/vitest/dist/cli.js --run test/docker-provider.integration.test.ts
+
+      - name: Run ordinary Pi tool regression
+        working-directory: packages/coding-agent
+        run: node ../../node_modules/vitest/dist/cli.js --run test/file-mutation-queue.test.ts test/tool-execution-component.test.ts test/tools.test.ts
+
+      - name: Run IPD environment and governance regression
+        working-directory: packages/ipd
+        run: >-
+          node ../../node_modules/vitest/dist/cli.js --run
+          test/docker-adapter.test.ts
+          test/docker-provider.test.ts
+          test/environment-contracts.test.ts
+          test/environment-manager.test.ts
+          test/submission-store.test.ts
+          test/workflow-runtime.test.ts
+          test/runtime-rework.test.ts
+          test/p0-runtime-safety.test.ts

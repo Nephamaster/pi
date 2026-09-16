@@ -38,6 +38,7 @@ describe("SubmissionStore", () => {
 			},
 		};
 		const record = await store.seal(input);
+		expect(await store.seal(input)).toEqual(record);
 		await writeFile(join(run.workspace, "outputs", "produce", "result.txt"), "version two");
 		expect(await readFile(join(record.outputs[0].sealedRoot, "outputs", "produce", "result.txt"), "utf8")).toBe(
 			"version one",
@@ -55,7 +56,47 @@ describe("SubmissionStore", () => {
 				manifest: record.outputs[0].manifest,
 			}),
 		).toEqual({ ok: true, diagnostics: [] });
-		expect(await store.seal(input)).toEqual(record);
+		await expect(store.seal(input)).rejects.toThrow("different file bytes");
+	});
+
+	it("seals from a trusted exported SourceView instead of the mutable Run workspace", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-submission-export-"));
+		roots.push(root);
+		const run = await prepareRunDirectory(root, "run-1");
+		const sourceWorkspace = join(root, "exported-view");
+		await Promise.all([
+			mkdir(join(run.workspace, "outputs", "produce"), { recursive: true }),
+			mkdir(join(sourceWorkspace, "outputs", "produce"), { recursive: true }),
+		]);
+		await Promise.all([
+			writeFile(join(run.workspace, "outputs", "produce", "result.txt"), "mutable-host-copy"),
+			writeFile(join(sourceWorkspace, "outputs", "produce", "result.txt"), "stable-export"),
+		]);
+		const node = createValidWorkflow().nodes.find((item) => item.kind === "execution");
+		if (!node || node.kind !== "execution") throw new Error("Missing execution node");
+		const record = await new SubmissionStore().seal({
+			run,
+			runId: "run-1",
+			node,
+			roundId: "round-1",
+			submissionId: "submission-1",
+			inputSubmissionIds: [],
+			sourceWorkspace,
+			submission: {
+				summary: "exported result",
+				outputs: [
+					{
+						output_id: "content-output",
+						files: [{ path: "outputs/produce/result.txt", media_type: "text/plain" }],
+					},
+				],
+				evidence: [],
+				metadata: {},
+			},
+		});
+		expect(await readFile(join(record.outputs[0].sealedRoot, "outputs", "produce", "result.txt"), "utf8")).toBe(
+			"stable-export",
+		);
 	});
 
 	it("defensively normalizes a compiled output root before sealing", async () => {

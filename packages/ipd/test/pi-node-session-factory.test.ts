@@ -80,6 +80,7 @@ describe("PiNodeSessionFactory", () => {
 			nodeId: "produce",
 			participantId: "producer",
 			createInput: {
+				nodeId: "produce",
 				workspace: root,
 				sessionDirectory: join(root, "sessions"),
 				systemPrompt: "Execute the supplied work round.",

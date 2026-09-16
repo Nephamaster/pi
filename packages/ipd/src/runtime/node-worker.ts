@@ -3,6 +3,7 @@ import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "../adapter
 import type { EffectiveNode } from "../contracts/baseline.ts";
 import type { RoundInputBindingRecord, SubmissionRecord } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
+import type { EnvironmentBinding, EnvironmentErrorCode } from "../environment/contracts.ts";
 
 export interface NodeTaskContext {
 	rawTask?: TaskInput["raw_task"];
@@ -29,11 +30,18 @@ export interface NodeRoundWork {
 	taskContext: NodeTaskContext;
 	forbiddenMutableReadPaths: string[];
 	feedback: RoundFeedback[];
+	environmentBinding?: EnvironmentBinding;
 }
 
 export type ExecutionNodeResult = SubmitArtifact | { kind: "blocked"; report: ReportNodeBlocked };
 
 export interface NodeWorker {
+	prepareRound?(work: NodeRoundWork, signal?: AbortSignal): Promise<void>;
+	exportSubmission?(
+		work: NodeRoundWork,
+		submission: SubmitArtifact,
+		signal?: AbortSignal,
+	): Promise<string | undefined>;
 	runExecution(work: NodeRoundWork): Promise<ExecutionNodeResult>;
 	runReview(work: NodeRoundWork): Promise<SubmitReview>;
 	stopRound?(runId: string, nodeId: string, participantId: string, roundId: string): Promise<void>;
@@ -46,7 +54,8 @@ export type NodeWorkerFailureKind =
 	| "session_lost"
 	| "configuration"
 	| "timeout"
-	| "cancelled";
+	| "cancelled"
+	| EnvironmentErrorCode;
 
 export class NodeSubmissionProtocolError extends Error {
 	constructor(message: string) {
@@ -90,6 +99,18 @@ export class RetryingNodeWorker implements NodeWorker {
 
 	runReview(work: NodeRoundWork): Promise<SubmitReview> {
 		return this.retry(work, (current) => this.delegate.runReview(current));
+	}
+
+	prepareRound(work: NodeRoundWork, signal?: AbortSignal): Promise<void> {
+		return this.delegate.prepareRound?.(work, signal) ?? Promise.resolve();
+	}
+
+	exportSubmission(
+		work: NodeRoundWork,
+		submission: SubmitArtifact,
+		signal?: AbortSignal,
+	): Promise<string | undefined> {
+		return this.delegate.exportSubmission?.(work, submission, signal) ?? Promise.resolve(undefined);
 	}
 
 	stopRound(runId: string, nodeId: string, participantId: string, roundId: string): Promise<void> {

@@ -15,6 +15,7 @@
 	"files": [
 		"dist",
 		"assets",
+		"environments",
 		"examples",
 		"prompts",
 		"README.md",

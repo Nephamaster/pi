@@ -83,10 +83,13 @@ export interface EditToolDetails {
 export interface EditOperations {
 	/** Read file contents as a Buffer */
 	readFile: (absolutePath: string) => Promise<Buffer>;
+	readFileWithSignal?: (absolutePath: string, signal?: AbortSignal) => Promise<Buffer>;
 	/** Write content to a file */
 	writeFile: (absolutePath: string, content: string) => Promise<void>;
+	writeFileWithSignal?: (absolutePath: string, content: string, signal?: AbortSignal) => Promise<void>;
 	/** Check if file is readable and writable (throw if not) */
 	access: (absolutePath: string) => Promise<void>;
+	accessWithSignal?: (absolutePath: string, signal?: AbortSignal) => Promise<void>;
 }
 
 const defaultEditOperations: EditOperations = {
@@ -173,7 +176,8 @@ export function createEditToolDefinition(
 
 				// Check if file exists.
 				try {
-					await ops.access(absolutePath);
+					if (ops.accessWithSignal) await ops.accessWithSignal(absolutePath, signal);
+					else await ops.access(absolutePath);
 				} catch (error: unknown) {
 					throwIfAborted();
 					const errorMessage =
@@ -183,7 +187,9 @@ export function createEditToolDefinition(
 				throwIfAborted();
 
 				// Read the file.
-				const buffer = await ops.readFile(absolutePath);
+				const buffer = ops.readFileWithSignal
+					? await ops.readFileWithSignal(absolutePath, signal)
+					: await ops.readFile(absolutePath);
 				const rawContent = buffer.toString("utf-8");
 				throwIfAborted();
 
@@ -195,7 +201,8 @@ export function createEditToolDefinition(
 				throwIfAborted();
 
 				const finalContent = bom + restoreLineEndings(newContent, originalEnding);
-				await ops.writeFile(absolutePath, finalContent);
+				if (ops.writeFileWithSignal) await ops.writeFileWithSignal(absolutePath, finalContent, signal);
+				else await ops.writeFile(absolutePath, finalContent);
 				throwIfAborted();
 
 				const diffResult = generateDiffString(baseContent, newContent);

@@ -98,6 +98,7 @@ export const OutputDefinitionSchema = Type.Object(
 const CommonNodeFields = {
 	node_id: IdentifierSchema,
 	name: NonEmptyStringSchema,
+	environment_ref: Type.Optional(VersionedAssetRefSchema),
 	agents: Type.Array(NodeAgentConfigSchema, { minItems: 1 }),
 	contract: NodeWorkContractSchema,
 	inputs: Type.Array(NodeInputSchema),

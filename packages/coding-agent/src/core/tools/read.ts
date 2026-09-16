@@ -33,12 +33,17 @@ export interface ReadToolDetails {
  * Override these to delegate file reading to remote systems (for example SSH).
  */
 export interface ReadOperations {
+	/** Resolve the requested path without consulting the local filesystem. */
+	resolvePath?: (path: string, cwd: string) => Promise<string> | string;
 	/** Read file contents as a Buffer */
 	readFile: (absolutePath: string) => Promise<Buffer>;
+	readFileWithSignal?: (absolutePath: string, signal?: AbortSignal) => Promise<Buffer>;
 	/** Check if file is readable (throw if not) */
 	access: (absolutePath: string) => Promise<void>;
+	accessWithSignal?: (absolutePath: string, signal?: AbortSignal) => Promise<void>;
 	/** Detect image MIME type, return null or undefined for non-images */
 	detectImageMimeType?: (absolutePath: string) => Promise<string | null | undefined>;
+	detectImageMimeTypeWithSignal?: (absolutePath: string, signal?: AbortSignal) => Promise<string | null | undefined>;
 }
 
 const defaultReadOperations: ReadOperations = {
@@ -97,18 +102,27 @@ export function createReadToolDefinition(
 
 					(async () => {
 						try {
-							const absolutePath = await resolveReadPathAsync(path, ctx?.cwd || cwd);
+							const absolutePath = ops.resolvePath
+								? await ops.resolvePath(path, ctx?.cwd || cwd)
+								: await resolveReadPathAsync(path, ctx?.cwd || cwd);
 							if (aborted) return;
 							// Check if file exists and is readable.
-							await ops.access(absolutePath);
+							if (ops.accessWithSignal) await ops.accessWithSignal(absolutePath, signal);
+							else await ops.access(absolutePath);
 							if (aborted) return;
-							const mimeType = ops.detectImageMimeType ? await ops.detectImageMimeType(absolutePath) : undefined;
+							const mimeType = ops.detectImageMimeTypeWithSignal
+								? await ops.detectImageMimeTypeWithSignal(absolutePath, signal)
+								: ops.detectImageMimeType
+									? await ops.detectImageMimeType(absolutePath)
+									: undefined;
 							let content: (TextContent | ImageContent)[];
 							let details: ReadToolDetails | undefined;
 							const nonVisionImageNote = getNonVisionImageNote(ctx?.model);
 							if (mimeType) {
 								// Read image as binary.
-								const buffer = await ops.readFile(absolutePath);
+								const buffer = ops.readFileWithSignal
+									? await ops.readFileWithSignal(absolutePath, signal)
+									: await ops.readFile(absolutePath);
 								const processed = await processImage(buffer, mimeType, { autoResizeImages });
 								if (!processed.ok) {
 									let textNote = `Read image file [${mimeType}]\n${processed.message}`;
@@ -125,7 +139,9 @@ export function createReadToolDefinition(
 								}
 							} else {
 								// Read text content.
-								const buffer = await ops.readFile(absolutePath);
+								const buffer = ops.readFileWithSignal
+									? await ops.readFileWithSignal(absolutePath, signal)
+									: await ops.readFile(absolutePath);
 								const textContent = buffer.toString("utf-8");
 								const allLines = textContent.split("\n");
 								const totalFileLines = allLines.length;

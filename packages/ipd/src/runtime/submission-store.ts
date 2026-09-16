@@ -17,6 +17,7 @@ export interface SealSubmissionInput {
 	submissionId: string;
 	inputSubmissionIds: string[];
 	submission: SubmitArtifact;
+	sourceWorkspace?: string;
 	signal?: AbortSignal;
 }
 
@@ -40,13 +41,14 @@ export class SubmissionStore {
 			submission: input.submission,
 		});
 		const target = join(input.run.submissions, input.submissionId);
+		let existing: SubmissionRecord | undefined;
 		try {
-			const existing = JSON.parse(await readFile(join(target, "submission.json"), "utf8")) as SubmissionRecord;
+			existing = JSON.parse(await readFile(join(target, "submission.json"), "utf8")) as SubmissionRecord;
 			if (existing.contentHash !== contentHash) throw new Error(`Submission ID conflict: ${input.submissionId}`);
-			return existing;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 		}
+		const sourceWorkspace = input.sourceWorkspace ?? input.run.workspace;
 		const definitions = new Map(input.node.outputs.map((output) => [output.output_id, output]));
 		if (input.submission.outputs.length !== definitions.size)
 			throw new SubmissionValidationError("Submission must provide every declared output exactly once");
@@ -63,14 +65,14 @@ export class SubmissionStore {
 				seenOutputs.add(submitted.output_id);
 				const outputRoot = normalizeScope(definition.path_prefix);
 				if (!outputRoot) throw new SubmissionValidationError(`Invalid output path: ${definition.path_prefix}`);
-				const realOutputRoot = await realpath(resolve(input.run.workspace, outputRoot));
+				const realOutputRoot = await realpath(resolve(sourceWorkspace, outputRoot));
 				const sealedOutputStaging = join(staging, definition.output_id);
 				await mkdir(sealedOutputStaging, { recursive: false });
 				for (const file of submitted.files) {
 					const path = normalizeScope(file.path);
 					if (!path || !scopeContains(outputRoot, path))
 						throw new SubmissionValidationError(`File ${file.path} is outside output ${definition.output_id}`);
-					const realFile = await realpath(resolve(input.run.workspace, path));
+					const realFile = await realpath(resolve(sourceWorkspace, path));
 					const relativeFile = relative(realOutputRoot, realFile);
 					if (relativeFile.startsWith("..") || isAbsolute(relativeFile))
 						throw new SubmissionValidationError(
@@ -78,7 +80,7 @@ export class SubmissionStore {
 						);
 				}
 				const manifest = await createArtifactManifest({
-					workspace: input.run.workspace,
+					workspace: sourceWorkspace,
 					contract: {
 						id: definition.output_id,
 						artifactType: definition.artifact_type,
@@ -101,7 +103,7 @@ export class SubmissionStore {
 					input.signal?.throwIfAborted();
 					const destination = resolve(sealedOutputStaging, file.path);
 					await mkdir(dirname(destination), { recursive: true });
-					await copyFile(resolve(input.run.workspace, file.path), destination);
+					await copyFile(resolve(sourceWorkspace, file.path), destination);
 					input.signal?.throwIfAborted();
 				}
 				const validation = await validateArtifactManifest({
@@ -146,6 +148,16 @@ export class SubmissionStore {
 				);
 			}
 			input.signal?.throwIfAborted();
+			if (existing) {
+				const fileIdentity = (value: SubmissionRecord) =>
+					value.outputs.map((output) => ({ outputId: output.outputId, files: output.manifest.files }));
+				if (hashJson(fileIdentity(existing)) !== hashJson(fileIdentity(record)))
+					throw new SubmissionValidationError(
+						`Submission ID conflict: ${input.submissionId} has different file bytes`,
+					);
+				await rm(staging, { recursive: true, force: true });
+				return existing;
+			}
 			await rename(staging, target);
 			return record;
 		} catch (error) {

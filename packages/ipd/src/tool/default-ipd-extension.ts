@@ -1,5 +1,6 @@
 // 装配默认资产、控制面和 Runtime 并注册 IPD 扩展。
-import { join } from "node:path";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	type ExtensionAPI,
@@ -15,6 +16,11 @@ import type { CompilerDiagnostic } from "../contracts/baseline.ts";
 import { IpdControlPlane } from "../control/control-plane.ts";
 import { type PiControlRoleOptions, PiProcessSelector, PiWorkflowDesigner } from "../control/pi-control-roles.ts";
 import { WorkflowDraftManager } from "../control/workflow-draft.ts";
+import { DockerCli } from "../environment/docker-adapter.ts";
+import { DockerEnvironmentProvider } from "../environment/docker-provider.ts";
+import { EnvironmentManager } from "../environment/manager.ts";
+import { loadRegisteredDockerProfile } from "../environment/profile-loader.ts";
+import { createEnvironmentToolDescriptors } from "../environment/tool-backend.ts";
 import {
 	createArtifactFileSetCheckExecutor,
 	createArtifactIntegrityCheckExecutor,
@@ -23,7 +29,7 @@ import {
 import { hashJson, toJsonValue } from "../ir/hash.ts";
 import { AssetAssembler, toCompilerAssetCatalog } from "../registry/asset-assembler.ts";
 import { CheckExecutorRegistry } from "../registry/check-executor-registry.ts";
-import { hashSkillPackage } from "../registry/skill-package.ts";
+import { hashSkillPackage, snapshotSkillPackage } from "../registry/skill-package.ts";
 import { FileWorkflowAssetStore } from "../registry/workflow-asset-store.ts";
 import { IpdService } from "../runtime/ipd-service.ts";
 import { RetryingNodeWorker } from "../runtime/node-worker.ts";
@@ -57,6 +63,12 @@ function runtimeInteger(name: string, fallback: number, minimum: number): number
 	if (!raw) return fallback;
 	const value = Number(raw);
 	if (!Number.isInteger(value) || value < minimum) throw new Error(`Invalid ${name}: ${raw}`);
+	return value;
+}
+
+function environmentMode(): "docker" | "legacy-srt" {
+	const value = process.env.PI_IPD_ENVIRONMENT_MODE?.trim() || "docker";
+	if (value !== "docker" && value !== "legacy-srt") throw new Error(`Invalid PI_IPD_ENVIRONMENT_MODE: ${value}`);
 	return value;
 }
 
@@ -125,6 +137,7 @@ export function registerDefaultIpdExtension(pi: ExtensionAPI): void {
 			model: `${model.provider}/${model.id}`,
 			thinkingLevel: context.thinkingLevel ?? "off",
 			projectTrusted: context.isProjectTrusted(),
+			environmentMode: environmentMode(),
 			skills: skillHashes.sort((left, right) => left.path.localeCompare(right.path)),
 			tools: toolDefinitions
 				.map((tool) => ({
@@ -156,22 +169,65 @@ async function createDefaultService(
 	toolDefinitions: readonly ToolDefinition[],
 ): Promise<IpdService> {
 	const agentDir = getAgentDir();
+	const selectedEnvironmentMode = environmentMode();
+	const runtimeToolDefinitions = [
+		...toolDefinitions,
+		...(selectedEnvironmentMode === "docker" ? createEnvironmentToolDescriptors() : []),
+	];
 	const runtimeModels = await modelRuntime(context);
 	const assembled = await new AssetAssembler().assembleDefault({
 		agentDir,
 		projectRoot: context.cwd,
 		projectTrusted: context.isProjectTrusted(),
 		skills,
-		tools: toolDefinitions,
+		tools: runtimeToolDefinitions,
 		hasModel: (provider, id) =>
 			runtimeModels.getModel(provider, id) !== undefined && runtimeModels.hasConfiguredAuth(provider),
 	});
+	const skillSnapshotRoot = join(context.cwd, ".pi", "ipd", "skill-snapshots");
+	assembled.skills = await Promise.all(
+		assembled.skills.map(async (skill) => {
+			const baseDir = await snapshotSkillPackage(skill.baseDir, skillSnapshotRoot, skill.hash);
+			return { ...skill, baseDir, filePath: join(baseDir, relative(skill.baseDir, skill.filePath)) };
+		}),
+	);
 	const checks = new CheckExecutorRegistry();
 	for (const executor of [createArtifactIntegrityCheckExecutor(), createArtifactFileSetCheckExecutor()]) {
 		const collision = checks.add(executor);
 		if (collision) throw new Error(collision.message);
 	}
-	const assets = toCompilerAssetCatalog(assembled, checks);
+	let environmentProfiles: Awaited<ReturnType<typeof loadRegisteredDockerProfile>>[] = [];
+	let environmentManager: EnvironmentManager | undefined;
+	let assets = toCompilerAssetCatalog(assembled, checks);
+	if (selectedEnvironmentMode === "docker") {
+		const projectIdentity = hashJson(context.cwd).slice(0, 16);
+		const docker = new DockerCli({
+			dockerConfigDirectory: join("/tmp", "pi-ipd-docker-config", projectIdentity),
+			managementTimeoutMs: runtimeInteger("PI_IPD_DOCKER_TIMEOUT_MS", 120_000, 1),
+		});
+		environmentProfiles = await Promise.all(
+			["code-node24", "office-pptx"].map((profile) =>
+				loadRegisteredDockerProfile(
+					fileURLToPath(new URL(`../../environments/${profile}/profile.template.json`, import.meta.url)),
+					docker,
+				),
+			),
+		);
+		const environmentPolicy = {
+			allowedProfiles: environmentProfiles.map(({ profile }) => ({ id: profile.id, version: profile.version })),
+			defaultProfile: { id: "code-node24", version: "1.0.0" },
+		};
+		assets = toCompilerAssetCatalog(assembled, checks, [], {
+			profiles: environmentProfiles,
+			policy: environmentPolicy,
+		});
+		environmentManager = new EnvironmentManager([
+			new DockerEnvironmentProvider({
+				docker,
+				storageRoot: join("/tmp", "pi-ipd-environments", projectIdentity),
+			}),
+		]);
+	}
 	const selectorCard = assembled.agentCards.find((card) => card.id === "ipd-process-selector");
 	const designerCard = assembled.agentCards.find((card) => card.id === "agency-project-management-project-shepherd");
 	const selectionSkill = assembled.skills.find((skill) => skill.id === "process-selection");
@@ -197,7 +253,7 @@ async function createDefaultService(
 		onMutationMetric: (metric) => telemetry.record({ source: "run_store", ...metric }),
 	});
 	const workflowAssets = new FileWorkflowAssetStore({ directory: join(context.cwd, ".pi", "ipd", "workflow") });
-	const customTools = toolDefinitions.filter((tool) => !BUILTIN_TOOLS.has(tool.name));
+	const customTools = runtimeToolDefinitions.filter((tool) => !BUILTIN_TOOLS.has(tool.name));
 	const managerByRun = new Map<string, WorkflowDraftManager>();
 	const roleOptions = (runId: string, card: typeof selectorCard): PiControlRoleOptions => ({
 		agentDir,
@@ -220,10 +276,18 @@ async function createDefaultService(
 		tools: assembled.tools.map((tool) => tool.id),
 		unavailableAgentCards: assembled.unavailableAgentCards,
 		mechanicalChecks: checks.list().map((check) => ({ id: check.id, parameters: check.parameters })),
+		environmentProfiles: environmentProfiles.map(({ ref, profile }) => ({
+			ref,
+			provider: profile.provider,
+			capabilities: profile.capabilities,
+			commands: profile.commands,
+		})),
 	});
 	const executionIdentity = toJsonValue({
 		model: { provider: model.provider, id: model.id },
 		thinkingLevel: context.thinkingLevel ?? "off",
+		environmentMode: selectedEnvironmentMode,
+		environmentProfiles: environmentProfiles.map(({ ref }) => ref),
 	});
 	const dashboard = new IpdDashboardServer({
 		projectRoot: context.cwd,
@@ -318,6 +382,7 @@ async function createDefaultService(
 						model,
 						thinkingLevel: context.thinkingLevel ?? "off",
 						customTools,
+						environmentManager,
 					}),
 				),
 				new SubmissionStore(),

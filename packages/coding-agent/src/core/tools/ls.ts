@@ -34,10 +34,16 @@ export interface LsToolDetails {
 export interface LsOperations {
 	/** Check if path exists */
 	exists: (absolutePath: string) => Promise<boolean> | boolean;
+	existsWithSignal?: (absolutePath: string, signal?: AbortSignal) => Promise<boolean> | boolean;
 	/** Get file or directory stats. Throws if not found. */
 	stat: (absolutePath: string) => Promise<{ isDirectory: () => boolean }> | { isDirectory: () => boolean };
+	statWithSignal?: (
+		absolutePath: string,
+		signal?: AbortSignal,
+	) => Promise<{ isDirectory: () => boolean }> | { isDirectory: () => boolean };
 	/** Read directory entries */
 	readdir: (absolutePath: string) => Promise<string[]> | string[];
+	readdirWithSignal?: (absolutePath: string, signal?: AbortSignal) => Promise<string[]> | string[];
 }
 
 const defaultLsOperations: LsOperations = {
@@ -84,13 +90,16 @@ export function createLsToolDefinition(
 						const effectiveLimit = limit ?? DEFAULT_LIMIT;
 
 						// Check if path exists.
-						if (!(await ops.exists(dirPath))) {
+						const exists = ops.existsWithSignal
+							? await ops.existsWithSignal(dirPath, signal)
+							: await ops.exists(dirPath);
+						if (!exists) {
 							reject(new Error(`Path not found: ${dirPath}`));
 							return;
 						}
 
 						// Check if path is a directory.
-						const stat = await ops.stat(dirPath);
+						const stat = ops.statWithSignal ? await ops.statWithSignal(dirPath, signal) : await ops.stat(dirPath);
 						if (!stat.isDirectory()) {
 							reject(new Error(`Not a directory: ${dirPath}`));
 							return;
@@ -99,7 +108,9 @@ export function createLsToolDefinition(
 						// Read directory entries.
 						let entries: string[];
 						try {
-							entries = await ops.readdir(dirPath);
+							entries = ops.readdirWithSignal
+								? await ops.readdirWithSignal(dirPath, signal)
+								: await ops.readdir(dirPath);
 						} catch (e: any) {
 							reject(new Error(`Cannot read directory: ${e.message}`));
 							return;
@@ -120,7 +131,9 @@ export function createLsToolDefinition(
 							const fullPath = nodePath.join(dirPath, entry);
 							let suffix = "";
 							try {
-								const entryStat = await ops.stat(fullPath);
+								const entryStat = ops.statWithSignal
+									? await ops.statWithSignal(fullPath, signal)
+									: await ops.stat(fullPath);
 								if (entryStat.isDirectory()) suffix = "/";
 							} catch {
 								// Skip entries we cannot stat.

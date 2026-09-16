@@ -19,6 +19,7 @@ import { createNodeSandboxedBashTool } from "./node-sandbox.ts";
 import type { NodeSessionFactory, NodeSessionHandle } from "./node-session-adapter.ts";
 
 export interface PiNodeSessionCreateInput {
+	nodeId: string;
 	workspace: string;
 	sessionDirectory: string;
 	systemPrompt: string;
@@ -32,6 +33,8 @@ export interface PiNodeSessionCreateInput {
 	runDefaultModel: Model<Api>;
 	runDefaultThinkingLevel: ThinkingLevel;
 	controlTools?: readonly ToolDefinition[];
+	environmentTools?: readonly ToolDefinition[];
+	environmentCwd?: string;
 }
 
 export interface PiNodeSessionFactoryOptions {
@@ -53,6 +56,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 
 	async create(input: PiNodeSessionCreateInput): Promise<NodeSessionHandle> {
 		const verifyLockedSkills = async (): Promise<void> => {
+			if (input.environmentCwd) return;
 			for (const skill of input.participant.lockedSkills) {
 				if ((await hashSkillPackage(skill.baseDir)) !== skill.hash)
 					throw new Error(`Locked Skill content changed: ${skill.id}`);
@@ -89,23 +93,38 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 				noThemes: true,
 				noContextFiles: true,
 				additionalSkillPaths: input.participant.lockedSkills.map((skill) => skill.filePath),
+				skillsOverride: input.environmentCwd
+					? (base) => ({
+							diagnostics: base.diagnostics,
+							skills: base.skills.map((skill) => {
+								const locked = input.participant.lockedSkills.find((candidate) => candidate.id === skill.name);
+								if (!locked) return skill;
+								const baseDir = `/ipd/skills/${locked.id}/${locked.hash}`;
+								return { ...skill, baseDir, filePath: `${baseDir}/SKILL.md` };
+							}),
+						})
+					: undefined,
 				agentsFilesOverride: () => ({ agentsFiles: [...(input.contextFiles ?? [])] }),
 				extensionFactories: [
-					{
-						name: "ipd-node-file-scope",
-						hidden: true,
-						factory: createNodeFileScopeExtension({
-							workspace: input.workspace,
-							permissions,
-							additionalReadRoots: () => [
-								...input.participant.lockedSkills.map((skill) => skill.baseDir),
-								...(input.getAdditionalReadRoots?.() ?? []),
-							],
-							deniedReadRoots: input.getDeniedReadRoots,
-							allowReadOwnWritePaths: input.allowReadOwnWritePaths,
-							beforeRead: verifyLockedSkills,
-						}),
-					},
+					...(input.environmentTools
+						? []
+						: [
+								{
+									name: "ipd-node-file-scope",
+									hidden: true,
+									factory: createNodeFileScopeExtension({
+										workspace: input.workspace,
+										permissions,
+										additionalReadRoots: () => [
+											...input.participant.lockedSkills.map((skill) => skill.baseDir),
+											...(input.getAdditionalReadRoots?.() ?? []),
+										],
+										deniedReadRoots: input.getDeniedReadRoots,
+										allowReadOwnWritePaths: input.allowReadOwnWritePaths,
+										beforeRead: verifyLockedSkills,
+									}),
+								},
+							]),
 					...(input.getCurrentContext
 						? [
 								{
@@ -129,7 +148,13 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 		const customTools = [...this.customTools, ...(input.controlTools ?? [])].filter((tool) =>
 			allowedToolNames.has(tool.name),
 		);
-		if (allowedToolNames.has("bash")) {
+		for (const tool of input.environmentTools ?? []) {
+			if (!allowedToolNames.has(tool.name)) continue;
+			const existing = customTools.findIndex((candidate) => candidate.name === tool.name);
+			if (existing >= 0) customTools.splice(existing, 1);
+			customTools.push(tool);
+		}
+		if (!input.environmentTools && allowedToolNames.has("bash")) {
 			const nonBashTools = customTools.filter((tool) => tool.name !== "bash");
 			customTools.length = 0;
 			customTools.push(
@@ -137,6 +162,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 				createNodeSandboxedBashTool({
 					workspace: input.workspace,
 					sessionDirectory: input.sessionDirectory,
+					nodeId: input.nodeId,
 					participantId: input.participant.participantId,
 					permissions,
 					additionalReadRoots: () => [
@@ -153,7 +179,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 			);
 		}
 		const created = await createAgentSessionFromServices({
-			services,
+			services: input.environmentCwd ? { ...services, cwd: input.environmentCwd } : services,
 			sessionManager: SessionManager.create(input.workspace, input.sessionDirectory),
 			model,
 			thinkingLevel,

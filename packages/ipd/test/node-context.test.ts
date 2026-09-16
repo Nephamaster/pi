@@ -176,7 +176,7 @@ describe("node prompt projections", () => {
 				},
 			],
 		});
-		expect(context).toContain('"submission_record":"/sealed/submission-1/submission.json"');
+		expect(context).toContain('"submission_record":"/ipd/inputs/candidate/submission.json"');
 		expect(context).toMatch(/^<ipd_current_round source="runtime">[\s\S]*<\/ipd_current_round>$/);
 		expect(context).toContain('"type":"quality_rework"');
 		expect(context).not.toContain("task_context");

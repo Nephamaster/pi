@@ -1,4 +1,5 @@
 // 调度冻结工作流并实施提交、检查、评审、返工和收口。
+import { rm } from "node:fs/promises";
 import type { ReportNodeBlocked, SubmitReview } from "../adapter/structured-submissions.ts";
 import { ArtifactValidationError } from "../artifact/manifest.ts";
 import type { EffectiveNode, ExecutionBaseline } from "../contracts/baseline.ts";
@@ -272,8 +273,13 @@ export class WorkflowRuntime {
 						: [],
 				),
 			feedback: reworkFeedback(node, state),
+			environmentBinding: requireBaseline(state).environmentBindings.find(
+				(binding) =>
+					binding.nodeId === node.definition.node_id && binding.participantId === node.agents[0].participantId,
+			),
 		};
 		try {
+			await this.worker.prepareRound?.(work, this.abortController.signal);
 			await this.runRoundWithTimeout(work, node.definition);
 		} catch (error) {
 			await this.blockRound(work, error);
@@ -397,16 +403,23 @@ export class WorkflowRuntime {
 					await this.recordExecutionBlock(work, submitted.report);
 					return;
 				}
-				record = await this.submissions.seal({
-					run: this.directory,
-					runId: work.runId,
-					node,
-					roundId: work.roundId,
-					submissionId: `${work.roundId}:submission`,
-					inputSubmissionIds: work.inputSubmissions.map((item) => item.submissionId),
-					submission: submitted,
-					signal: this.abortController.signal,
-				});
+				let sourceWorkspace: string | undefined;
+				try {
+					sourceWorkspace = await this.worker.exportSubmission?.(work, submitted, this.abortController.signal);
+					record = await this.submissions.seal({
+						run: this.directory,
+						runId: work.runId,
+						node,
+						roundId: work.roundId,
+						submissionId: `${work.roundId}:submission`,
+						inputSubmissionIds: work.inputSubmissions.map((item) => item.submissionId),
+						submission: submitted,
+						sourceWorkspace,
+						signal: this.abortController.signal,
+					});
+				} finally {
+					if (sourceWorkspace) await rm(sourceWorkspace, { recursive: true, force: true });
+				}
 				break;
 			} catch (error) {
 				if (error instanceof NodeWorkerError) throw error;

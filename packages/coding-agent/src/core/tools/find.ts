@@ -52,8 +52,15 @@ export interface FindToolDetails {
 export interface FindOperations {
 	/** Check if path exists */
 	exists: (absolutePath: string) => Promise<boolean> | boolean;
+	existsWithSignal?: (absolutePath: string, signal?: AbortSignal) => Promise<boolean> | boolean;
 	/** Find files matching glob pattern. Returns relative or absolute paths. */
 	glob: (pattern: string, cwd: string, options: { ignore: string[]; limit: number }) => Promise<string[]> | string[];
+	globWithSignal?: (
+		pattern: string,
+		cwd: string,
+		options: { ignore: string[]; limit: number },
+		signal?: AbortSignal,
+	) => Promise<string[]> | string[];
 }
 
 const defaultFindOperations: FindOperations = {
@@ -114,7 +121,10 @@ export function createFindToolDefinition(
 
 						// If custom operations provide glob(), use that instead of fd.
 						if (customOps?.glob) {
-							if (!(await ops.exists(searchPath))) {
+							const exists = ops.existsWithSignal
+								? await ops.existsWithSignal(searchPath, signal)
+								: await ops.exists(searchPath);
+							if (!exists) {
 								settle(() => reject(new Error(`Path not found: ${searchPath}`)));
 								return;
 							}
@@ -122,10 +132,10 @@ export function createFindToolDefinition(
 								settle(() => reject(new Error("Operation aborted")));
 								return;
 							}
-							const results = await ops.glob(pattern, searchPath, {
-								ignore: ["**/node_modules/**", "**/.git/**"],
-								limit: effectiveLimit,
-							});
+							const globOptions = { ignore: ["**/node_modules/**", "**/.git/**"], limit: effectiveLimit };
+							const results = ops.globWithSignal
+								? await ops.globWithSignal(pattern, searchPath, globOptions, signal)
+								: await ops.glob(pattern, searchPath, globOptions);
 							if (signal?.aborted) {
 								settle(() => reject(new Error("Operation aborted")));
 								return;

@@ -115,6 +115,7 @@ class PiStructuredRole<TSchemaValue extends TSchema> {
 			nodeId: roleId,
 			participantId: roleId,
 			createInput: {
+				nodeId: roleId,
 				workspace: this.options.workspace,
 				sessionDirectory: this.options.sessionDirectory,
 				systemPrompt,
@@ -346,6 +347,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				nodeId: "workflow-designer",
 				participantId: "workflow-designer",
 				createInput: {
+					nodeId: "workflow-designer",
 					workspace: options.workspace,
 					sessionDirectory: options.sessionDirectory,
 					systemPrompt: `${loadPrompt("common")}\n\n${renderAgentRuntimeProfile(options.agentCard)}\n\n${loadPrompt("workflow-designer")}`,

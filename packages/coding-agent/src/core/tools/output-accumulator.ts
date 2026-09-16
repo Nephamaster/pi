@@ -8,6 +8,7 @@ export interface OutputAccumulatorOptions {
 	maxLines?: number;
 	maxBytes?: number;
 	tempFilePrefix?: string;
+	persistToTempFile?: boolean;
 }
 
 export interface OutputSnapshot {
@@ -37,6 +38,7 @@ export class OutputAccumulator {
 	private readonly maxBytes: number;
 	private readonly maxRollingBytes: number;
 	private readonly tempFilePrefix: string;
+	private readonly persistToTempFile: boolean;
 	private readonly decoder = new TextDecoder();
 
 	private rawChunks: Buffer[] = [];
@@ -59,6 +61,7 @@ export class OutputAccumulator {
 		this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
 		this.maxRollingBytes = Math.max(this.maxBytes * 2, 1);
 		this.tempFilePrefix = options.tempFilePrefix ?? "pi-output";
+		this.persistToTempFile = options.persistToTempFile ?? true;
 	}
 
 	append(data: Buffer): void {
@@ -69,10 +72,10 @@ export class OutputAccumulator {
 		this.totalRawBytes += data.length;
 		this.appendDecodedText(this.decoder.decode(data, { stream: true }));
 
-		if (this.tempFileStream || this.shouldUseTempFile()) {
+		if (this.persistToTempFile && (this.tempFileStream || this.shouldUseTempFile())) {
 			this.ensureTempFile();
 			this.tempFileStream?.write(data);
-		} else if (data.length > 0) {
+		} else if (this.persistToTempFile && data.length > 0) {
 			this.rawChunks.push(data);
 		}
 	}
@@ -83,7 +86,7 @@ export class OutputAccumulator {
 		}
 		this.finished = true;
 		this.appendDecodedText(this.decoder.decode());
-		if (this.shouldUseTempFile()) {
+		if (this.persistToTempFile && this.shouldUseTempFile()) {
 			this.ensureTempFile();
 		}
 	}
@@ -107,7 +110,7 @@ export class OutputAccumulator {
 			maxBytes: this.maxBytes,
 		};
 
-		if (options.persistIfTruncated && truncation.truncated) {
+		if (this.persistToTempFile && options.persistIfTruncated && truncation.truncated) {
 			this.ensureTempFile();
 		}
 

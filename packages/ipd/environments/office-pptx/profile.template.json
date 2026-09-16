@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "office-pptx",
+  "version": "1.0.0",
+  "provider": "docker",
+  "image": {
+    "reference": "pi-ipd/office-pptx:1.0.0",
+    "contentId": "RESOLVED_BY_TRUSTED_INITIALIZATION",
+    "platform": "linux/amd64"
+  },
+  "capabilities": [
+    { "id": "node", "version": "24.19.0" },
+		{ "id": "python", "version": "3.11.2" },
+    { "id": "pptx", "version": "1.0.0" }
+  ],
+  "commands": ["bash", "git", "node", "npm", "npx", "pdftoppm", "python3", "rg", "soffice"],
+  "supportedTools": ["bash", "edit", "environment_describe", "environment_process_logs", "environment_process_start", "environment_process_status", "environment_process_stop", "find", "grep", "ls", "read", "write"],
+  "environment": {
+    "PATH": "/opt/pi-ipd/venv/bin:/usr/local/bin:/usr/bin:/bin",
+    "LANG": "C.UTF-8",
+    "NODE_PATH": "/opt/pi-ipd/node/node_modules"
+  },
+  "network": { "mode": "none" },
+  "resources": {
+    "memoryBytes": 4294967296,
+    "cpus": 4,
+    "pids": 1024,
+    "logBytes": 16777216
+  },
+  "probes": [
+    { "id": "node", "version": "1.0.0", "command": ["node", "--version"], "timeoutSeconds": 10 },
+    { "id": "python", "version": "1.0.0", "command": ["python3", "--version"], "timeoutSeconds": 10 },
+    { "id": "libreoffice", "version": "1.0.0", "command": ["soffice", "--version"], "timeoutSeconds": 20 },
+    { "id": "poppler", "version": "1.0.0", "command": ["pdftoppm", "-v"], "timeoutSeconds": 10 },
+    { "id": "fontconfig", "version": "1.0.0", "command": ["fc-list", ":", "family"], "timeoutSeconds": 20 }
+  ],
+  "paths": {
+    "context": "/ipd/context",
+    "skills": "/ipd/skills",
+    "inputs": "/ipd/inputs",
+    "workspace": "/workspace",
+    "scratch": "/scratch",
+    "cache": "/cache",
+    "home": "/home/agent",
+    "temporary": "/tmp"
+  }
+}

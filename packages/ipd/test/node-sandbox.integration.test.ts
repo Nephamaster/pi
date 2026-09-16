@@ -44,6 +44,7 @@ sandboxDescribe("IPD node Bash sandbox integration", () => {
 		const tool = createNodeSandboxedBashTool({
 			workspace,
 			sessionDirectory: join(root, "sessions"),
+			nodeId: "deck-production",
 			participantId: "deck-producer",
 			permissions: {
 				read_paths: ["."],

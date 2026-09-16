@@ -11,6 +11,8 @@ import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { LockedSkill, LockedTool } from "../contracts/baseline.ts";
 import type { LockedAssetRef } from "../contracts/primitives.ts";
 import { type ProcessSpec, ProcessSpecSchema } from "../contracts/process-spec.ts";
+import type { EnvironmentPolicy, RegisteredExecutionProfile } from "../environment/contracts.ts";
+import { parseSkillEnvironmentRequirements } from "../environment/profiles.ts";
 import { compileAgentCard } from "../ir/agent-card.ts";
 import { hashJson } from "../ir/hash.ts";
 import { validateSchema } from "../ir/validation.ts";
@@ -141,6 +143,7 @@ export class AssetAssembler {
 				const declaredTools = frontmatterStringList(content, "allowed-tools");
 				const requiredTools = frontmatterStringList(content, "required-tools");
 				const requiredCommands = frontmatterStringList(content, "required-commands");
+				const environmentRequirements = parseSkillEnvironmentRequirements(content, skill.name);
 				const invalidCommands = requiredCommands.filter((command) => !/^[A-Za-z0-9._+-]+$/.test(command));
 				if (invalidCommands.length > 0)
 					throw new Error(`Skill ${skill.name} declares invalid required-commands: ${invalidCommands.join(", ")}`);
@@ -162,6 +165,7 @@ export class AssetAssembler {
 					allowedTools: declaredTools,
 					requiredTools,
 					requiredCommands,
+					environmentRequirements,
 				};
 			}),
 		);
@@ -227,6 +231,7 @@ export function toCompilerAssetCatalog(
 	assets: AssembledAssets,
 	checks: CheckRegistry,
 	knowledgeBases: readonly LockedAssetRef[] = [],
+	environment?: { profiles: readonly RegisteredExecutionProfile[]; policy: EnvironmentPolicy },
 ): CompilerAssetCatalog {
 	return {
 		agentCards: assets.agentCards,
@@ -234,5 +239,6 @@ export function toCompilerAssetCatalog(
 		tools: assets.tools,
 		knowledgeBases,
 		checks,
+		...(environment ? { environmentProfiles: environment.profiles, environmentPolicy: environment.policy } : {}),
 	};
 }

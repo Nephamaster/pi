@@ -3,6 +3,7 @@ import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { CompilerDiagnostic, ExecutionGraphIndex, LockedSkill, LockedTool } from "../contracts/baseline.ts";
 import type { LockedAssetRef } from "../contracts/primitives.ts";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
+import type { EnvironmentPolicy, RegisteredExecutionProfile } from "../environment/contracts.ts";
 import type { CheckRegistry } from "../registry/check-registry.ts";
 
 export interface CompilerAssetCatalog {
@@ -11,6 +12,8 @@ export interface CompilerAssetCatalog {
 	tools: readonly LockedTool[];
 	knowledgeBases: readonly LockedAssetRef[];
 	checks: CheckRegistry;
+	environmentProfiles?: readonly RegisteredExecutionProfile[];
+	environmentPolicy?: EnvironmentPolicy;
 }
 
 export interface ValidatedWorkflow {

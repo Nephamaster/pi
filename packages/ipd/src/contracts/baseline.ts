@@ -1,4 +1,6 @@
 // 定义 Compiler 报告、有效参与者和冻结执行基线。
+
+import type { EnvironmentBinding, SkillEnvironmentRequirements } from "../environment/contracts.ts";
 import type { CompiledAgentCard } from "./agent-card.ts";
 import type { LockedAssetRef } from "./primitives.ts";
 import type { CriterionDefinition, WorkflowDefinition, WorkflowNode } from "./workflow.ts";
@@ -41,6 +43,7 @@ export interface LockedSkill {
 	allowedTools: string[];
 	requiredTools?: string[];
 	requiredCommands?: string[];
+	environmentRequirements?: SkillEnvironmentRequirements;
 }
 
 export interface LockedTool {
@@ -69,6 +72,7 @@ export interface ExecutionBaseline {
 	workflowHash: string;
 	processSpecRef: LockedAssetRef;
 	nodes: EffectiveNode[];
+	environmentBindings: EnvironmentBinding[];
 	graph: ExecutionGraphIndex;
 	report: CompilerReport;
 }

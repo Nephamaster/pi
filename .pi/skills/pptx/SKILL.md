@@ -8,6 +8,19 @@ required-commands:
   - python3
   - soffice
   - pdftoppm
+environment-requirements:
+  schema-version: 1
+  capabilities:
+    - id: node
+      version: ">=24.0.0 <25.0.0"
+    - id: pptx
+      version: "^1.0.0"
+  commands:
+    - node
+    - python3
+    - soffice
+    - pdftoppm
+  network: none
 ---
 
 # PPTX creation, editing, and analysis

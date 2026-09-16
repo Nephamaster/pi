@@ -27,8 +27,10 @@ export type WriteToolInput = Static<typeof writeSchema>;
 export interface WriteOperations {
 	/** Write content to a file */
 	writeFile: (absolutePath: string, content: string) => Promise<void>;
+	writeFileWithSignal?: (absolutePath: string, content: string, signal?: AbortSignal) => Promise<void>;
 	/** Create directory recursively */
 	mkdir: (dir: string) => Promise<void>;
+	mkdirWithSignal?: (dir: string, signal?: AbortSignal) => Promise<void>;
 }
 
 const defaultWriteOperations: WriteOperations = {
@@ -75,11 +77,13 @@ export function createWriteToolDefinition(
 
 				throwIfAborted();
 				// Create parent directories if needed.
-				await ops.mkdir(dir);
+				if (ops.mkdirWithSignal) await ops.mkdirWithSignal(dir, signal);
+				else await ops.mkdir(dir);
 				throwIfAborted();
 
 				// Write the file contents.
-				await ops.writeFile(absolutePath, content);
+				if (ops.writeFileWithSignal) await ops.writeFileWithSignal(absolutePath, content, signal);
+				else await ops.writeFile(absolutePath, content);
 				throwIfAborted();
 
 				return {

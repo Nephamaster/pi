@@ -1,0 +1,10 @@
+{
+  "name": "pi-ipd-office-profile",
+  "private": true,
+	"dependencies": {
+		"pptxgenjs": "4.0.1"
+	},
+	"overrides": {
+		"image-size": "2.0.3"
+	}
+}

@@ -36,7 +36,7 @@ the template remains valid. Workflow templates already contain their node AgentC
 - Incremental Workflow draft tools with revision and operation idempotency.
 - Compiler checks for assets, permissions, output ownership, complete Gate coverage, ProcessSpec criterion/evidence
   mappings, requirement coverage, and independent review.
-- Shared Run workspace with non-overlapping execution output roots and independently sealed, hashed output views.
+- Per-node controlled execution leases with non-overlapping output roots and independently sealed, hashed output views.
 - Bounded ready-node scheduling, exact input-version binding, local and cross-node rework invalidation, and final
   delivery projection.
 - Run control through `ipd_cancel_run`, plus query-only `ipd_get_run`, `ipd_read_events`, and `ipd_get_result` tools.
@@ -85,6 +85,46 @@ assignments, and Runtime events.
 Run data is stored under `<project>/.pi/ipd/runs/<run-id>/`; reusable Workflow assets are stored under
 `<project>/.pi/ipd/workflow/`.
 
+## Controlled execution environments
+
+The default mode is Docker/OCI. Build the two trusted local Profiles before starting a Run:
+
+```bash
+./packages/ipd/environments/build.sh
+```
+
+`code-node24` supplies Node.js 24, npm, Git, Python, build tools, and ripgrep. `office-pptx` extends it with
+PptxGenJS, the PPTX Skill's Python dependencies, LibreOffice, Poppler, fontconfig, Liberation fonts, and Noto CJK.
+Profile templates contain only trusted image references; service initialization resolves each reference to the current
+immutable Docker image ID and platform. A missing or changed image fails before Workflow execution and never falls
+back to the host.
+
+Each node receives one lease that survives normal rounds and rework. All local `read`, `write`, `edit`, `grep`, `find`,
+`ls`, image reads, Bash, full command logs, and managed processes use the same private filesystem. The model sees only:
+
+```text
+/ipd/context/                  frozen task and node context, read-only
+/ipd/skills/<id>/<hash>/      content-addressed Skill snapshot, read-only
+/ipd/inputs/<input-id>/       exact current-round input, read-only
+/workspace/                   node worktree under Workflow permissions
+/scratch/ /cache/ /home/agent/ /tmp/   lease-private writable state
+```
+
+The container has no host root, Home, Run root, credential directory, or Docker socket mount. It runs as UID/GID 1000,
+with a read-only image root, dropped capabilities, `no-new-privileges`, `network=none`, and enforced memory/CPU/PID/log
+limits. Container environment variables start from the Profile allowlist instead of inheriting the Pi process.
+
+For temporary migration only, explicitly select the old sandbox-runtime backend before launching Pi:
+
+```bash
+PI_IPD_ENVIRONMENT_MODE=legacy-srt pi
+```
+
+`legacy-srt` is never selected after a Docker failure. It retains the old host-workspace architecture and does not
+provide OCI leases, managed processes, stable paused export, or the same host-filesystem isolation. Remove this setting
+after the Docker Profiles are deployed. `PI_IPD_DOCKER_TIMEOUT_MS` controls Docker management-operation timeout and
+defaults to 120000 ms.
+
 ## Runtime safeguards
 
 The default Runtime uses these safety limits:
@@ -102,8 +142,9 @@ is mutating the same Run.
 ## Current boundaries
 
 - No node-internal multi-Agent collaboration, budget governance, HITL, asset self-evolution, or complete replan flow.
-- File `read/grep/find/ls/write/edit` calls share path authorization, Bash uses the node sandbox, and review nodes
-  cannot receive mutation or general-purpose Shell tools. Custom Tool behavior still requires explicit capability metadata.
+- Docker mode has no external network access. Restricted egress and arbitrary custom tools that capture host file or
+  Shell closures are rejected until they have explicit broker metadata. Review nodes still cannot receive mutation or
+  general-purpose Shell tools unless a future permission model explicitly allows them.
 - State mutation has cross-process conflict detection, but active Runs cannot resume their original
   AgentSessions after process loss.
 - The visualization server is process-local and intentionally read-only; it does not provide remote control, approval,

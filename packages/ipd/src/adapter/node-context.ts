@@ -1,5 +1,4 @@
 // 将冻结任务、节点契约、专业角色和当前轮次投影为模型上下文。
-import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { EffectiveNode } from "../contracts/baseline.ts";
@@ -171,16 +170,19 @@ ${permissions(node)}`,
 export function renderTaskScopeFile(work: NodeRoundWork): VirtualContextFile {
 	const task = work.taskContext;
 	const materials = task.materials
-		.map(
-			(item) =>
-				`### ${item.material_id}\n\n${item.description}\n\n- Reference: ${item.reference}\n- Media type: ${item.media_type ?? "unspecified"}`,
-		)
+		.map((item) => {
+			const input = work.node.definition.inputs.find(
+				(candidate) => candidate.kind === "task_material" && candidate.material_id === item.material_id,
+			);
+			const reference = input ? `/ipd/inputs/${input.input_id}` : item.reference;
+			return `### ${item.material_id}\n\n${item.description}\n\n- Reference: ${reference}\n- Media type: ${item.media_type ?? "unspecified"}`;
+		})
 		.join("\n\n");
 	const unresolvedFacts = task.unresolvedFacts
 		.map((item) => `- ${item.fact_id}: ${item.description} (source: ${item.source})`)
 		.join("\n");
 	return {
-		path: `/virtual/ipd/${work.node.definition.node_id}/TASK_SCOPE.md`,
+		path: "/ipd/context/TASK_SCOPE.md",
 		content: wrapPromptBlock(
 			"task_scope",
 			`# Authoritative Task Scope
@@ -206,23 +208,22 @@ ${unresolvedFacts || "None"}`,
 
 export function renderNodeContractFile(node: EffectiveNode): VirtualContextFile {
 	return {
-		path: `/virtual/ipd/${node.definition.node_id}/${node.definition.kind === "execution" ? "NODE_CONTRACT.md" : "REVIEW_CONTRACT.md"}`,
+		path: `/ipd/context/${node.definition.kind === "execution" ? "NODE_CONTRACT.md" : "REVIEW_CONTRACT.md"}`,
 		content: node.definition.kind === "execution" ? executionContract(node) : reviewContract(node),
 	};
 }
 
 export function renderNodeContextFiles(work: NodeRoundWork): VirtualContextFile[] {
-	const nodeId = work.node.definition.node_id;
 	const kind = work.node.definition.kind;
 	return [
 		renderTaskScopeFile(work),
 		renderNodeContractFile(work.node),
 		{
-			path: `/virtual/ipd/${nodeId}/PROFESSIONAL_ROLE.md`,
+			path: "/ipd/context/PROFESSIONAL_ROLE.md",
 			content: renderAgentRuntimeProfile(work.node.agents[0].agentCard),
 		},
 		{
-			path: `/virtual/ipd/${nodeId}/${kind === "execution" ? "EXECUTION_PROTOCOL.md" : "REVIEW_PROTOCOL.md"}`,
+			path: `/ipd/context/${kind === "execution" ? "EXECUTION_PROTOCOL.md" : "REVIEW_PROTOCOL.md"}`,
 			content: kind === "execution" ? executionProtocol : reviewProtocol,
 		},
 	];
@@ -237,8 +238,8 @@ export function renderCurrentRoundContext(work: NodeRoundWork): string {
 			submission_id: binding.submissionId,
 			output_id: binding.outputId,
 			approval_review_node_ids: binding.approvalReviewNodeIds,
-			sealed_root: output?.sealedRoot,
-			submission_record: output ? join(output.sealedRoot, "submission.json") : undefined,
+			sealed_root: output ? `/ipd/inputs/${binding.inputId}` : undefined,
+			submission_record: output ? `/ipd/inputs/${binding.inputId}/submission.json` : undefined,
 		};
 	});
 	const feedback = work.feedback.map((item) => ({

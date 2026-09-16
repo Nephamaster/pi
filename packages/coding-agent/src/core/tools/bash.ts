@@ -71,6 +71,7 @@ export interface BashOperations {
 			signal?: AbortSignal;
 			timeout?: number;
 			env?: NodeJS.ProcessEnv;
+			fullOutputPath?: string;
 		},
 	) => Promise<{ exitCode: number | null }>;
 }
@@ -201,6 +202,8 @@ export interface BashToolOptions {
 	exposeSessionEnvironment?: boolean;
 	/** Hook to adjust command, cwd, or env before execution */
 	spawnHook?: BashSpawnHook;
+	/** Store truncated full output in a backend-visible path instead of a host temp file. */
+	remoteFullOutputPath?: (toolCallId: string) => string;
 }
 
 export type BashRenderState = {
@@ -228,6 +231,7 @@ export function createShellToolDefinition(
 	const commandPrefix = options?.commandPrefix;
 	const exposeSessionEnvironment = options?.exposeSessionEnvironment ?? true;
 	const spawnHook = options?.spawnHook;
+	const remoteFullOutputPath = options?.remoteFullOutputPath;
 	return {
 		name: config.name,
 		label: config.label,
@@ -251,17 +255,27 @@ export function createShellToolDefinition(
 				exposeSessionEnvironment,
 				ctx,
 			);
-			const output = new OutputAccumulator({ tempFilePrefix: config.tempFilePrefix });
+			const backendOutputPath = remoteFullOutputPath?.(_toolCallId);
+			const output = new OutputAccumulator({
+				tempFilePrefix: config.tempFilePrefix,
+				persistToTempFile: backendOutputPath === undefined,
+			});
 			let acceptingOutput = true;
 			let updateTimer: NodeJS.Timeout | undefined;
 			let updateDirty = false;
 			let lastUpdateAt = 0;
+			const withBackendOutputPath = (snapshot: ReturnType<OutputAccumulator["snapshot"]>) => ({
+				...snapshot,
+				fullOutputPath: snapshot.truncation.truncated
+					? (snapshot.fullOutputPath ?? backendOutputPath)
+					: snapshot.fullOutputPath,
+			});
 
 			const emitOutputUpdate = () => {
 				if (!onUpdate || !updateDirty) return;
 				updateDirty = false;
 				lastUpdateAt = Date.now();
-				const snapshot = output.snapshot({ persistIfTruncated: true });
+				const snapshot = withBackendOutputPath(output.snapshot({ persistIfTruncated: true }));
 				onUpdate({
 					content: [{ type: "text", text: snapshot.content || "" }],
 					details: {
@@ -308,7 +322,7 @@ export function createShellToolDefinition(
 				output.finish();
 				clearUpdateTimer();
 				emitOutputUpdate();
-				const snapshot = output.snapshot({ persistIfTruncated: true });
+				const snapshot = withBackendOutputPath(output.snapshot({ persistIfTruncated: true }));
 				await output.closeTempFile();
 				return snapshot;
 			};
@@ -343,6 +357,7 @@ export function createShellToolDefinition(
 						signal,
 						timeout,
 						env: spawnContext.env,
+						fullOutputPath: backendOutputPath,
 					});
 					exitCode = result.exitCode;
 				} catch (err) {
