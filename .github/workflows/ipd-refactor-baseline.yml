@@ -1,0 +1,122 @@
+name: IPD refactor behavior baseline
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ipd-refactor-baseline.yml"
+      - "packages/ipd/**"
+      - "packages/coding-agent/src/core/**"
+      - "packages/coding-agent/test/**"
+      - "packages/agent/**"
+      - "packages/ai/**"
+      - "packages/telemetry/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vitest.base.ts"
+      - "scripts/check-entry-graphs.mjs"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ipd-refactor-baseline.yml"
+      - "packages/ipd/**"
+      - "packages/coding-agent/src/core/**"
+      - "packages/coding-agent/test/**"
+      - "packages/agent/**"
+      - "packages/ai/**"
+      - "packages/telemetry/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vitest.base.ts"
+      - "scripts/check-entry-graphs.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ipd-refactor-baseline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-and-governance-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PI_SKIP_VERSION_CHECK: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install native tool fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fd-find ripgrep
+          sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      # Source imports require generated catalog JSON, absent in a clean clone.
+      # Hydrate through the repository's strict data-only path; do not mock models.
+      - name: Hydrate and validate generated model data
+        id: models
+        run: |
+          npm run hydrate:model-data
+          npm run check:model-data
+
+      - name: Check existing entry-point dependency boundaries
+        run: node scripts/check-entry-graphs.mjs
+
+      - name: Check baseline test formatting and lint
+        run: >-
+          node node_modules/@biomejs/biome/bin/biome check --error-on-warnings
+          packages/ipd/test/native-session-contract.test.ts
+          packages/ipd/vitest.config.ts
+
+      - name: Type-check repository
+        if: ${{ !cancelled() && steps.models.outcome == 'success' }}
+        run: ./node_modules/.bin/tsgo --noEmit
+
+      - name: Verify native session and tool behavior with faux providers
+        if: ${{ !cancelled() && steps.models.outcome == 'success' }}
+        env:
+          PI_OFFLINE: "1"
+        working-directory: packages/coding-agent
+        run: >-
+          node ../../node_modules/vitest/dist/cli.js --run
+          test/suite/agent-session-retry-events.test.ts
+          test/suite/agent-session-compaction.test.ts
+          test/suite/agent-session-compaction-model-overrides.test.ts
+          test/suite/agent-session-tool-result-images.test.ts
+          test/file-mutation-queue.test.ts
+          test/tool-execution-component.test.ts
+          test/tools.test.ts
+
+      - name: Verify IPD integration and preserved governance
+        if: ${{ !cancelled() && steps.models.outcome == 'success' }}
+        env:
+          PI_OFFLINE: "1"
+        working-directory: packages/ipd
+        run: >-
+          node ../../node_modules/vitest/dist/cli.js --run
+          test/native-session-contract.test.ts
+          test/structured-submissions.test.ts
+          test/pi-node-session-factory.test.ts
+          test/node-session-adapter.test.ts
+          test/pi-node-worker.test.ts
+          test/runtime-state.test.ts
+          test/review-validation.test.ts
+          test/runtime-rework.test.ts
+          test/p0-runtime-safety.test.ts
+          test/workflow-runtime.test.ts
+          test/submission-store.test.ts
+          test/failure-boundaries.test.ts
+          test/ipd-service.test.ts
+          test/compiler.test.ts
+          test/workflow-asset-store.test.ts
