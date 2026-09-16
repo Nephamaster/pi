@@ -35,6 +35,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      - name: Hydrate and validate generated model data
+        run: |
+          npm run hydrate:model-data
+          npm run check:model-data
+
       - name: Build trusted execution Profiles
         run: ./packages/ipd/environments/build.sh
 

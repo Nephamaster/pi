@@ -8,52 +8,63 @@
 4. Unified Docker/tool execution path and real capability verification.
 5. Governance internals, read model, frontend build and package boundaries.
 
-Follow the approved overall refactor plan. Do not introduce a second agent loop,
-context store, workflow engine or sandbox platform. Each later PR identifies the
-previous owner that it removes or retires, not just a new wrapper.
+Follow the approved overall plan. Do not introduce a second agent loop, context
+store, workflow engine or sandbox platform. Each later PR identifies the previous
+owner it removes or retires, not merely a new wrapper.
 
 ## PR 1 scope
 
 - Initial base: `3e7736d1433e785631fa524409e9ebfea689ef34`.
 - Runtime audit base: `07095ad825ef76cd4d9896180233659447d3ca4f`.
 - Main moved to `038dbde85f2431a06880399abfde2ff5eed9e3c8` during authoring.
-  Its upstream merge is preserved by a merge into the feature branch, not a force push.
-  The changed-file comparison contains no IPD source or selected test-path changes;
-  native session/model-config changes remain covered by the actual merged CI run.
+  Its upstream merge was preserved by merging into the feature branch, not by
+  force-pushing or overwriting user changes.
 - Branch: `refactor/ipd-01-behavior-baseline`.
 - PR: https://github.com/Nephamaster/pi/pull/11 (Draft).
-- Changes: a real-Pi/faux-provider integration test, a fast native/governance CI lane,
-  and `packages/ipd/docs/refactor-baseline.md` with dependency/ownership, effective
-  settings, behavior matrix and retain/merge/retire lists.
-- No production source, asset, Schema, permission, dependency or lockfile changes
-  relative to main. Upstream changes are not authored by this PR.
+- Changes: real-Pi/faux-provider contract tests, a native/governance CI lane,
+  reuse of the existing shared Vitest source aliases, catalog hydration in CI,
+  and the ownership/settings/behavior/retirement inventory in
+  `packages/ipd/docs/refactor-baseline.md`.
+- No production source, assets, Schema, permissions, dependencies or lockfile
+  changes relative to main. Existing Docker scenarios and assertions are intact;
+  its CI job now prepares the generated model data required by source imports.
 
 ## Verification status
 
-This authoring environment has Node 22.16.0, no Docker, and cannot resolve
-`github.com` from the terminal. Repository sources and CI were accessed through
-GitHub; no older ZIP was substituted for current source.
+Local authoring used Node 22.16.0 without Docker or a complete installed checkout;
+terminal GitHub DNS was unavailable. Local syntax checks are not type checking or
+executed behavior tests. Sources, writes and actual CI were accessed via GitHub.
 
-Local TypeScript syntax parsing and YAML validation passed. They are not type
-checking, Vitest, a complete repository build or real Docker execution.
+CI exposed and corrected two test-bootstrap gaps: absent generated catalog JSON
+and IPD's standalone Vitest aliases resolving to nonexistent dist entries. Use
+`hydrate:model-data` / `check:model-data` and the repository's shared source aliases,
+not mock catalogs or copied dependency implementations. Hydration reads public
+metadata; test model calls use faux responses and no real credentials.
 
-The first real CI run (`35088161029`) checked the merged main/feature tree and
-installed dependencies successfully. The entry-point graph check and 33 native
-tests passed, but five suites failed during import because generated model JSON
-was absent; the new IPD test had not run. The CI preparation now uses the existing
-`hydrate:model-data` and `check:model-data` commands. This is public catalog data
-preparation, not an inference call or a fabricated test fixture. Tests then run
-with `PI_OFFLINE=1`. Native and IPD suites report independently without suppressing
-failure or weakening assertions. The result of the revised run is still pending.
+Actual run `35088997984` on head `51dde599`:
+- Entry graph and new-test Biome checks: passed.
+- Native Pi: 7 suites / 165 tests passed.
+- IPD: 14 suites passed; 75 tests passed and 1 new assertion failed.
 
-The PR remains Draft until its baseline and repository checks are verified. Keep
-the existing real-Docker workflow unchanged and report its outcome separately.
-No paid model calls or real credentials are used by the new test.
+That assertion conflated semantic submission rejection with Pi's transport-level
+`tool_execution_end.isError`. In current `agent-loop.ts`, a normally returned tool
+result is marked non-error unless `afterToolCall` overrides it; `AgentToolResult`
+does not declare a returned `isError` flag. IPD's submission tool nevertheless
+returns one, so this does not currently increment event-based tool-error counters.
+PR 2 must resolve that adaptation intent explicitly, not preserve a silent mismatch.
+The baseline now verifies the actual business contract instead: no premature
+capture, rejection and corrective diagnostics delivered to the next model call,
+no model retry, corrected capture, and termination only for the valid receipt.
+It does not assert that the observed false error flag is desirable.
+
+The next run also performs repository type checking. Results are pending.
+Existing general CI previously failed during Node 22/npm 10 installation with
+EBADPLATFORM for clipboard-darwin-arm64, before build/tests. No force install or
+lockfile mutation is used here to hide that separate baseline obstacle.
 
 ## Resume point
 
-Inspect PR 11 head and CI first. Correct test/CI preparation issues in this batch,
-but do not change production behavior or lower assertions to make PR 1 green.
-Attribute pre-existing failures separately. Once the baseline is accepted, PR 2
-uses it to remove duplicate model retry and consolidate session policy. Do not
-merge automatically or start later mechanism deletion while it is unverified.
+Inspect PR 11 head and all CI results first. Fix newly added tests and test setup
+without changing production behavior or weakening governance. Record pre-existing
+failures separately. Keep Draft until verification/review is sufficient; do not
+merge automatically. PR 2 begins mechanism removal only after baseline acceptance.

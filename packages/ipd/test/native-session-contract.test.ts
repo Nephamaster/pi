@@ -161,7 +161,19 @@ describe("IPD native session contract", () => {
 		const fixture = await createFixture();
 		fixture.faux.setResponses([
 			fauxAssistantMessage([fauxToolCall("submit_contract", { result: "invalid" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("submit_contract", { result: "accepted" })], { stopReason: "toolUse" }),
+			(context) => {
+				expect(fixture.capture.value).toBeUndefined();
+				const feedback = context.messages.at(-1);
+				expect(feedback?.role).toBe("toolResult");
+				if (feedback?.role !== "toolResult") throw new Error("Missing rejection feedback");
+				expect(feedback.toolName).toBe("submit_contract");
+				const text = feedback.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+				expect(text).toContain("Submission rejected");
+				expect(text).toContain("result must be accepted");
+				return fauxAssistantMessage([fauxToolCall("submit_contract", { result: "accepted" })], {
+					stopReason: "toolUse",
+				});
+			},
 		]);
 
 		await fixture.session.prompt("Submit the result, correcting invalid fields when necessary.");
@@ -169,10 +181,21 @@ describe("IPD native session contract", () => {
 		expect(fixture.faux.state.callCount).toBe(2);
 		expect(fixture.capture.value).toEqual({ result: "accepted" });
 		expect(fixture.events.filter((event) => event.type === "auto_retry_start")).toHaveLength(0);
-		const submissionErrors = fixture.events.flatMap((event) =>
-			event.type === "tool_execution_end" && event.toolName === "submit_contract" ? [event.isError] : [],
+		// Domain rejection is represented by the receipt and model-visible diagnostics,
+		// not by assuming that a returned isError field controls Pi's execution event.
+		const results = fixture.events.flatMap((event) =>
+			event.type === "tool_execution_end" && event.toolName === "submit_contract" ? [event.result] : [],
 		);
-		expect(submissionErrors).toEqual([true, false]);
+		expect(results).toEqual([
+			expect.objectContaining({
+				details: { captured: false, diagnostics: ["result must be accepted"] },
+			}),
+			expect.objectContaining({
+				details: expect.objectContaining({ captured: true }),
+				terminate: true,
+			}),
+		]);
+		expect(results[0].terminate).not.toBe(true);
 	});
 
 	it("starts a later quality round on the same session while retaining the earlier tool result", async () => {

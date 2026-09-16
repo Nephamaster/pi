@@ -73,8 +73,15 @@ jobs:
       - name: Check existing entry-point dependency boundaries
         run: node scripts/check-entry-graphs.mjs
 
-      - name: Check new test formatting and lint
-        run: node node_modules/@biomejs/biome/bin/biome check --error-on-warnings packages/ipd/test/native-session-contract.test.ts
+      - name: Check baseline test formatting and lint
+        run: >-
+          node node_modules/@biomejs/biome/bin/biome check --error-on-warnings
+          packages/ipd/test/native-session-contract.test.ts
+          packages/ipd/vitest.config.ts
+
+      - name: Type-check repository
+        if: ${{ !cancelled() && steps.models.outcome == 'success' }}
+        run: ./node_modules/.bin/tsgo --noEmit
 
       - name: Verify native session and tool behavior with faux providers
         if: ${{ !cancelled() && steps.models.outcome == 'success' }}
