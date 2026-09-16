@@ -11,6 +11,7 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { PiNodeWorker } from "../adapter/pi-node-worker.ts";
+import { type IpdSessionSettings, loadIpdSessionSettings } from "../adapter/session-policy.ts";
 import { compileWorkflow } from "../compiler/compiler.ts";
 import type { CompilerDiagnostic } from "../contracts/baseline.ts";
 import { IpdControlPlane } from "../control/control-plane.ts";
@@ -32,7 +33,6 @@ import { CheckExecutorRegistry } from "../registry/check-executor-registry.ts";
 import { hashSkillPackage, snapshotSkillPackage } from "../registry/skill-package.ts";
 import { FileWorkflowAssetStore } from "../registry/workflow-asset-store.ts";
 import { IpdService } from "../runtime/ipd-service.ts";
-import { RetryingNodeWorker } from "../runtime/node-worker.ts";
 import { FileRunStore } from "../runtime/run-store.ts";
 import { SubmissionStore } from "../runtime/submission-store.ts";
 import { FileIpdTelemetry } from "../runtime/telemetry.ts";
@@ -124,6 +124,7 @@ export function registerDefaultIpdExtension(pi: ExtensionAPI): void {
 	registerIpdCreateRunTool(pi, async (context) => {
 		const model = context.model as Model<Api> | undefined;
 		if (!model) throw new Error("Current Pi session has no configured model");
+		const sessionSettings = loadIpdSessionSettings(context.cwd, getAgentDir());
 		const commandContext = context as ExtensionContext & {
 			getSystemPromptOptions?: () => { skills?: readonly Skill[] };
 		};
@@ -137,6 +138,7 @@ export function registerDefaultIpdExtension(pi: ExtensionAPI): void {
 			model: `${model.provider}/${model.id}`,
 			thinkingLevel: context.thinkingLevel ?? "off",
 			projectTrusted: context.isProjectTrusted(),
+			sessionSettings,
 			environmentMode: environmentMode(),
 			skills: skillHashes.sort((left, right) => left.path.localeCompare(right.path)),
 			tools: toolDefinitions
@@ -153,7 +155,7 @@ export function registerDefaultIpdExtension(pi: ExtensionAPI): void {
 		});
 		const existing = services.get(key);
 		if (existing) return existing;
-		const service = createDefaultService(context, model, effectiveSkills, toolDefinitions);
+		const service = createDefaultService(context, model, effectiveSkills, toolDefinitions, sessionSettings);
 		services.set(key, service);
 		void service.catch(() => {
 			if (services.get(key) === service) services.delete(key);
@@ -167,6 +169,7 @@ async function createDefaultService(
 	model: Model<Api>,
 	skills: readonly Skill[],
 	toolDefinitions: readonly ToolDefinition[],
+	sessionSettings: IpdSessionSettings,
 ): Promise<IpdService> {
 	const agentDir = getAgentDir();
 	const selectedEnvironmentMode = environmentMode();
@@ -264,6 +267,8 @@ async function createDefaultService(
 		thinkingLevel: context.thinkingLevel ?? "off",
 		agentCard: card,
 		tools: [readTool],
+		sessionSettings,
+		onSessionEvent: (event) => telemetry.recordSessionEvent(event),
 	});
 	const assetSummary = toJsonValue({
 		skills: assembled.skills.map((skill) => ({
@@ -286,6 +291,7 @@ async function createDefaultService(
 	const executionIdentity = toJsonValue({
 		model: { provider: model.provider, id: model.id },
 		thinkingLevel: context.thinkingLevel ?? "off",
+		sessionSettings,
 		environmentMode: selectedEnvironmentMode,
 		environmentProfiles: environmentProfiles.map(({ ref }) => ref),
 	});
@@ -373,18 +379,18 @@ async function createDefaultService(
 			new WorkflowRuntime(
 				store,
 				directory,
-				new RetryingNodeWorker(
-					new PiNodeWorker({
-						agentDir,
-						workspace: directory.workspace,
-						sessionDirectory: directory.sessions,
-						modelRuntime: runtimeModels,
-						model,
-						thinkingLevel: context.thinkingLevel ?? "off",
-						customTools,
-						environmentManager,
-					}),
-				),
+				new PiNodeWorker({
+					agentDir,
+					workspace: directory.workspace,
+					sessionDirectory: directory.sessions,
+					modelRuntime: runtimeModels,
+					model,
+					thinkingLevel: context.thinkingLevel ?? "off",
+					customTools,
+					environmentManager,
+					sessionSettings,
+					onSessionEvent: (event) => telemetry.recordSessionEvent(event),
+				}),
 				new SubmissionStore(),
 				new MechanicalChecker(checks),
 				{

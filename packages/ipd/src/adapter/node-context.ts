@@ -1,5 +1,4 @@
 // 将冻结任务、节点契约、专业角色和当前轮次投影为模型上下文。
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { EffectiveNode } from "../contracts/baseline.ts";
 import type { EnvironmentBinding, EnvironmentPaths } from "../environment/contracts.ts";
@@ -270,40 +269,16 @@ export function renderCurrentRoundContext(work: NodeRoundWork): string {
 	return `${CURRENT_CONTEXT_PREFIX}\n${canonicalJson({ round_id: work.roundId, inputs, feedback })}\n</ipd_current_round>`;
 }
 
-export function omitConsumedImages(messages: AgentMessage[]): AgentMessage[] {
-	let lastSuccessfulAssistant = -1;
-	for (const [index, message] of messages.entries()) {
-		if (message.role === "assistant" && message.stopReason !== "error" && message.stopReason !== "aborted")
-			lastSuccessfulAssistant = index;
-	}
-	if (lastSuccessfulAssistant < 0) return messages;
-	return messages.map((message, index) => {
-		if (index >= lastSuccessfulAssistant || message.role !== "toolResult") return message;
-		if (!message.content.some((item) => item.type === "image")) return message;
-		return {
-			...message,
-			content: [
-				...message.content.filter((item) => item.type !== "image"),
-				{
-					type: "text",
-					text: wrapPromptBlock(
-						"omitted_historical_image",
-						"Image content already consumed by a later assistant response; omitted from this model request.",
-					),
-				},
-			],
-		};
-	});
-}
-
 export function createCurrentRoundContextExtension(getContext: () => string | undefined): ExtensionFactory {
 	return (pi) => {
 		pi.on("context", (event) => {
 			const content = getContext();
 			if (!content) return undefined;
+			// Pi owns history and compaction. A successful reply does not prove that
+			// earlier images were understood or that their findings were saved.
 			return {
 				messages: [
-					...omitConsumedImages(event.messages),
+					...event.messages,
 					{
 						role: "user",
 						content: [{ type: "text", text: content }],

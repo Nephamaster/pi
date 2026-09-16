@@ -19,8 +19,9 @@ import {
 	NodeWorkerError,
 } from "../runtime/node-worker.ts";
 import { renderCurrentRoundContext, renderNodeContextFiles } from "./node-context.ts";
-import { NodeSessionAdapter } from "./node-session-adapter.ts";
+import { NodeSessionAdapter, type NodeSessionEventEnvelope } from "./node-session-adapter.ts";
 import { type PiNodeSessionCreateInput, PiNodeSessionFactory } from "./pi-node-session-factory.ts";
+import type { IpdSessionSettings } from "./session-policy.ts";
 import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "./structured-submissions.ts";
 import {
 	createSubmissionTool,
@@ -53,12 +54,15 @@ export interface PiNodeWorkerOptions {
 	thinkingLevel: ThinkingLevel;
 	customTools?: readonly ToolDefinition[];
 	environmentManager?: EnvironmentManager;
+	sessionSettings?: IpdSessionSettings;
+	onSessionEvent?: (event: NodeSessionEventEnvelope) => void;
 }
 
 const keyOf = (work: NodeRoundWork) =>
 	`${work.runId}\0${work.node.definition.node_id}\0${work.node.agents[0].participantId}`;
 
 export function classifyWorkerError(error: unknown): NodeWorkerError {
+	if (error instanceof NodeWorkerError) return error;
 	const message = error instanceof Error ? error.message : String(error);
 	if (error instanceof EnvironmentError)
 		return new NodeWorkerError(error.code, message, error.retryable, { cause: error });
@@ -72,7 +76,7 @@ export function classifyWorkerError(error: unknown): NodeWorkerError {
 		)
 	)
 		return new NodeWorkerError("configuration", message, false, { cause: error });
-	return new NodeWorkerError("transient", message, true, { cause: error });
+	return new NodeWorkerError("transient", message, false, { cause: error });
 }
 
 export class PiNodeWorker implements NodeWorker {
@@ -87,7 +91,9 @@ export class PiNodeWorker implements NodeWorker {
 				agentDir: options.agentDir,
 				modelRuntime: options.modelRuntime,
 				customTools: options.customTools,
+				sessionSettings: options.sessionSettings,
 			}),
+			options.onSessionEvent,
 		);
 	}
 

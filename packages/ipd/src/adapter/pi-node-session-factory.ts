@@ -14,10 +14,13 @@ import type { EffectiveParticipant } from "../contracts/baseline.ts";
 import type { NodePermissionsSchema } from "../contracts/workflow.ts";
 import type { EnvironmentPaths } from "../environment/contracts.ts";
 import { hashSkillPackage } from "../registry/skill-package.ts";
+import { NodeWorkerError } from "../runtime/node-worker.ts";
 import { createCurrentRoundContextExtension, type VirtualContextFile } from "./node-context.ts";
 import { createNodeFileScopeExtension } from "./node-file-scope.ts";
 import { createNodeSandboxedBashTool } from "./node-sandbox.ts";
 import type { NodeSessionFactory, NodeSessionHandle } from "./node-session-adapter.ts";
+import { type IpdSessionSettings, projectIpdSessionSettings } from "./session-policy.ts";
+import { createSubmissionResultExtension } from "./structured-submissions.ts";
 
 export interface PiNodeSessionCreateInput {
 	nodeId: string;
@@ -43,17 +46,21 @@ export interface PiNodeSessionFactoryOptions {
 	agentDir: string;
 	modelRuntime: ModelRuntime;
 	customTools?: readonly ToolDefinition[];
+	/** Trusted host policy, shared by control and execution roles; never loaded from node files. */
+	sessionSettings?: IpdSessionSettings;
 }
 
 export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCreateInput> {
 	private readonly agentDir: string;
 	private readonly modelRuntime: ModelRuntime;
 	private readonly customTools: readonly ToolDefinition[];
+	private readonly sessionSettings: IpdSessionSettings;
 
 	constructor(options: PiNodeSessionFactoryOptions) {
 		this.agentDir = options.agentDir;
 		this.modelRuntime = options.modelRuntime;
 		this.customTools = options.customTools ?? [];
+		this.sessionSettings = projectIpdSessionSettings(options.sessionSettings);
 	}
 
 	async create(input: PiNodeSessionCreateInput): Promise<NodeSessionHandle> {
@@ -61,7 +68,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 			if (input.environmentCwd) return;
 			for (const skill of input.participant.lockedSkills) {
 				if ((await hashSkillPackage(skill.baseDir)) !== skill.hash)
-					throw new Error(`Locked Skill content changed: ${skill.id}`);
+					throw new NodeWorkerError("configuration", `Locked Skill content changed: ${skill.id}`);
 			}
 		};
 		await verifyLockedSkills();
@@ -70,7 +77,11 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 		if (cardModel.selection === "run_default") model = input.runDefaultModel;
 		else {
 			model = this.modelRuntime.getModel(cardModel.provider, cardModel.id);
-			if (!model) throw new Error(`Configured model is unavailable: ${cardModel.provider}/${cardModel.id}`);
+			if (!model)
+				throw new NodeWorkerError(
+					"configuration",
+					`Configured model is unavailable: ${cardModel.provider}/${cardModel.id}`,
+				);
 		}
 		const thinkingLevel =
 			cardModel.thinkingLevel === "inherit" ? input.runDefaultThinkingLevel : cardModel.thinkingLevel;
@@ -82,7 +93,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 					: [],
 			external_actions: input.participant.agentCard.permissions.externalActions,
 		};
-		const settingsManager = SettingsManager.inMemory({}, { projectTrusted: false });
+		const settingsManager = SettingsManager.inMemory(this.sessionSettings, { projectTrusted: false });
 		const services = await createAgentSessionServices({
 			cwd: input.workspace,
 			agentDir: this.agentDir,
@@ -108,6 +119,11 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 					: undefined,
 				agentsFilesOverride: () => ({ agentsFiles: [...(input.contextFiles ?? [])] }),
 				extensionFactories: [
+					{
+						name: "ipd-submission-result",
+						hidden: true,
+						factory: createSubmissionResultExtension(input.controlTools ?? []),
+					},
 					...(input.environmentTools
 						? []
 						: [
@@ -141,7 +157,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 			},
 		});
 		const serviceError = services.diagnostics.find((diagnostic) => diagnostic.type === "error");
-		if (serviceError) throw new Error(serviceError.message);
+		if (serviceError) throw new NodeWorkerError("configuration", serviceError.message);
 		const allowedTools = [
 			...input.participant.lockedTools.map((tool) => tool.id),
 			...(input.controlTools ?? []).map((tool) => tool.name),
@@ -198,10 +214,16 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 			},
 			async prompt(text) {
 				await verifyLockedSkills();
+				// Pi waits for its own retries and compaction before this promise settles.
 				await session.prompt(text);
 				const lastMessage = session.messages.at(-1);
 				if (lastMessage?.role === "assistant" && lastMessage.stopReason === "error")
-					throw new Error(lastMessage.errorMessage ?? "Model request failed without an error message");
+					throw new NodeWorkerError(
+						"transient",
+						lastMessage.errorMessage ?? "Model request failed without an error message",
+					);
+				if (lastMessage?.role === "assistant" && lastMessage.stopReason === "aborted")
+					throw new NodeWorkerError("cancelled", lastMessage.errorMessage ?? "Model request aborted");
 			},
 			abort: () => session.abort(),
 			dispose: () => session.dispose(),

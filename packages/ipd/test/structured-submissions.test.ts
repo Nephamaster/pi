@@ -29,7 +29,7 @@ describe("SubmissionCapture", () => {
 			validate: (value) => (value.result === "ok" ? [] : ["result must be ok"]),
 		});
 		const rejected = await tool.execute("call-1", { result: "bad" }, undefined, undefined, {} as never);
-		expect(rejected).toMatchObject({ isError: true, details: { captured: false } });
+		expect(rejected).toMatchObject({ details: { captured: false, diagnostics: ["result must be ok"] } });
 		expect(rejected.content[0]).toMatchObject({
 			type: "text",
 			text: expect.stringMatching(/^<submission_validation_result>[\s\S]*<\/submission_validation_result>$/),

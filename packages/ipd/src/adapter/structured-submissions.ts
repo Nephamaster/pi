@@ -1,5 +1,5 @@
 // 定义并捕获执行、评审和控制角色的结构化提交。
-import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ExtensionFactory, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import Type, { type Static, type TSchema } from "typebox";
 import { IdentifierSchema, JsonValueSchema, NonEmptyStringSchema } from "../contracts/primitives.ts";
 import { NodeOutputRefSchema } from "../contracts/workflow.ts";
@@ -144,6 +144,27 @@ export type SubmissionTool<TParameters extends TSchema> = ToolDefinition<
 > &
 	ToolDefinition;
 
+/** Map IPD control receipts through Pi's supported result hook, retaining diagnostics. */
+export function createSubmissionResultExtension(controlTools: readonly ToolDefinition[]): ExtensionFactory {
+	const names = new Set(controlTools.map((tool) => tool.name));
+	return (pi) => {
+		pi.on("tool_result", (event) => {
+			const details = event.details;
+			if (
+				names.has(event.toolName) &&
+				details !== null &&
+				typeof details === "object" &&
+				"captured" in details &&
+				details.captured === false &&
+				"diagnostics" in details &&
+				Array.isArray(details.diagnostics)
+			)
+				return { isError: true };
+			return undefined;
+		});
+	};
+}
+
 export function createSubmissionTool<TParameters extends TSchema>(options: {
 	name: string;
 	label: string;
@@ -175,7 +196,6 @@ export function createSubmissionTool<TParameters extends TSchema>(options: {
 						},
 					],
 					details: { captured: false, diagnostics },
-					isError: true,
 				};
 			const receipt = options.capture.capture(toolCallId, params);
 			return {

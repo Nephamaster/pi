@@ -3,10 +3,11 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import Type, { type Static, type TSchema } from "typebox";
-import { NodeSessionAdapter } from "../adapter/node-session-adapter.ts";
+import { NodeSessionAdapter, type NodeSessionEventEnvelope } from "../adapter/node-session-adapter.ts";
 import { PiNodeSessionFactory } from "../adapter/pi-node-session-factory.ts";
 import { loadPrompt } from "../adapter/prompt-loader.ts";
 import { renderAgentRuntimeProfile } from "../adapter/render-agent-profile.ts";
+import type { IpdSessionSettings } from "../adapter/session-policy.ts";
 import { createSubmissionTool, SubmissionCapture } from "../adapter/structured-submissions.ts";
 import type { CompiledAgentCard } from "../contracts/agent-card.ts";
 import type { LockedSkill, LockedTool } from "../contracts/baseline.ts";
@@ -68,6 +69,8 @@ export interface PiControlRoleOptions {
 	agentCard: CompiledAgentCard;
 	skills?: readonly LockedSkill[];
 	tools?: readonly LockedTool[];
+	sessionSettings?: IpdSessionSettings;
+	onSessionEvent?: (event: NodeSessionEventEnvelope) => void;
 }
 
 class PiStructuredRole<TSchemaValue extends TSchema> {
@@ -88,7 +91,7 @@ class PiStructuredRole<TSchemaValue extends TSchema> {
 	) {
 		this.options = options;
 		this.additionalTools = additionalTools;
-		this.adapter = new NodeSessionAdapter(new PiNodeSessionFactory(options), undefined, {
+		this.adapter = new NodeSessionAdapter(new PiNodeSessionFactory(options), options.onSessionEvent, {
 			maxToolCalls: 40,
 			maxToolErrors: 5,
 		});
@@ -332,7 +335,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				validate: (value) => validateWorkflowDesignBlock(value as WorkflowDesignBlock, spec),
 			});
 			active = {
-				adapter: new NodeSessionAdapter(new PiNodeSessionFactory(options), undefined, {
+				adapter: new NodeSessionAdapter(new PiNodeSessionFactory(options), options.onSessionEvent, {
 					maxToolCalls: 120,
 					maxToolErrors: 8,
 				}),

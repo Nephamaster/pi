@@ -1,4 +1,4 @@
-// 定义节点执行接口、结构化反馈和有限技术重试。
+// Node work and domain feedback. Model retries belong to Pi AgentSession.
 import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "../adapter/structured-submissions.ts";
 import type { EffectiveNode } from "../contracts/baseline.ts";
 import type { RoundInputBindingRecord, SubmissionRecord } from "../contracts/runtime.ts";
@@ -12,7 +12,7 @@ export interface NodeTaskContext {
 }
 
 export interface RoundFeedback {
-	type: "submission_correction" | "quality_rework" | "mechanical_failure" | "technical_retry";
+	type: "submission_correction" | "quality_rework" | "mechanical_failure";
 	sourceId?: string;
 	criterionId?: string;
 	outputId?: string;
@@ -68,85 +68,11 @@ export class NodeWorkerError extends Error {
 	readonly kind: NodeWorkerFailureKind;
 	readonly retryable: boolean;
 
-	constructor(kind: NodeWorkerFailureKind, message: string, retryable = kind === "transient", options?: ErrorOptions) {
+	constructor(kind: NodeWorkerFailureKind, message: string, retryable = false, options?: ErrorOptions) {
 		super(message, options);
 		this.name = "NodeWorkerError";
 		this.kind = kind;
+		// Diagnostic metadata, not permission to replay an entire node round.
 		this.retryable = retryable;
-	}
-}
-
-export class RetryingNodeWorker implements NodeWorker {
-	private readonly delegate: NodeWorker;
-	private readonly maxAttempts: number;
-	private readonly delay: (milliseconds: number) => Promise<void>;
-	private readonly stoppedRounds = new Set<string>();
-
-	constructor(
-		delegate: NodeWorker,
-		maxAttempts = 3,
-		delay: (milliseconds: number) => Promise<void> = (milliseconds) =>
-			new Promise((resolve) => setTimeout(resolve, milliseconds)),
-	) {
-		this.delegate = delegate;
-		this.maxAttempts = maxAttempts;
-		this.delay = delay;
-	}
-
-	runExecution(work: NodeRoundWork): Promise<ExecutionNodeResult> {
-		return this.retry(work, (current) => this.delegate.runExecution(current));
-	}
-
-	runReview(work: NodeRoundWork): Promise<SubmitReview> {
-		return this.retry(work, (current) => this.delegate.runReview(current));
-	}
-
-	prepareRound(work: NodeRoundWork, signal?: AbortSignal): Promise<void> {
-		return this.delegate.prepareRound?.(work, signal) ?? Promise.resolve();
-	}
-
-	exportSubmission(
-		work: NodeRoundWork,
-		submission: SubmitArtifact,
-		signal?: AbortSignal,
-	): Promise<string | undefined> {
-		return this.delegate.exportSubmission?.(work, submission, signal) ?? Promise.resolve(undefined);
-	}
-
-	stopRound(runId: string, nodeId: string, participantId: string, roundId: string): Promise<void> {
-		this.stoppedRounds.add(`${runId}\0${nodeId}\0${participantId}\0${roundId}`);
-		return this.delegate.stopRound?.(runId, nodeId, participantId, roundId) ?? Promise.resolve();
-	}
-
-	releaseRun(runId: string): Promise<void> {
-		for (const key of this.stoppedRounds) {
-			if (key.startsWith(`${runId}\0`)) this.stoppedRounds.delete(key);
-		}
-		return this.delegate.releaseRun?.(runId) ?? Promise.resolve();
-	}
-
-	private async retry<T>(work: NodeRoundWork, operation: (current: NodeRoundWork) => Promise<T>): Promise<T> {
-		let last: unknown;
-		let current = work;
-		const participantId = work.node.agents[0].participantId;
-		const key = `${work.runId}\0${work.node.definition.node_id}\0${participantId}\0${work.roundId}`;
-		for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
-			if (this.stoppedRounds.has(key))
-				throw new NodeWorkerError("cancelled", `Round is no longer active: ${work.roundId}`, false);
-			try {
-				return await operation(current);
-			} catch (error) {
-				last = error;
-				if (!(error instanceof NodeWorkerError) || !error.retryable || attempt === this.maxAttempts) throw error;
-				if (this.stoppedRounds.has(key))
-					throw new NodeWorkerError("cancelled", `Round is no longer active: ${work.roundId}`, false);
-				current = {
-					...current,
-					feedback: [...current.feedback, { type: "technical_retry", issue: error.message }],
-				};
-				await this.delay(250 * 2 ** (attempt - 1));
-			}
-		}
-		throw last;
 	}
 }
