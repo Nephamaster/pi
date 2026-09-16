@@ -1,9 +1,10 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
+import type { ContextEvent, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
 	compileWorkflow,
-	omitConsumedImages,
+	createCurrentRoundContextExtension,
 	renderCurrentRoundContext,
 	renderNodeContextFiles,
 	type SubmissionRecord,
@@ -23,28 +24,30 @@ const imageResult = (id: string): AgentMessage => ({
 });
 
 describe("node context image retention", () => {
-	it("omits only images already consumed by a successful assistant response", () => {
+	it("injects current-round data without pruning images or changing native session history", async () => {
+		let current: string | undefined = "current-round-1";
+		const callbacks: Array<(event: ContextEvent) => { messages: AgentMessage[] } | undefined> = [];
+		await createCurrentRoundContextExtension(() => current)({
+			on: (_name: string, handler: typeof callbacks[number]) => callbacks.push(handler),
+		} as unknown as ExtensionAPI);
 		const messages: AgentMessage[] = [
 			imageResult("old-image"),
-			fauxAssistantMessage("old image reviewed"),
+			fauxAssistantMessage("Let me read the next image"),
 			imageResult("pending-image"),
-			fauxAssistantMessage("", { stopReason: "error", errorMessage: "request too large" }),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "request failed" }),
 		];
-		const filtered = omitConsumedImages(messages);
-		expect(filtered[0]).toMatchObject({
-			role: "toolResult",
-			content: [
-				{ type: "text", text: "Read old-image" },
-				{
-					type: "text",
-					text: expect.stringMatching(
-						/^<omitted_historical_image>\n\n.*already consumed.*\n\n<\/omitted_historical_image>$/,
-					),
-				},
-			],
-		});
-		expect(filtered[2]).toEqual(messages[2]);
-		expect(messages[0]).toEqual(imageResult("old-image"));
+		const original = structuredClone(messages);
+		const first = callbacks[0]({ type: "context", messages });
+		expect(first?.messages.slice(0, messages.length)).toEqual(original);
+		expect(first?.messages.at(-1)).toMatchObject({ role: "user", content: [{ type: "text", text: current }] });
+		expect(messages).toEqual(original);
+		current = "current-round-2";
+		const second = callbacks[0]({ type: "context", messages });
+		expect(second?.messages).toHaveLength(messages.length + 1);
+		expect(second?.messages.at(-1)).toMatchObject({ content: [{ type: "text", text: current }] });
+		current = undefined;
+		expect(callbacks[0]({ type: "context", messages })).toBeUndefined();
+		expect(messages).toEqual(original);
 	});
 });
 

@@ -5,6 +5,7 @@ export * from "./adapter/node-session-adapter.ts";
 export * from "./adapter/pi-node-session-factory.ts";
 export * from "./adapter/pi-node-worker.ts";
 export * from "./adapter/render-agent-profile.ts";
+export * from "./adapter/session-policy.ts";
 export * from "./adapter/structured-submissions.ts";
 export * from "./artifact/hash-file.ts";
 export * from "./artifact/manifest.ts";

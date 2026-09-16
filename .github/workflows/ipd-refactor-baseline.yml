@@ -73,10 +73,24 @@ jobs:
       - name: Check existing entry-point dependency boundaries
         run: node scripts/check-entry-graphs.mjs
 
-      - name: Check baseline test formatting and lint
+      - name: Check session refactor formatting and lint
         run: >-
           node node_modules/@biomejs/biome/bin/biome check --error-on-warnings
+          packages/ipd/src/adapter/node-context.ts
+          packages/ipd/src/adapter/pi-node-session-factory.ts
+          packages/ipd/src/adapter/pi-node-worker.ts
+          packages/ipd/src/adapter/session-policy.ts
+          packages/ipd/src/adapter/structured-submissions.ts
+          packages/ipd/src/control/pi-control-roles.ts
+          packages/ipd/src/runtime/node-worker.ts
+          packages/ipd/src/runtime/telemetry.ts
+          packages/ipd/src/tool/default-ipd-extension.ts
+          packages/ipd/src/index.ts
           packages/ipd/test/native-session-contract.test.ts
+          packages/ipd/test/session-policy.test.ts
+          packages/ipd/test/structured-submissions.test.ts
+          packages/ipd/test/node-context.test.ts
+          packages/ipd/test/failure-boundaries.test.ts
           packages/ipd/vitest.config.ts
 
       - name: Type-check repository
@@ -106,10 +120,14 @@ jobs:
         run: >-
           node ../../node_modules/vitest/dist/cli.js --run
           test/native-session-contract.test.ts
+          test/session-policy.test.ts
+          test/node-context.test.ts
           test/structured-submissions.test.ts
           test/pi-node-session-factory.test.ts
           test/node-session-adapter.test.ts
           test/pi-node-worker.test.ts
+          test/control-plane.test.ts
+          test/workflow-draft.test.ts
           test/runtime-state.test.ts
           test/review-validation.test.ts
           test/runtime-rework.test.ts
@@ -120,3 +138,9 @@ jobs:
           test/ipd-service.test.ts
           test/compiler.test.ts
           test/workflow-asset-store.test.ts
+
+      - name: Run repository checks without accepting uncommitted fixes
+        if: ${{ !cancelled() && steps.models.outcome == 'success' }}
+        run: |
+          npm run check
+          git diff --exit-code

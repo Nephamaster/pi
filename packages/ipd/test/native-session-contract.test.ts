@@ -1,6 +1,7 @@
 import { appendFile, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Context } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import {
 	type AgentSessionEvent,
@@ -8,16 +9,18 @@ import {
 	ModelRuntime,
 	SessionManager,
 	SettingsManager,
+	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import Type from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { PiNodeSessionFactory } from "../src/adapter/pi-node-session-factory.ts";
+import type { IpdSessionSettings } from "../src/adapter/session-policy.ts";
 import { createSubmissionTool, SubmissionCapture } from "../src/adapter/structured-submissions.ts";
 import { compileWorkflow } from "../src/compiler/compiler.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
-// Refactor baseline: real Pi sessions and IPD submission tools, with only the
-// provider replaced by faux responses. Do not mock retry, persistence or the loop.
+// Real Pi sessions and IPD tools. Only model responses are synthetic; do not
+// mock native retries, compaction, persistence or the agent loop.
 describe("IPD native session contract", () => {
 	const cleanups: Array<() => Promise<void>> = [];
 
@@ -25,7 +28,14 @@ describe("IPD native session contract", () => {
 		while (cleanups.length > 0) await cleanups.pop()?.();
 	});
 
-	async function createFixture() {
+	async function createFixture(
+		options: {
+			sessionSettings?: IpdSessionSettings;
+			getCurrentContext?: () => string | undefined;
+			extraTools?: readonly ToolDefinition[];
+			contextWindow?: number;
+		} = {},
+	) {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-native-contract-"));
 		cleanups.push(() => rm(root, { recursive: true, force: true }));
 		const faux = registerFauxProvider();
@@ -37,7 +47,10 @@ describe("IPD native session contract", () => {
 			modelsPath: null,
 			refreshOnCreate: false,
 		});
-		const model = faux.getModel();
+		const model = {
+			...faux.getModel(),
+			...(options.contextWindow ? { contextWindow: options.contextWindow, maxTokens: 100 } : {}),
+		};
 		modelRuntime.registerProvider(model.provider, {
 			baseUrl: model.baseUrl,
 			api: model.api,
@@ -95,6 +108,7 @@ describe("IPD native session contract", () => {
 			agentDir: root,
 			modelRuntime,
 			customTools: [unboundTool],
+			sessionSettings: options.sessionSettings,
 		}).create({
 			nodeId: "produce",
 			workspace: root,
@@ -103,7 +117,8 @@ describe("IPD native session contract", () => {
 			participant,
 			runDefaultModel: model,
 			runDefaultThinkingLevel: "off",
-			controlTools: [recordWork, submission],
+			controlTools: [recordWork, submission, ...(options.extraTools ?? [])],
+			getCurrentContext: options.getCurrentContext,
 		});
 		const events: AgentSessionEvent[] = [];
 		const unsubscribe = session.subscribe((event) => events.push(event));
@@ -157,7 +172,7 @@ describe("IPD native session contract", () => {
 		);
 	}, 15_000);
 
-	it("corrects rejected structured output without treating it as a model retry", async () => {
+	it("corrects rejected structured output as a native tool error without a model retry", async () => {
 		const fixture = await createFixture();
 		fixture.faux.setResponses([
 			fauxAssistantMessage([fauxToolCall("submit_contract", { result: "invalid" })], { stopReason: "toolUse" }),
@@ -167,6 +182,7 @@ describe("IPD native session contract", () => {
 				expect(feedback?.role).toBe("toolResult");
 				if (feedback?.role !== "toolResult") throw new Error("Missing rejection feedback");
 				expect(feedback.toolName).toBe("submit_contract");
+				expect(feedback.isError).toBe(true);
 				const text = feedback.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 				expect(text).toContain("Submission rejected");
 				expect(text).toContain("result must be accepted");
@@ -181,21 +197,19 @@ describe("IPD native session contract", () => {
 		expect(fixture.faux.state.callCount).toBe(2);
 		expect(fixture.capture.value).toEqual({ result: "accepted" });
 		expect(fixture.events.filter((event) => event.type === "auto_retry_start")).toHaveLength(0);
-		// Domain rejection is represented by the receipt and model-visible diagnostics,
-		// not by assuming that a returned isError field controls Pi's execution event.
-		const results = fixture.events.flatMap((event) =>
-			event.type === "tool_execution_end" && event.toolName === "submit_contract" ? [event.result] : [],
+		const executions = fixture.events.filter(
+			(event) => event.type === "tool_execution_end" && event.toolName === "submit_contract",
 		);
-		expect(results).toEqual([
+		expect(executions).toEqual([
 			expect.objectContaining({
-				details: { captured: false, diagnostics: ["result must be accepted"] },
+				isError: true,
+				result: expect.objectContaining({ details: { captured: false, diagnostics: ["result must be accepted"] } }),
 			}),
 			expect.objectContaining({
-				details: expect.objectContaining({ captured: true }),
-				terminate: true,
+				isError: false,
+				result: expect.objectContaining({ details: expect.objectContaining({ captured: true }), terminate: true }),
 			}),
 		]);
-		expect(results[0].terminate).not.toBe(true);
 	});
 
 	it("starts a later quality round on the same session while retaining the earlier tool result", async () => {
@@ -231,11 +245,125 @@ describe("IPD native session contract", () => {
 		const fixture = await createFixture();
 		fixture.faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "invalid_api_key" })]);
 
-		await expect(fixture.session.prompt("Produce the result.")).rejects.toThrow("invalid_api_key");
-
+		await expect(fixture.session.prompt("Produce the result.")).rejects.toMatchObject({
+			message: "invalid_api_key",
+			retryable: false,
+		});
 		expect(fixture.capture.value).toBeUndefined();
 		expect(fixture.faux.state.callCount).toBe(1);
 		expect(fixture.events.filter((event) => event.type === "auto_retry_start")).toHaveLength(0);
 		expect(fixture.session.isIdle).toBe(true);
+	});
+
+	it.each([false, true])(
+		"honors the frozen native retry policy (enabled=%s) without a second retry loop",
+		async (enabled) => {
+			const sessionSettings = { retry: { enabled, maxRetries: 1, baseDelayMs: 1 } };
+			const fixture = await createFixture({ sessionSettings });
+			// A caller mutating its options cannot change an existing session.
+			sessionSettings.retry.enabled = !enabled;
+			sessionSettings.retry.maxRetries = 5;
+			fixture.faux.setResponses(
+				Array.from({ length: 8 }, () => fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" })),
+			);
+			await expect(fixture.session.prompt("Try once under the selected policy.")).rejects.toMatchObject({
+				retryable: false,
+			});
+			expect(fixture.faux.state.callCount).toBe(enabled ? 2 : 1);
+			expect(fixture.events.filter((event) => event.type === "auto_retry_start")).toHaveLength(enabled ? 1 : 0);
+			expect(fixture.capture.value).toBeUndefined();
+		},
+	);
+
+	it("reports a model abort as cancellation, not a missing submission that should be corrected", async () => {
+		const fixture = await createFixture();
+		fixture.faux.setResponses([fauxAssistantMessage("", { stopReason: "aborted", errorMessage: "aborted" })]);
+		await expect(fixture.session.prompt("Cancelled work.")).rejects.toMatchObject({ kind: "cancelled", retryable: false });
+		expect(fixture.faux.state.callCount).toBe(1);
+		expect(fixture.capture.value).toBeUndefined();
+	});
+
+	it("retains earlier images after a successful tool turn without persisting the injected current context", async () => {
+		const image = {
+			type: "image" as const,
+			mimeType: "image/png",
+			data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9WQAAAAASUVORK5CYII=",
+		};
+		const picture = defineTool({
+			name: "read_picture",
+			label: "Picture",
+			description: "Return a synthetic image.",
+			parameters: Type.Object({}),
+			async execute() {
+				return { content: [image], details: {} };
+			},
+		});
+		let context = "runtime-current-first";
+		const fixture = await createFixture({ getCurrentContext: () => context, extraTools: [picture] });
+		fixture.faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("read_picture", {}), { stopReason: "toolUse" }),
+			() => {
+				context = "runtime-current-latest";
+				return fauxAssistantMessage(fauxToolCall("record_work", {}), { stopReason: "toolUse" });
+			},
+			(request) => {
+				const result = request.messages.find(
+					(message) => message.role === "toolResult" && message.toolName === "read_picture",
+				);
+				expect(result).toMatchObject({ content: [image] });
+				expect(JSON.stringify(request.messages.at(-1))).toContain("runtime-current-latest");
+				return fauxAssistantMessage(fauxToolCall("submit_contract", { result: "accepted" }), { stopReason: "toolUse" });
+			},
+		]);
+		await fixture.session.prompt("Inspect the picture, record work and submit.");
+		const files = (await readdir(fixture.sessionDirectory)).filter((file) => file.endsWith(".jsonl"));
+		const persisted = await readFile(join(fixture.sessionDirectory, files[0]), "utf8");
+		expect(persisted).toContain(image.data);
+		expect(persisted).not.toContain("runtime-current-");
+		expect(fixture.capture.value).toEqual({ result: "accepted" });
+	});
+
+	it("uses native automatic compaction and re-injects the current contract before continuing", async () => {
+		const largeTool = defineTool({
+			name: "large_result",
+			label: "Large result",
+			description: "Synthetic output crossing the context threshold.",
+			parameters: Type.Object({}),
+			async execute() {
+				return { content: [{ type: "text" as const, text: `large-tool-result:${"x".repeat(6800)}` }], details: {} };
+			},
+		});
+		const fixture = await createFixture({
+			contextWindow: 2600,
+			sessionSettings: { compaction: { enabled: true, reserveTokens: 400, keepRecentTokens: 1750 } },
+			getCurrentContext: () => "current-contract-after-compaction",
+			extraTools: [largeTool],
+		});
+		let resumed = false;
+		const finishOrSummarize = (request: Context) => {
+			if (!request.messages.some((message) => message.role === "toolResult" && message.toolName === "large_result"))
+				return fauxAssistantMessage("saved-summary");
+			resumed = true;
+			expect(JSON.stringify(request.messages)).toContain("saved-summary");
+			expect(JSON.stringify(request.messages.at(-1))).toContain("current-contract-after-compaction");
+			return fauxAssistantMessage(fauxToolCall("submit_contract", { result: "accepted" }), { stopReason: "toolUse" });
+		};
+		fixture.faux.setResponses([
+			fauxAssistantMessage(`old-history:${"a".repeat(800)}`),
+			fauxAssistantMessage(`recent-history:${"b".repeat(800)}`),
+			fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
+			...Array.from({ length: 4 }, () => finishOrSummarize),
+		]);
+		await fixture.session.prompt("seed old history");
+		await fixture.session.prompt("seed recent history");
+		await fixture.session.prompt("run the large tool");
+		expect(resumed).toBe(true);
+		expect(fixture.capture.value).toEqual({ result: "accepted" });
+		expect(fixture.events.some(
+			(event) => event.type === "compaction_end" && event.result !== undefined && !event.aborted,
+		)).toBe(true);
+		const files = (await readdir(fixture.sessionDirectory)).filter((file) => file.endsWith(".jsonl"));
+		const entries = SessionManager.open(join(fixture.sessionDirectory, files[0])).getEntries();
+		expect(entries.some((entry) => entry.type === "compaction")).toBe(true);
 	});
 });

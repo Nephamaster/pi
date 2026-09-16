@@ -1,105 +1,67 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { compileWorkflow, type NodeWorker, NodeWorkerError, RetryingNodeWorker, validateReplan } from "../src/index.ts";
+import {
+	CheckExecutorRegistry,
+	compileWorkflow,
+	FileRunStore,
+	MechanicalChecker,
+	type NodeWorker,
+	NodeWorkerError,
+	prepareRunDirectory,
+	SubmissionStore,
+	validateReplan,
+	WorkflowRuntime,
+} from "../src/index.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
 describe("M7 failure boundaries", () => {
-	it("retries transient failures in the same work round", async () => {
-		let calls = 0;
-		const feedback: Array<Array<{ type: string; issue: string }>> = [];
-		const delegate: NodeWorker = {
-			async runExecution(work) {
-				feedback.push([...work.feedback]);
-				calls++;
-				if (calls < 3) throw new NodeWorkerError("transient", "temporary provider failure");
-				return { summary: "ok", outputs: [], evidence: [], metadata: {} };
-			},
-			async runReview() {
-				throw new Error("unused");
-			},
-		};
-		const fixture = createCompilerFixture();
-		const compiled = compileWorkflow(fixture);
-		if (!compiled.ok) throw new Error("Fixture did not compile");
-		const node = compiled.baseline.nodes[0];
-		const work = {
-			runId: "run-1",
-			roundId: "round-1",
-			node,
-			inputSubmissions: [],
-			inputBindings: [],
-			taskContext: { materials: [], unresolvedFacts: [] },
-			forbiddenMutableReadPaths: [],
-			feedback: [],
-		};
-		await new RetryingNodeWorker(delegate, 3, async () => {}).runExecution(work);
-		expect(calls).toBe(3);
-		expect(feedback).toEqual([
-			[],
-			[{ type: "technical_retry", issue: "temporary provider failure" }],
-			[
-				{ type: "technical_retry", issue: "temporary provider failure" },
-				{ type: "technical_retry", issue: "temporary provider failure" },
-			],
-		]);
-	});
-
-	it("does not retry an unknown external outcome", async () => {
-		let calls = 0;
-		const delegate: NodeWorker = {
-			async runExecution() {
-				calls++;
-				throw new NodeWorkerError("external_outcome_unknown", "write outcome is unknown", false);
-			},
-			async runReview() {
-				throw new Error("unused");
-			},
-		};
-		const compiled = compileWorkflow(createCompilerFixture());
-		if (!compiled.ok) throw new Error("Fixture did not compile");
-		await expect(
-			new RetryingNodeWorker(delegate).runExecution({
-				runId: "run-1",
-				roundId: "round-1",
-				node: compiled.baseline.nodes[0],
-				inputSubmissions: [],
-				inputBindings: [],
-				taskContext: { materials: [], unresolvedFacts: [] },
-				forbiddenMutableReadPaths: [],
-				feedback: [],
-			}),
-		).rejects.toMatchObject({ kind: "external_outcome_unknown" });
-		expect(calls).toBe(1);
-	});
-
-	it("does not retry a round after Runtime stops it", async () => {
-		let calls = 0;
-		const compiled = compileWorkflow(createCompilerFixture());
-		if (!compiled.ok) throw new Error("Fixture did not compile");
-		const work = {
-			runId: "run-1",
-			roundId: "round-1",
-			node: compiled.baseline.nodes[0],
-			inputSubmissions: [],
-			inputBindings: [],
-			taskContext: { materials: [], unresolvedFacts: [] },
-			forbiddenMutableReadPaths: [],
-			feedback: [],
-		};
-		const delegate: NodeWorker = {
-			async runExecution() {
-				calls++;
-				throw new NodeWorkerError("transient", "temporary provider failure");
-			},
-			async runReview() {
-				throw new Error("unused");
-			},
-		};
-		let retrying: RetryingNodeWorker;
-		retrying = new RetryingNodeWorker(delegate, 3, async () => {
-			await retrying.stopRound("run-1", "produce", "producer", "round-1");
-		});
-		await expect(retrying.runExecution(work)).rejects.toThrow("Round is no longer active");
-		expect(calls).toBe(1);
+	// Pi owns model retries. Even an explicitly retryable diagnostic must not
+	// make Runtime replay a whole node (or treat it as submission correction).
+	it.each([
+		new NodeWorkerError("transient", "native retry exhausted", true),
+		new NodeWorkerError("external_outcome_unknown", "write outcome is unknown", false),
+		new NodeWorkerError("cancelled", "cancelled work", false),
+	])("does not replay work after $kind", async (failure) => {
+		const root = await mkdtemp(join(tmpdir(), "ipd-failure-boundary-"));
+		try {
+			const fixture = createCompilerFixture();
+			const compiled = compileWorkflow(fixture);
+			if (!compiled.ok) throw new Error("Fixture did not compile");
+			const directory = await prepareRunDirectory(root, "run-1");
+			const store = new FileRunStore();
+			store.bind("run-1", directory.stateFile);
+			let calls = 0;
+			const worker: NodeWorker = {
+				async runExecution() {
+					calls++;
+					throw failure;
+				},
+				async runReview() {
+					throw new Error("A failed execution must not reach review");
+				},
+			};
+			const runtime = new WorkflowRuntime(
+				store,
+				directory,
+				worker,
+				new SubmissionStore(),
+				new MechanicalChecker(new CheckExecutorRegistry()),
+			);
+			await runtime.activate(compiled.baseline, fixture.taskInput);
+			const state = await runtime.run();
+			expect(calls).toBe(1);
+			expect(state.status).toBe("blocked");
+			expect(state.submissions).toHaveLength(0);
+			expect(state.rounds).toHaveLength(1);
+			expect(state.events).toContainEqual(expect.objectContaining({
+				type: "round_blocked",
+				data: expect.objectContaining({ kind: failure.kind }),
+			}));
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
 	});
 
 	it("rejects replans that change frozen criteria or responsible participants", () => {
