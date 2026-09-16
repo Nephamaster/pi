@@ -50,6 +50,7 @@ TODO.md
 checkpoint/
 benchmark/
 .pi/ipd/runs/
+.pi/ipd/skill-snapshots/
 __pycache__/
 zh/
 telemetry.ndjson

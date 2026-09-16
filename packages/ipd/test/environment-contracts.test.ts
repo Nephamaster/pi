@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import { classifyWorkerError } from "../src/adapter/pi-node-worker.ts";
 import { DEFAULT_ENVIRONMENT_PATHS } from "../src/environment/profiles.ts";
 import {
+	assertVirtualExportAllowed,
+	assertVirtualPathAllowed,
+	assertVirtualWorkingDirectoryAllowed,
 	buildIsolatedEnvironment,
 	compileWorkflow,
+	createEnvironmentBinding,
 	EnvironmentError,
 	legacySrtProfile,
 	matchesVersion,
@@ -120,6 +124,37 @@ environment-requirements:
 		expect(environment).toEqual({ PATH: "/profile/bin", LANG: "C.UTF-8" });
 		expect(environment).not.toHaveProperty("HOME");
 		expect(() => buildIsolatedEnvironment({ NODE_OPTIONS: "--require=/tmp/hook.js" })).toThrow(EnvironmentError);
+	});
+
+	it("separates private workspace access, command cwd, and declared export scope", () => {
+		const registered = registerExecutionProfiles([profile("private-workspace")])[0];
+		const binding = createEnvironmentBinding({
+			nodeId: "produce",
+			participantId: "worker",
+			profile: registered,
+			readPaths: [],
+			writePaths: ["outputs/deck"],
+			skillHashes: [],
+			policy: { allowedProfiles: [{ id: "private-workspace", version: "1.0.0" }] },
+		});
+
+		expect(assertVirtualWorkingDirectoryAllowed("/workspace", binding)).toBe("/workspace");
+		expect(assertVirtualPathAllowed("/workspace/work/generate.mjs", binding, "write")).toBe(
+			"/workspace/work/generate.mjs",
+		);
+		expect(assertVirtualPathAllowed("/ipd/inputs/source/file.md", binding, "read")).toBe(
+			"/ipd/inputs/source/file.md",
+		);
+		expect(() => assertVirtualPathAllowed("/ipd/inputs/source/file.md", binding, "write")).toThrow(
+			/outside the environment write scope/,
+		);
+		expect(assertVirtualExportAllowed("/workspace/outputs/deck/final.pptx", "outputs/deck", binding)).toBe(
+			"/workspace/outputs/deck/final.pptx",
+		);
+		expect(() => assertVirtualExportAllowed("/workspace/work/generate.mjs", "outputs/deck", binding)).toThrow(
+			/outside declared output/,
+		);
+		expect(() => assertVirtualWorkingDirectoryAllowed("/etc", binding)).toThrow(/outside the environment cwd scope/);
 	});
 
 	it("preserves typed environment failures and never retries them by default", () => {

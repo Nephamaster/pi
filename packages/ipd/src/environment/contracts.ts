@@ -69,6 +69,13 @@ export interface EnvironmentPaths {
 	temporary: "/tmp";
 }
 
+export interface EnvironmentLayout {
+	defaultCwd: string;
+	readOnlyRoots: string[];
+	writableRoots: string[];
+	exportRoot: string;
+}
+
 export interface DockerImageIdentity {
 	reference: string;
 	contentId: string;
@@ -222,7 +229,7 @@ export interface EnvironmentSearchMatch {
 }
 
 export interface EnvironmentExportRequest {
-	outputs: Array<{ outputId: string; logicalPath: string }>;
+	outputs: Array<{ outputId: string; outputRoot: string; logicalPath: string }>;
 	destination: string;
 }
 

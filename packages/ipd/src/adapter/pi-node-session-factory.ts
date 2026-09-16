@@ -12,6 +12,7 @@ import {
 import type { Static } from "typebox";
 import type { EffectiveParticipant } from "../contracts/baseline.ts";
 import type { NodePermissionsSchema } from "../contracts/workflow.ts";
+import type { EnvironmentPaths } from "../environment/contracts.ts";
 import { hashSkillPackage } from "../registry/skill-package.ts";
 import { createCurrentRoundContextExtension, type VirtualContextFile } from "./node-context.ts";
 import { createNodeFileScopeExtension } from "./node-file-scope.ts";
@@ -35,6 +36,7 @@ export interface PiNodeSessionCreateInput {
 	controlTools?: readonly ToolDefinition[];
 	environmentTools?: readonly ToolDefinition[];
 	environmentCwd?: string;
+	environmentPaths?: EnvironmentPaths;
 }
 
 export interface PiNodeSessionFactoryOptions {
@@ -99,7 +101,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 							skills: base.skills.map((skill) => {
 								const locked = input.participant.lockedSkills.find((candidate) => candidate.id === skill.name);
 								if (!locked) return skill;
-								const baseDir = `/ipd/skills/${locked.id}/${locked.hash}`;
+								const baseDir = `${input.environmentPaths?.skills ?? "/ipd/skills"}/${locked.id}/${locked.hash}`;
 								return { ...skill, baseDir, filePath: `${baseDir}/SKILL.md` };
 							}),
 						})

@@ -2,12 +2,20 @@
 import { spawn } from "node:child_process";
 import { openSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { posix } from "node:path";
 
-const ROOT = "/scratch/.ipd-processes";
 const ID = /^[a-f0-9-]{36}$/;
-const [operation, processId, cwd, command] = process.argv.slice(2);
-if (!operation || !processId || !ID.test(processId)) throw new Error("Invalid managed process request");
+const [operation, scratchRoot, processId, cwd, command] = process.argv.slice(2);
+if (
+	!operation ||
+	!scratchRoot?.startsWith("/") ||
+	posix.normalize(scratchRoot) !== scratchRoot ||
+	!processId ||
+	!ID.test(processId)
+)
+	throw new Error("Invalid managed process request");
 
+const ROOT = `${scratchRoot}/.ipd-processes`;
 const metadataPath = `${ROOT}/${processId}.json`;
 const logPath = `${ROOT}/${processId}.log`;
 await mkdir(ROOT, { recursive: true });

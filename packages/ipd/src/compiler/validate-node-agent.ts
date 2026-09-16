@@ -4,6 +4,7 @@ import type { CompilerDiagnostic } from "../contracts/baseline.ts";
 import type { WorkflowNode } from "../contracts/workflow.ts";
 import { normalizeScope, scopeContains } from "../ir/scopes.ts";
 import { addDiagnostic, assetKey } from "./diagnostics.ts";
+import { usesPrivateNodeWorkspaces } from "./environment-workspace.ts";
 import type { CompilerAssetCatalog } from "./types.ts";
 
 type NodeAgent = WorkflowNode["agents"][number];
@@ -171,7 +172,7 @@ export function validateNodeAgent(
 			"Review participants cannot receive write, edit, or general-purpose Shell tools",
 			node.node_id,
 		);
-	if (node.kind === "execution" && agent.permissions.write_paths.length === 0)
+	if (node.kind === "execution" && agent.permissions.write_paths.length === 0 && !usesPrivateNodeWorkspaces(catalog))
 		addDiagnostic(
 			diagnostics,
 			"execution_output_unwritable",

@@ -73,7 +73,7 @@ function createEnvironmentProcessTools(getContext: () => EnvironmentToolContext)
 				const process = await current.provider.startProcess(
 					current.lease,
 					current.round,
-					{ command: input.command, cwd: input.cwd ?? "/workspace" },
+					{ command: input.command, cwd: input.cwd ?? current.binding.paths.workspace },
 					signal,
 				);
 				handles.set(process.processId, process);
@@ -135,19 +135,22 @@ function contains(root: string, target: string): boolean {
 	return value === "" || (!value.startsWith("..") && !isAbsolute(value));
 }
 
-function virtualPath(path: string, hostWorkspace: string): string {
+function virtualPath(path: string, hostWorkspace: string, environmentWorkspace: string): string {
+	const virtual = path.replaceAll("\\", "/");
+	if (virtual === environmentWorkspace || virtual.startsWith(`${environmentWorkspace}/`)) return virtual;
 	const absolute = resolve(path);
 	const workspace = resolve(hostWorkspace);
 	if (contains(workspace, absolute)) {
 		const child = relative(workspace, absolute).replaceAll("\\", "/");
-		return child ? `/workspace/${child}` : "/workspace";
+		return child ? `${environmentWorkspace}/${child}` : environmentWorkspace;
 	}
-	return path.replaceAll("\\", "/");
+	return virtual;
 }
 
-function hostDisplayPath(path: string, hostWorkspace: string): string {
-	if (path === "/workspace") return resolve(hostWorkspace);
-	if (path.startsWith("/workspace/")) return join(resolve(hostWorkspace), path.slice("/workspace/".length));
+function hostDisplayPath(path: string, hostWorkspace: string, environmentWorkspace: string): string {
+	if (path === environmentWorkspace) return resolve(hostWorkspace);
+	if (path.startsWith(`${environmentWorkspace}/`))
+		return join(resolve(hostWorkspace), path.slice(environmentWorkspace.length + 1));
 	return path;
 }
 
@@ -163,8 +166,15 @@ function imageMimeType(content: Buffer): string | undefined {
 }
 
 export function createEnvironmentToolDefinitions(options: EnvironmentToolBackendOptions): ToolDefinition[] {
-	const path = (value: string) => virtualPath(value, options.hostWorkspace);
 	const context = () => options.getContext();
+	const path = (value: string) => {
+		const current = context();
+		return virtualPath(value, options.hostWorkspace, current.binding.paths.workspace);
+	};
+	const displayPath = (value: string) => {
+		const current = context();
+		return hostDisplayPath(value, options.hostWorkspace, current.binding.paths.workspace);
+	};
 	const stat = async (value: string, signal?: AbortSignal) => {
 		const current = context();
 		return current.provider.stat(current.lease, current.round, path(value), signal);
@@ -279,7 +289,7 @@ export function createEnvironmentToolDefinitions(options: EnvironmentToolBackend
 							signal,
 						);
 						return matches.map((match: EnvironmentSearchMatch) => ({
-							filePath: hostDisplayPath(match.path, options.hostWorkspace),
+							filePath: displayPath(match.path),
 							lineNumber: match.line ?? 1,
 							lineText: match.text,
 						}));
@@ -299,7 +309,7 @@ export function createEnvironmentToolDefinitions(options: EnvironmentToolBackend
 							glob: pattern,
 							maxResults: findOptions.limit,
 						});
-						return files.map((file) => hostDisplayPath(file, options.hostWorkspace));
+						return files.map(displayPath);
 					},
 					globWithSignal: async (pattern, cwd, findOptions, signal) => {
 						const current = context();
@@ -309,7 +319,7 @@ export function createEnvironmentToolDefinitions(options: EnvironmentToolBackend
 							{ path: path(cwd), glob: pattern, maxResults: findOptions.limit },
 							signal,
 						);
-						return files.map((file) => hostDisplayPath(file, options.hostWorkspace));
+						return files.map(displayPath);
 					},
 				},
 			}),
@@ -346,7 +356,7 @@ export function createEnvironmentToolDefinitions(options: EnvironmentToolBackend
 			createBashToolDefinition(options.hostWorkspace, {
 				exposeSessionEnvironment: false,
 				remoteFullOutputPath: (toolCallId) =>
-					`/scratch/logs/${createHash("sha256").update(toolCallId).digest("hex")}.log`,
+					`${context().binding.paths.scratch}/logs/${createHash("sha256").update(toolCallId).digest("hex")}.log`,
 				operations: {
 					exec: async (command, cwd, execution) => {
 						const current = context();

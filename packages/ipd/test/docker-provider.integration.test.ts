@@ -41,8 +41,8 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			nodeId: "smoke",
 			participantId: "worker",
 			profile: registered,
-			readPaths: ["."],
-			writePaths: profileName === "code-node24" ? ["."] : ["outputs/smoke"],
+			readPaths: [],
+			writePaths: ["outputs/smoke"],
 			skillHashes: [],
 			policy: {
 				allowedProfiles: [{ id: registered.profile.id, version: registered.profile.version }],
@@ -97,6 +97,9 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 				onData: (data) => output.push(data),
 			});
 			expect(build.exitCode, Buffer.concat(output).toString()).toBe(0);
+			await expect(
+				current.provider.exec(current.lease, current.round, { command: "pwd", cwd: "/etc" }),
+			).rejects.toMatchObject({ code: "policy_denied" });
 			expect(
 				(
 					await current.provider.readFile(current.lease, current.round, "/workspace/outputs/smoke/build.txt")
@@ -143,7 +146,7 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			delete process.env.IPD_SYNTHETIC_API_KEY;
 			await current.manager.releaseRun("run-code-node24");
 		}
-	});
+	}, 120_000);
 
 	it("generates and renders a real multilingual PPTX with chart, notes, text, image, and font checks", async () => {
 		const current = await environment("office-pptx");
@@ -182,7 +185,7 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 		} finally {
 			await current.manager.releaseRun("run-office-pptx");
 		}
-	});
+	}, 120_000);
 
 	it("routes every Pi file, search, image, and Bash tool through the same lease", async () => {
 		const current = await environment("code-node24");
@@ -259,21 +262,36 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 				text(await execute("environment_process_stop", { process_id: started.processId })),
 			) as { state: string };
 			expect(stopped.state).toBe("stopped");
-			await execute("write", { path: "export.txt", content: "stable-export\n" });
+			await execute("write", { path: "outputs/smoke/export.txt", content: "stable-export\n" });
 			const exportRoot = join(root, "exported");
 			const exported = await current.provider.exportOutputs(current.lease, current.round, {
 				destination: exportRoot,
-				outputs: [{ outputId: "smoke", logicalPath: "export.txt" }],
+				outputs: [{ outputId: "smoke", outputRoot: "outputs/smoke", logicalPath: "outputs/smoke/export.txt" }],
 			});
-			expect(exported.files[0]).toMatchObject({ outputId: "smoke", logicalPath: "export.txt", size: 14 });
-			expect(await readFile(join(exportRoot, "export.txt"), "utf8")).toBe("stable-export\n");
-			await execute("bash", { command: "ln -s /etc/passwd leak.txt" });
+			expect(exported.files[0]).toMatchObject({
+				outputId: "smoke",
+				logicalPath: "outputs/smoke/export.txt",
+				size: 14,
+			});
+			expect(await readFile(join(exportRoot, "outputs/smoke/export.txt"), "utf8")).toBe("stable-export\n");
+			await expect(
+				current.provider.exportOutputs(current.lease, current.round, {
+					destination: join(root, "work-export"),
+					outputs: [{ outputId: "smoke", outputRoot: "outputs/smoke", logicalPath: "shared.txt" }],
+				}),
+			).rejects.toMatchObject({ code: "policy_denied" });
+			await execute("bash", { command: "ln -s /etc/passwd outputs/smoke/leak.txt" });
 			await expect(
 				current.provider.exportOutputs(current.lease, current.round, {
 					destination: join(root, "invalid-export"),
-					outputs: [{ outputId: "smoke", logicalPath: "leak.txt" }],
+					outputs: [{ outputId: "smoke", outputRoot: "outputs/smoke", logicalPath: "outputs/smoke/leak.txt" }],
 				}),
 			).rejects.toMatchObject({ code: "policy_denied" });
+			const readonlyAttempt = await current.provider.exec(current.lease, current.round, {
+				command: "touch /ipd/context/forbidden /ipd/skills/forbidden /ipd/inputs/forbidden >/dev/null 2>&1",
+				cwd: "/workspace",
+			});
+			expect(readonlyAttempt.exitCode).not.toBe(0);
 			await execute("write", { path: "persistent.txt", content: "lease-state\n" });
 			const reboundInput = join(root, "rebound-input.txt");
 			await writeFile(reboundInput, "new-input\n");
@@ -314,5 +332,5 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 		} finally {
 			await current.manager.releaseRun("run-code-node24");
 		}
-	});
+	}, 120_000);
 });

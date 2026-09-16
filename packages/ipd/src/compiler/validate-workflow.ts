@@ -7,6 +7,7 @@ import type { ExecutionNode, ReviewNode, WorkflowDefinition } from "../contracts
 import { topologicalSort } from "../ir/graph.ts";
 import { normalizeScope, scopeContains, scopesOverlap } from "../ir/scopes.ts";
 import { addDiagnostic as add, duplicateIds as duplicates, outputKey } from "./diagnostics.ts";
+import { usesPrivateNodeWorkspaces } from "./environment-workspace.ts";
 import type { CompilerAssetCatalog, ValidatedWorkflow } from "./types.ts";
 import { validateNodeAgent } from "./validate-node-agent.ts";
 import { validateCoverageReferences } from "./validate-process-coverage.ts";
@@ -18,6 +19,7 @@ export function validateWorkflowRelations(
 	catalog: CompilerAssetCatalog,
 ): ValidatedWorkflow {
 	const diagnostics: CompilerDiagnostic[] = [];
+	const privateNodeWorkspaces = usesPrivateNodeWorkspaces(catalog);
 	for (const id of duplicates(workflow.nodes.map((node) => node.node_id)))
 		add(diagnostics, "node_duplicate", "/nodes", `Duplicate node ${id}`);
 	for (const id of duplicates(workflow.criteria.map((item) => item.criterion_id)))
@@ -64,9 +66,18 @@ export function validateWorkflowRelations(
 						`Output path must use normalized form ${normalized}`,
 						node.node_id,
 					);
+				if (normalized && privateNodeWorkspaces && !scopeContains("outputs", normalized))
+					add(
+						diagnostics,
+						"output_path_outside_export_root",
+						`/nodes/${index}/outputs/${outputIndex}/path_prefix`,
+						`Output path ${output.path_prefix} is outside the private workspace export root outputs`,
+						node.node_id,
+					);
 				if (
 					!normalized ||
-					!node.agents[0]?.permissions.write_paths.some((path) => scopeContains(path, normalized))
+					(!privateNodeWorkspaces &&
+						!node.agents[0]?.permissions.write_paths.some((path) => scopeContains(path, normalized)))
 				) {
 					add(
 						diagnostics,
@@ -108,18 +119,20 @@ export function validateWorkflowRelations(
 	}
 
 	const executionNodes = workflow.nodes.filter((node): node is ExecutionNode => node.kind === "execution");
-	for (let left = 0; left < executionNodes.length; left++) {
-		for (let right = left + 1; right < executionNodes.length; right++) {
-			for (const leftPath of executionNodes[left].agents[0]?.permissions.write_paths ?? []) {
-				for (const rightPath of executionNodes[right].agents[0]?.permissions.write_paths ?? []) {
-					if (scopesOverlap(leftPath, rightPath))
-						add(
-							diagnostics,
-							"output_ownership_conflict",
-							"/nodes",
-							`${executionNodes[left].node_id} and ${executionNodes[right].node_id} have overlapping write paths`,
-							executionNodes[right].node_id,
-						);
+	if (!privateNodeWorkspaces) {
+		for (let left = 0; left < executionNodes.length; left++) {
+			for (let right = left + 1; right < executionNodes.length; right++) {
+				for (const leftPath of executionNodes[left].agents[0]?.permissions.write_paths ?? []) {
+					for (const rightPath of executionNodes[right].agents[0]?.permissions.write_paths ?? []) {
+						if (scopesOverlap(leftPath, rightPath))
+							add(
+								diagnostics,
+								"output_ownership_conflict",
+								"/nodes",
+								`${executionNodes[left].node_id} and ${executionNodes[right].node_id} have overlapping write paths`,
+								executionNodes[right].node_id,
+							);
+					}
 				}
 			}
 		}

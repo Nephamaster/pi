@@ -39,7 +39,7 @@ function binding(): EnvironmentBinding {
 			home: "/home/agent",
 			temporary: "/tmp",
 		},
-		readPaths: ["."],
+		readPaths: [],
 		writePaths: ["outputs/node"],
 		skillHashes: [],
 		probeHash: "c".repeat(64),
@@ -118,9 +118,19 @@ describe("DockerEnvironmentProvider", () => {
 		expect(create).toContain("no-new-privileges");
 		expect(create).toContain("none");
 		expect(create).toContain(imageId);
+		expect(create).toContain(`${process.getuid?.()}:${process.getgid?.()}`);
 		expect(create).not.toContain("--privileged");
 		expect(create?.join(" ")).not.toContain("docker.sock");
 		expect((await provider.describe(lease)).generation).toBe(1);
+		expect(
+			await provider.exec(lease, round, {
+				command: "pwd",
+				cwd: "/workspace",
+			}),
+		).toEqual({ exitCode: 0 });
+		await expect(provider.exec(lease, round, { command: "pwd", cwd: "/etc" })).rejects.toMatchObject({
+			code: "policy_denied",
+		});
 		await provider.dispose(lease);
 		expect(
 			docker.calls.some((call) => call.args.slice(0, 3).join(" ") === `rm --force ${prepared.providerHandle}`),

@@ -94,6 +94,7 @@ export class PiNodeWorker implements NodeWorker {
 	async prepareRound(work: NodeRoundWork, signal?: AbortSignal): Promise<void> {
 		if (!work.environmentBinding || !this.options.environmentManager) return;
 		const binding = this.binding(work, work.node.definition.kind);
+		const paths = work.environmentBinding.paths;
 		const lease = await this.options.environmentManager.prepare(work.runId, work.environmentBinding, signal);
 		const contextFiles = renderNodeContextFiles(work);
 		await this.options.environmentManager.bindStaticAssets(
@@ -108,7 +109,7 @@ export class PiNodeWorker implements NodeWorker {
 				...work.node.agents[0].lockedSkills.map((skill) => ({
 					assetId: `skill:${skill.id}`,
 					contentHash: skill.hash,
-					virtualPath: `/ipd/skills/${skill.id}/${skill.hash}`,
+					virtualPath: `${paths.skills}/${skill.id}/${skill.hash}`,
 					sourcePath: skill.baseDir,
 				})),
 			],
@@ -126,7 +127,7 @@ export class PiNodeWorker implements NodeWorker {
 				inputs.push({
 					bindingId: input.input_id,
 					contentHash: await hashEnvironmentSource(output.sealedRoot),
-					virtualPath: `/ipd/inputs/${input.input_id}`,
+					virtualPath: `${paths.inputs}/${input.input_id}`,
 					sourcePath: output.sealedRoot,
 				});
 				continue;
@@ -136,7 +137,7 @@ export class PiNodeWorker implements NodeWorker {
 			inputs.push({
 				bindingId: input.input_id,
 				contentHash: await hashEnvironmentSource(material.reference),
-				virtualPath: `/ipd/inputs/${input.input_id}`,
+				virtualPath: `${paths.inputs}/${input.input_id}`,
 				sourcePath: material.reference,
 			});
 		}
@@ -166,6 +167,9 @@ export class PiNodeWorker implements NodeWorker {
 	): Promise<string | undefined> {
 		const binding = this.bindings.get(keyOf(work));
 		if (!binding?.environment) return undefined;
+		if (work.node.definition.kind !== "execution")
+			throw new NodeSubmissionProtocolError("Only execution nodes can export Artifact submissions");
+		const outputRoots = new Map(work.node.definition.outputs.map((output) => [output.output_id, output.path_prefix]));
 		const destination = await mkdtemp(join(tmpdir(), "pi-ipd-export-"));
 		try {
 			const result = await binding.environment.provider.exportOutputs(
@@ -173,9 +177,19 @@ export class PiNodeWorker implements NodeWorker {
 				binding.environment.round,
 				{
 					destination,
-					outputs: submission.outputs.flatMap((output) =>
-						output.files.map((file) => ({ outputId: output.output_id, logicalPath: file.path })),
-					),
+					outputs: submission.outputs.flatMap((output) => {
+						const outputRoot = outputRoots.get(output.output_id);
+						if (!outputRoot)
+							throw new EnvironmentError(
+								"policy_denied",
+								`Submission references undeclared output: ${output.output_id}`,
+							);
+						return output.files.map((file) => ({
+							outputId: output.output_id,
+							outputRoot,
+							logicalPath: file.path,
+						}));
+					}),
 				},
 				signal,
 			);
@@ -323,7 +337,8 @@ export class PiNodeWorker implements NodeWorker {
 					runDefaultThinkingLevel: this.options.thinkingLevel,
 					controlTools: binding.tools,
 					environmentTools,
-					environmentCwd: binding.environment ? "/workspace" : undefined,
+					environmentCwd: binding.environment?.binding.paths.workspace,
+					environmentPaths: binding.environment?.binding.paths,
 				},
 			});
 			await this.sessions.dispatch(

@@ -1,6 +1,6 @@
 // 计算完整 Skill 包内容哈希并拒绝符号链接。
 import { createHash } from "node:crypto";
-import { chmod, copyFile, lstat, mkdir, readdir, readFile, rename, rm } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { hashJson } from "../ir/hash.ts";
 
@@ -29,8 +29,8 @@ export async function hashSkillPackage(baseDir: string): Promise<string> {
 	return hashJson(files);
 }
 
-async function copySkillTree(source: string, destination: string): Promise<void> {
-	await mkdir(destination, { recursive: false, mode: 0o700 });
+async function copySkillTree(source: string, destination: string, destinationExists = false): Promise<void> {
+	if (!destinationExists) await mkdir(destination, { recursive: false, mode: 0o700 });
 	for (const entry of await readdir(source, { withFileTypes: true })) {
 		if (entry.name === "__pycache__" || (entry.isFile() && entry.name.endsWith(".pyc"))) continue;
 		const sourcePath = join(source, entry.name);
@@ -51,6 +51,17 @@ async function makeSkillTreeReadonly(directory: string): Promise<void> {
 	await chmod(directory, 0o555);
 }
 
+async function removeSkillStaging(directory: string): Promise<void> {
+	const makeDirectoriesWritable = async (current: string): Promise<void> => {
+		await chmod(current, 0o700).catch(() => {});
+		for (const entry of await readdir(current, { withFileTypes: true }).catch(() => [])) {
+			if (entry.isDirectory()) await makeDirectoriesWritable(join(current, entry.name));
+		}
+	};
+	await makeDirectoriesWritable(directory);
+	await rm(directory, { recursive: true, force: true });
+}
+
 export async function snapshotSkillPackage(
 	baseDir: string,
 	snapshotRoot: string,
@@ -65,9 +76,9 @@ export async function snapshotSkillPackage(
 		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 	}
 	await mkdir(snapshotRoot, { recursive: true, mode: 0o700 });
-	const staging = join(snapshotRoot, `.${expectedHash}.${process.pid}.${Date.now()}.tmp`);
+	const staging = await mkdtemp(join(snapshotRoot, `.${expectedHash}.`));
 	try {
-		await copySkillTree(baseDir, staging);
+		await copySkillTree(baseDir, staging, true);
 		if ((await hashSkillPackage(staging)) !== expectedHash)
 			throw new Error(`Skill changed while its snapshot was being created: ${baseDir}`);
 		await makeSkillTreeReadonly(staging);
@@ -75,13 +86,13 @@ export async function snapshotSkillPackage(
 			await rename(staging, target);
 		} catch (error) {
 			if (!["EEXIST", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
-			await rm(staging, { recursive: true, force: true });
+			await removeSkillStaging(staging);
 			if ((await hashSkillPackage(target)) !== expectedHash)
 				throw new Error(`Stored Skill snapshot is corrupt: ${target}`);
 		}
 		return target;
 	} catch (error) {
-		await rm(staging, { recursive: true, force: true });
+		await removeSkillStaging(staging);
 		throw error;
 	}
 }

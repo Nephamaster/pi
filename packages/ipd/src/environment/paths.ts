@@ -4,7 +4,13 @@ import { constants } from "node:fs";
 import { access, copyFile, lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { hashJson } from "../ir/hash.ts";
-import type { EnvironmentBinding, EnvironmentInputBinding, EnvironmentStaticAsset } from "./contracts.ts";
+import type {
+	EnvironmentBinding,
+	EnvironmentInputBinding,
+	EnvironmentLayout,
+	EnvironmentPaths,
+	EnvironmentStaticAsset,
+} from "./contracts.ts";
 import { EnvironmentError, throwIfAborted } from "./contracts.ts";
 
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -24,32 +30,54 @@ export function normalizeVirtualPath(path: string): string {
 	return normalized;
 }
 
-function workspaceRoot(scope: string): string {
+function workspaceRoot(scope: string, workspace: string): string {
 	if (isAbsolute(scope) || scope.split(/[\\/]/).includes(".."))
 		throw new EnvironmentError("policy_denied", `Invalid logical workspace scope: ${scope}`);
 	const normalized = posix.normalize(scope.replaceAll("\\", "/"));
-	return normalized === "." ? "/workspace" : `/workspace/${normalized}`;
+	return normalized === "." ? workspace : `${workspace}/${normalized}`;
+}
+
+export function resolveEnvironmentLayout(paths: EnvironmentPaths): EnvironmentLayout {
+	return {
+		defaultCwd: paths.workspace,
+		readOnlyRoots: [paths.context, paths.skills, paths.inputs],
+		writableRoots: [paths.workspace, paths.scratch, paths.cache, paths.home, paths.temporary],
+		exportRoot: `${paths.workspace}/outputs`,
+	};
 }
 
 export function assertVirtualPathAllowed(
 	path: string,
 	binding: EnvironmentBinding,
-	operation: "read" | "write" | "exec",
+	operation: "read" | "write",
 ): string {
 	const normalized = normalizeVirtualPath(path);
-	const privateRoots = ["/scratch", "/cache", "/home/agent", "/tmp"];
-	const readRoots = [
-		"/ipd/context",
-		"/ipd/skills",
-		"/ipd/inputs",
-		...privateRoots,
-		...binding.readPaths.map(workspaceRoot),
-		...binding.writePaths.map(workspaceRoot),
-	];
-	const writeRoots = [...privateRoots, ...binding.writePaths.map(workspaceRoot)];
-	const roots = operation === "read" ? readRoots : operation === "write" ? writeRoots : [...readRoots, ...writeRoots];
+	const layout = resolveEnvironmentLayout(binding.paths);
+	const roots = operation === "read" ? [...layout.readOnlyRoots, ...layout.writableRoots] : layout.writableRoots;
 	if (!roots.some((root) => virtualContains(root, normalized)))
 		throw new EnvironmentError("policy_denied", `Path is outside the environment ${operation} scope: ${path}`);
+	return normalized;
+}
+
+export function assertVirtualWorkingDirectoryAllowed(path: string, binding: EnvironmentBinding): string {
+	const normalized = normalizeVirtualPath(path);
+	const layout = resolveEnvironmentLayout(binding.paths);
+	if (![...layout.readOnlyRoots, ...layout.writableRoots].some((root) => virtualContains(root, normalized)))
+		throw new EnvironmentError("policy_denied", `Path is outside the environment cwd scope: ${path}`);
+	return normalized;
+}
+
+export function assertVirtualExportAllowed(path: string, outputRoot: string, binding: EnvironmentBinding): string {
+	const normalized = normalizeVirtualPath(path);
+	const layout = resolveEnvironmentLayout(binding.paths);
+	const declaredRoot = workspaceRoot(outputRoot, binding.paths.workspace);
+	if (!virtualContains(layout.exportRoot, declaredRoot))
+		throw new EnvironmentError(
+			"policy_denied",
+			`Declared output root is outside the environment export root: ${outputRoot}`,
+		);
+	if (!virtualContains(declaredRoot, normalized))
+		throw new EnvironmentError("policy_denied", `Path is outside declared output ${outputRoot}: ${path}`);
 	return normalized;
 }
 
@@ -92,6 +120,7 @@ async function copyTree(source: string, destination: string, budget: CopyBudget,
 
 export async function materializeEnvironmentInputs(
 	root: string,
+	virtualRoot: string,
 	inputs: readonly EnvironmentInputBinding[],
 	signal?: AbortSignal,
 ): Promise<Map<string, string>> {
@@ -114,8 +143,11 @@ export async function materializeEnvironmentInputs(
 		await copyTree(input.sourcePath, destination, { files: 0, bytes: 0 }, signal);
 		destinations.set(input.bindingId, destination);
 		const expected = normalizeVirtualPath(input.virtualPath);
-		if (!virtualContains("/ipd/inputs", expected))
-			throw new EnvironmentError("policy_denied", `Input virtual path is outside /ipd/inputs: ${input.virtualPath}`);
+		if (!virtualContains(virtualRoot, expected))
+			throw new EnvironmentError(
+				"policy_denied",
+				`Input virtual path is outside ${virtualRoot}: ${input.virtualPath}`,
+			);
 		if (basename(expected) !== input.bindingId)
 			throw new EnvironmentError(
 				"policy_denied",

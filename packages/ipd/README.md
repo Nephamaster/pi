@@ -110,9 +110,18 @@ Each node receives one lease that survives normal rounds and rework. All local `
 /scratch/ /cache/ /home/agent/ /tmp/   lease-private writable state
 ```
 
-The container has no host root, Home, Run root, credential directory, or Docker socket mount. It runs as UID/GID 1000,
-with a read-only image root, dropped capabilities, `no-new-privileges`, `network=none`, and enforced memory/CPU/PID/log
-limits. Container environment variables start from the Profile allowlist instead of inheriting the Pi process.
+`/workspace` is the node-private business workspace and the default command cwd. Execution nodes may use its root for
+source files, build configuration, dependencies, and intermediate work without declaring every temporary directory as
+an Artifact. The Runtime validates cwd against the environment layout, independently of file access and export rules.
+Context, Skill snapshots, and exact round inputs remain read-only mounts. Only files below `/workspace/outputs` that
+also belong to a frozen output contract can be exported and sealed; writable files are not automatically publishable.
+
+The container has no host root, Home, Run root, credential directory, or Docker socket mount. It runs as the
+non-privileged invoking host UID/GID, with a read-only image root, dropped capabilities, `no-new-privileges`,
+`network=none`, and enforced memory/CPU/PID/log
+limits. At preparation time the Provider uses the invoking host identity and verifies that the container process can
+traverse read-only roots and write every private runtime root; it fails before node execution instead of relaxing
+permissions. Container environment variables start from the Profile allowlist instead of inheriting the Pi process.
 
 For temporary migration only, explicitly select the old sandbox-runtime backend before launching Pi:
 

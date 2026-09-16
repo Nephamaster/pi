@@ -52,10 +52,12 @@ jobs:
         working-directory: packages/ipd
         run: >-
           node ../../node_modules/vitest/dist/cli.js --run
+          test/compiler.test.ts
           test/docker-adapter.test.ts
           test/docker-provider.test.ts
           test/environment-contracts.test.ts
           test/environment-manager.test.ts
+          test/skill-snapshot.test.ts
           test/submission-store.test.ts
           test/workflow-runtime.test.ts
           test/runtime-rework.test.ts

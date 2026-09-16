@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { type CompilerAssetCatalog, compileWorkflow, hashJson } from "../src/index.ts";
+import {
+	type CompilerAssetCatalog,
+	compileWorkflow,
+	DEFAULT_ENVIRONMENT_PATHS,
+	dockerProfile,
+	hashJson,
+	registerExecutionProfiles,
+} from "../src/index.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
 function addSecondaryReview(fixture: ReturnType<typeof createCompilerFixture>): void {
@@ -22,6 +29,37 @@ function addSecondaryReview(fixture: ReturnType<typeof createCompilerFixture>): 
 	secondary.targets = [{ node_id: "produce", output_id: "content-output", criterion_refs: ["secondary-quality"] }];
 	fixture.workflow.nodes.push(secondary);
 	fixture.workflow.completion.required_node_ids.push("review-secondary");
+}
+
+function usePrivateDockerWorkspaces(fixture: ReturnType<typeof createCompilerFixture>): void {
+	const profiles = registerExecutionProfiles([
+		dockerProfile({
+			schemaVersion: 1,
+			id: "test-docker",
+			version: "1.0.0",
+			provider: "docker",
+			image: {
+				reference: "test/docker:1.0.0",
+				contentId: `sha256:${"a".repeat(64)}`,
+				platform: "linux/amd64",
+			},
+			capabilities: [],
+			commands: [],
+			supportedTools: ["bash", "edit", "find", "grep", "ls", "read", "write"],
+			environment: { PATH: "/usr/bin:/bin" },
+			network: { mode: "none" },
+			resources: { memoryBytes: 1024, cpus: 1, pids: 32, logBytes: 1024 },
+			probes: [],
+			paths: DEFAULT_ENVIRONMENT_PATHS,
+		}),
+	]);
+	Object.assign(fixture.assets, {
+		environmentProfiles: profiles,
+		environmentPolicy: {
+			allowedProfiles: [{ id: "test-docker", version: "1.0.0" }],
+			defaultProfile: { id: "test-docker", version: "1.0.0" },
+		},
+	});
 }
 
 describe("compileWorkflow", () => {
@@ -58,6 +96,53 @@ describe("compileWorkflow", () => {
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
 		expect(result.report.diagnostics.map((item) => item.code)).toContain("output_ownership_conflict");
+	});
+
+	it("gives Docker execution nodes private workspaces without requiring broad write scopes", () => {
+		const fixture = createCompilerFixture();
+		usePrivateDockerWorkspaces(fixture);
+		const producer = fixture.workflow.nodes.find((node) => node.kind === "execution");
+		if (!producer) throw new Error("Missing execution node");
+		producer.agents[0].permissions.write_paths = [];
+		const result = compileWorkflow(fixture);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(
+			result.baseline.environmentBindings.find((binding) => binding.nodeId === producer.node_id)?.writePaths,
+		).toEqual([]);
+	});
+
+	it("rejects Docker output contracts outside the environment export root", () => {
+		const fixture = createCompilerFixture();
+		usePrivateDockerWorkspaces(fixture);
+		const producer = fixture.workflow.nodes.find((node) => node.kind === "execution");
+		if (!producer || producer.kind !== "execution") throw new Error("Missing execution node");
+		producer.outputs[0].path_prefix = "artifacts/produce";
+		const result = compileWorkflow(fixture);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.report.diagnostics.map((item) => item.code)).toContain("output_path_outside_export_root");
+	});
+
+	it("does not treat identical paths in separate Docker workspaces as ownership conflicts", () => {
+		const fixture = createCompilerFixture();
+		usePrivateDockerWorkspaces(fixture);
+		const producer = fixture.workflow.nodes.find((node) => node.kind === "execution");
+		if (!producer || producer.kind !== "execution") throw new Error("Missing execution node");
+		fixture.workflow.nodes.push({
+			...structuredClone(producer),
+			node_id: "second-private-producer",
+			name: "Second Private Producer",
+			agents: [
+				{
+					...structuredClone(producer.agents[0]),
+					participant_id: "second-private-producer",
+				},
+			],
+		});
+		const result = compileWorkflow(fixture);
+		if (result.ok) return;
+		expect(result.report.diagnostics.map((item) => item.code)).not.toContain("output_ownership_conflict");
 	});
 
 	it("rejects non-normalized output and permission paths", () => {

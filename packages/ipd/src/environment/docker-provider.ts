@@ -26,11 +26,14 @@ import {
 } from "./contracts.ts";
 import type { DockerCommandRunner } from "./docker-adapter.ts";
 import {
+	assertVirtualExportAllowed,
 	assertVirtualPathAllowed,
+	assertVirtualWorkingDirectoryAllowed,
 	hashEnvironmentSource,
 	materializeEnvironmentAssets,
 	materializeEnvironmentInputs,
 	normalizeVirtualPath,
+	resolveEnvironmentLayout,
 } from "./paths.ts";
 
 const COMMAND_EXIT_CODES = Array.from({ length: 256 }, (_value, index) => index);
@@ -110,6 +113,13 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 				"profile_incompatible",
 				`Docker image identity changed for ${request.binding.image.reference}`,
 			);
+		const runtimeUid = process.getuid?.();
+		const runtimeGid = process.getgid?.();
+		if (runtimeUid === undefined || runtimeGid === undefined || runtimeUid === 0)
+			throw new EnvironmentError(
+				"environment_unavailable",
+				"Docker environment preparation requires a non-root local host UID/GID",
+			);
 
 		const root = join(this.storageRoot, request.leaseId);
 		const state: DockerLeaseState = {
@@ -144,6 +154,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			XDG_CONFIG_HOME: `${request.binding.paths.home}/.config`,
 			XDG_CACHE_HOME: request.binding.paths.cache,
 		});
+		const runtimeUser = `${runtimeUid}:${runtimeGid}`;
 		const mount = (source: string, destination: string, readonly = false) =>
 			`type=bind,src=${source},dst=${destination}${readonly ? ",readonly" : ""}`;
 		const createArgs = [
@@ -159,7 +170,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			"--label",
 			`pi.ipd.run=${hashJson(request.runId)}`,
 			"--user",
-			"1000:1000",
+			runtimeUser,
 			"--network",
 			"none",
 			"--read-only",
@@ -270,6 +281,39 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 				hostConfig.PidsLimit !== request.binding.resources.pids
 			)
 				throw new EnvironmentError("policy_denied", "Docker Engine did not apply the required security policy");
+			const layout = resolveEnvironmentLayout(request.binding.paths);
+			try {
+				await this.docker.run(
+					[
+						"exec",
+						state.containerName,
+						"/bin/sh",
+						"-c",
+						'for path in "$@"; do test -r "$path" && test -x "$path" || exit 71; done',
+						"--",
+						...layout.readOnlyRoots,
+					],
+					{ signal },
+				);
+				await this.docker.run(
+					[
+						"exec",
+						state.containerName,
+						"/bin/sh",
+						"-c",
+						'for path in "$@"; do test -r "$path" && test -w "$path" && test -x "$path" || exit 72; done',
+						"--",
+						...layout.writableRoots,
+					],
+					{ signal },
+				);
+			} catch (error) {
+				throw new EnvironmentError(
+					"environment_unavailable",
+					`Container user ${runtimeUser} cannot access the configured environment layout`,
+					{ cause: error },
+				);
+			}
 			for (const probe of request.binding.probes) {
 				const result = await this.docker.run(["exec", state.containerName, ...probe.command], {
 					signal,
@@ -304,7 +348,12 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		);
 		state.processes.clear();
 		state.currentRound = undefined;
-		const destinations = await materializeEnvironmentInputs(state.inputsRoot, binding.inputs, signal);
+		const destinations = await materializeEnvironmentInputs(
+			state.inputsRoot,
+			state.binding.paths.inputs,
+			binding.inputs,
+			signal,
+		);
 		for (const input of binding.inputs) {
 			const destination = destinations.get(input.bindingId);
 			if (!destination || (await hashEnvironmentSource(destination)) !== input.contentHash)
@@ -333,13 +382,18 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		if (state.assetHash === assetHash) return;
 		if (state.currentRound)
 			throw new EnvironmentError("policy_denied", "Static environment assets cannot change after a round is bound");
-		const contextAssets = assets.filter((asset) => asset.virtualPath.startsWith("/ipd/context/"));
-		const skillAssets = assets.filter((asset) => asset.virtualPath.startsWith("/ipd/skills/"));
+		const contextPrefix = `${state.binding.paths.context}/`;
+		const skillsPrefix = `${state.binding.paths.skills}/`;
+		const contextAssets = assets.filter((asset) => asset.virtualPath.startsWith(contextPrefix));
+		const skillAssets = assets.filter((asset) => asset.virtualPath.startsWith(skillsPrefix));
 		if (contextAssets.length + skillAssets.length !== assets.length)
-			throw new EnvironmentError("policy_denied", "Static assets must be located under /ipd/context or /ipd/skills");
+			throw new EnvironmentError(
+				"policy_denied",
+				`Static assets must be located under ${state.binding.paths.context} or ${state.binding.paths.skills}`,
+			);
 		const destinations = new Map([
-			...(await materializeEnvironmentAssets(state.contextRoot, "/ipd/context", contextAssets, signal)),
-			...(await materializeEnvironmentAssets(state.skillsRoot, "/ipd/skills", skillAssets, signal)),
+			...(await materializeEnvironmentAssets(state.contextRoot, state.binding.paths.context, contextAssets, signal)),
+			...(await materializeEnvironmentAssets(state.skillsRoot, state.binding.paths.skills, skillAssets, signal)),
 		]);
 		for (const asset of assets) {
 			const destination = destinations.get(asset.assetId);
@@ -367,7 +421,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		signal?: AbortSignal,
 	): Promise<EnvironmentExecResult> {
 		const state = this.requiredActiveState(lease, binding, "exec");
-		const cwd = assertVirtualPathAllowed(request.cwd, state.binding, "exec");
+		const cwd = assertVirtualWorkingDirectoryAllowed(request.cwd, state.binding);
 		for (const name of Object.keys(request.environment ?? {})) {
 			if (!(name in state.binding.environment))
 				throw new EnvironmentError("policy_denied", `Command environment variable is not authorized: ${name}`);
@@ -567,7 +621,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		if (request.environment && Object.keys(request.environment).length > 0)
 			throw new EnvironmentError("policy_denied", "Managed process environment overrides are not enabled");
 		const processId = randomUUID();
-		const cwd = assertVirtualPathAllowed(request.cwd, state.binding, "exec");
+		const cwd = assertVirtualWorkingDirectoryAllowed(request.cwd, state.binding);
 		const result = await this.docker.run(
 			[
 				"exec",
@@ -575,6 +629,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 				"node",
 				"/usr/local/lib/pi-ipd/process-bridge.mjs",
 				"start",
+				state.binding.paths.scratch,
 				processId,
 				cwd,
 				request.command,
@@ -599,7 +654,15 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 	async processStatus(lease: EnvironmentLease, process: ProcessHandle, signal?: AbortSignal): Promise<ProcessHandle> {
 		const state = this.requiredProcess(lease, process);
 		const result = await this.docker.run(
-			["exec", state.containerName, "node", "/usr/local/lib/pi-ipd/process-bridge.mjs", "status", process.processId],
+			[
+				"exec",
+				state.containerName,
+				"node",
+				"/usr/local/lib/pi-ipd/process-bridge.mjs",
+				"status",
+				state.binding.paths.scratch,
+				process.processId,
+			],
 			{ signal },
 		);
 		const status = parseJson<{ state: "running" | "exited"; exitCode?: number }>(result.stdout, "process status");
@@ -617,7 +680,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 	): Promise<{ data: Buffer; cursor: number; eof: boolean }> {
 		const state = this.requiredProcess(lease, process);
 		if (!Number.isInteger(cursor) || cursor < 0) throw new EnvironmentError("policy_denied", "Invalid log cursor");
-		const logPath = `/scratch/.ipd-processes/${process.processId}.log`;
+		const logPath = `${state.binding.paths.scratch}/.ipd-processes/${process.processId}.log`;
 		const content = await this.readProcessFile(state, logPath, signal);
 		const next = Math.min(content.length, cursor + state.binding.resources.logBytes);
 		return { data: content.subarray(cursor, next), cursor: next, eof: next === content.length };
@@ -632,7 +695,15 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		}
 		current.state = "stopping";
 		const result = await this.docker.run(
-			["exec", state.containerName, "node", "/usr/local/lib/pi-ipd/process-bridge.mjs", "stop", process.processId],
+			[
+				"exec",
+				state.containerName,
+				"node",
+				"/usr/local/lib/pi-ipd/process-bridge.mjs",
+				"stop",
+				state.binding.paths.scratch,
+				process.processId,
+			],
 			{ signal },
 		);
 		const stopped = parseJson<{ state: "exited" | "stopped"; exitCode?: number; killed: boolean }>(
@@ -677,7 +748,8 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 				const logicalPath = output.logicalPath.replaceAll("\\", "/");
 				if (isAbsolute(logicalPath) || logicalPath.split("/").includes(".."))
 					throw new EnvironmentError("policy_denied", `Invalid exported output path: ${logicalPath}`);
-				assertVirtualPathAllowed(`/workspace/${logicalPath}`, state.binding, "write");
+				const virtualPath = `${state.binding.paths.workspace}/${logicalPath}`;
+				assertVirtualExportAllowed(virtualPath, output.outputRoot, state.binding);
 				const source = await realpath(resolve(workspace, logicalPath));
 				const sourceRelative = relative(workspace, source);
 				if (sourceRelative.startsWith("..") || isAbsolute(sourceRelative))
@@ -720,6 +792,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			network: state.binding.network,
 			resources: state.binding.resources,
 			paths: state.binding.paths,
+			layout: resolveEnvironmentLayout(state.binding.paths),
 			generation: state.currentRound?.generation ?? 0,
 		};
 	}

@@ -2,6 +2,9 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { EffectiveNode } from "../contracts/baseline.ts";
+import type { EnvironmentBinding, EnvironmentPaths } from "../environment/contracts.ts";
+import { resolveEnvironmentLayout } from "../environment/paths.ts";
+import { DEFAULT_ENVIRONMENT_PATHS } from "../environment/profiles.ts";
 import { canonicalJson } from "../ir/hash.ts";
 import { wrapPromptBlock } from "../prompt/block.ts";
 import type { NodeRoundWork } from "../runtime/node-worker.ts";
@@ -30,13 +33,16 @@ function criteria(node: EffectiveNode): string {
 		.join("\n\n");
 }
 
-function permissions(node: EffectiveNode): string {
-	return node.definition.agents
+function permissions(node: EffectiveNode, environment?: EnvironmentBinding): string {
+	const declared = node.definition.agents
 		.map(
 			(agent) =>
-				`### ${agent.participant_id}\n\nRead:\n${bullets(agent.permissions.read_paths.map((path) => `\`${path}\``))}\n\nWrite:\n${bullets(agent.permissions.write_paths.map((path) => `\`${path}\``))}\n\nExternal actions: ${agent.permissions.external_actions}`,
+				`### ${agent.participant_id}\n\nDeclared read scopes:\n${bullets(agent.permissions.read_paths.map((path) => `\`${path}\``))}\n\nDeclared output ownership scopes:\n${bullets(agent.permissions.write_paths.map((path) => `\`${path}\``))}\n\nExternal actions: ${agent.permissions.external_actions}`,
 		)
 		.join("\n\n");
+	if (!environment) return declared;
+	const layout = resolveEnvironmentLayout(environment.paths);
+	return `${declared}\n\n### Controlled Environment Layout\n\n- Default working directory: \`${layout.defaultCwd}\`\n- Node-private writable workspace: \`${environment.paths.workspace}\`\n- Read-only task data: \`${environment.paths.context}\`, \`${environment.paths.skills}\`, \`${environment.paths.inputs}\`\n- Export root: \`${layout.exportRoot}\`; only files declared by an output contract can be sealed\n- Runtime-private support paths: \`${environment.paths.scratch}\`, \`${environment.paths.cache}\`, \`${environment.paths.home}\`, \`${environment.paths.temporary}\` (never exported by default)`;
 }
 
 function inputs(node: EffectiveNode): string {
@@ -51,7 +57,7 @@ function inputs(node: EffectiveNode): string {
 		: "None";
 }
 
-function executionContract(node: EffectiveNode): string {
+function executionContract(node: EffectiveNode, environment?: EnvironmentBinding): string {
 	const definition = node.definition;
 	if (definition.kind !== "execution") throw new Error("Execution contract requires an execution node");
 	const outputs = definition.outputs
@@ -105,11 +111,11 @@ ${criteria(node)}
 
 ## Permissions
 
-${permissions(node)}`,
+${permissions(node, environment)}`,
 	);
 }
 
-function reviewContract(node: EffectiveNode): string {
+function reviewContract(node: EffectiveNode, environment?: EnvironmentBinding): string {
 	const definition = node.definition;
 	if (definition.kind !== "review") throw new Error("Review contract requires a review node");
 	const targets = definition.targets
@@ -163,18 +169,19 @@ ${criteria(node)}
 
 ## Permissions
 
-${permissions(node)}`,
+${permissions(node, environment)}`,
 	);
 }
 
 export function renderTaskScopeFile(work: NodeRoundWork): VirtualContextFile {
 	const task = work.taskContext;
+	const paths = work.environmentBinding?.paths ?? DEFAULT_ENVIRONMENT_PATHS;
 	const materials = task.materials
 		.map((item) => {
 			const input = work.node.definition.inputs.find(
 				(candidate) => candidate.kind === "task_material" && candidate.material_id === item.material_id,
 			);
-			const reference = input ? `/ipd/inputs/${input.input_id}` : item.reference;
+			const reference = input ? `${paths.inputs}/${input.input_id}` : item.reference;
 			return `### ${item.material_id}\n\n${item.description}\n\n- Reference: ${reference}\n- Media type: ${item.media_type ?? "unspecified"}`;
 		})
 		.join("\n\n");
@@ -182,7 +189,7 @@ export function renderTaskScopeFile(work: NodeRoundWork): VirtualContextFile {
 		.map((item) => `- ${item.fact_id}: ${item.description} (source: ${item.source})`)
 		.join("\n");
 	return {
-		path: "/ipd/context/TASK_SCOPE.md",
+		path: `${paths.context}/TASK_SCOPE.md`,
 		content: wrapPromptBlock(
 			"task_scope",
 			`# Authoritative Task Scope
@@ -206,30 +213,39 @@ ${unresolvedFacts || "None"}`,
 	};
 }
 
-export function renderNodeContractFile(node: EffectiveNode): VirtualContextFile {
+export function renderNodeContractFile(
+	node: EffectiveNode,
+	paths: EnvironmentPaths = DEFAULT_ENVIRONMENT_PATHS,
+	environment?: EnvironmentBinding,
+): VirtualContextFile {
 	return {
-		path: `/ipd/context/${node.definition.kind === "execution" ? "NODE_CONTRACT.md" : "REVIEW_CONTRACT.md"}`,
-		content: node.definition.kind === "execution" ? executionContract(node) : reviewContract(node),
+		path: `${paths.context}/${node.definition.kind === "execution" ? "NODE_CONTRACT.md" : "REVIEW_CONTRACT.md"}`,
+		content:
+			node.definition.kind === "execution"
+				? executionContract(node, environment)
+				: reviewContract(node, environment),
 	};
 }
 
 export function renderNodeContextFiles(work: NodeRoundWork): VirtualContextFile[] {
 	const kind = work.node.definition.kind;
+	const paths = work.environmentBinding?.paths ?? DEFAULT_ENVIRONMENT_PATHS;
 	return [
 		renderTaskScopeFile(work),
-		renderNodeContractFile(work.node),
+		renderNodeContractFile(work.node, paths, work.environmentBinding),
 		{
-			path: "/ipd/context/PROFESSIONAL_ROLE.md",
+			path: `${paths.context}/PROFESSIONAL_ROLE.md`,
 			content: renderAgentRuntimeProfile(work.node.agents[0].agentCard),
 		},
 		{
-			path: `/ipd/context/${kind === "execution" ? "EXECUTION_PROTOCOL.md" : "REVIEW_PROTOCOL.md"}`,
+			path: `${paths.context}/${kind === "execution" ? "EXECUTION_PROTOCOL.md" : "REVIEW_PROTOCOL.md"}`,
 			content: kind === "execution" ? executionProtocol : reviewProtocol,
 		},
 	];
 }
 
 export function renderCurrentRoundContext(work: NodeRoundWork): string {
+	const paths = work.environmentBinding?.paths ?? DEFAULT_ENVIRONMENT_PATHS;
 	const inputs = work.inputBindings.map((binding) => {
 		const submission = work.inputSubmissions.find((item) => item.submissionId === binding.submissionId);
 		const output = submission?.outputs.find((item) => item.outputId === binding.outputId);
@@ -238,8 +254,8 @@ export function renderCurrentRoundContext(work: NodeRoundWork): string {
 			submission_id: binding.submissionId,
 			output_id: binding.outputId,
 			approval_review_node_ids: binding.approvalReviewNodeIds,
-			sealed_root: output ? `/ipd/inputs/${binding.inputId}` : undefined,
-			submission_record: output ? `/ipd/inputs/${binding.inputId}/submission.json` : undefined,
+			sealed_root: output ? `${paths.inputs}/${binding.inputId}` : undefined,
+			submission_record: output ? `${paths.inputs}/${binding.inputId}/submission.json` : undefined,
 		};
 	});
 	const feedback = work.feedback.map((item) => ({
