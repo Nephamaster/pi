@@ -1,18 +1,18 @@
-import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { defineConfig, mergeConfig } from "vitest/config";
+import baseConfig, { workspaceSourcePaths } from "../../vitest.base.ts";
 
-export default defineConfig({
-	resolve: {
-		alias: [
-			{
-				find: /^@earendil-works\/pi-coding-agent$/,
-				replacement: fileURLToPath(new URL("../coding-agent/src/index.ts", import.meta.url)),
-			},
-		],
-	},
-	test: {
-		globals: true,
-		environment: "node",
-		reporters: process.env.GITHUB_ACTIONS ? ["dot", "github-actions"] : ["dot"],
-	},
-});
+export default mergeConfig(
+	baseConfig,
+	defineConfig({
+		resolve: {
+			alias: [
+				{ find: /^@earendil-works\/pi-coding-agent$/, replacement: workspaceSourcePaths.codingAgentIndex },
+			],
+		},
+		test: {
+			globals: true,
+			environment: "node",
+			reporters: process.env.GITHUB_ACTIONS ? ["dot", "github-actions"] : ["dot"],
+		},
+	}),
+);

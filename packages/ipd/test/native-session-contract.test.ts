@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
@@ -152,9 +152,9 @@ describe("IPD native session contract", () => {
 		const entries = SessionManager.open(join(fixture.sessionDirectory, files[0])).getEntries();
 		const messages = entries.flatMap((entry) => (entry.type === "message" ? [entry.message] : []));
 		expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
-		expect(
-			messages.filter((message) => message.role === "assistant" && message.stopReason === "error"),
-		).toHaveLength(1);
+		expect(messages.filter((message) => message.role === "assistant" && message.stopReason === "error")).toHaveLength(
+			1,
+		);
 	}, 15_000);
 
 	it("corrects rejected structured output without treating it as a model retry", async () => {
@@ -182,9 +182,13 @@ describe("IPD native session contract", () => {
 			fauxAssistantMessage([fauxToolCall("submit_contract", { result: "accepted" })], { stopReason: "toolUse" }),
 			(context) => {
 				expect(
-					context.messages.some((message) => message.role === "toolResult" && message.toolName === "submit_contract"),
+					context.messages.some(
+						(message) => message.role === "toolResult" && message.toolName === "submit_contract",
+					),
 				).toBe(true);
-				return fauxAssistantMessage([fauxToolCall("submit_contract", { result: "accepted" })], { stopReason: "toolUse" });
+				return fauxAssistantMessage([fauxToolCall("submit_contract", { result: "accepted" })], {
+					stopReason: "toolUse",
+				});
 			},
 		]);
 
@@ -202,9 +206,7 @@ describe("IPD native session contract", () => {
 
 	it("reports a final non-retryable model error without manufacturing a submission", async () => {
 		const fixture = await createFixture();
-		fixture.faux.setResponses([
-			fauxAssistantMessage("", { stopReason: "error", errorMessage: "invalid_api_key" }),
-		]);
+		fixture.faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "invalid_api_key" })]);
 
 		await expect(fixture.session.prompt("Produce the result.")).rejects.toThrow("invalid_api_key");
 
