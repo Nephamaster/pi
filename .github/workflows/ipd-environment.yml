@@ -32,8 +32,20 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Test managed process startup without Docker
+        run: node --test packages/ipd/test/process-bridge.test.mjs
+
+      - name: Install native tool fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fd-find ripgrep
+          sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+
       - name: Install dependencies
         run: npm ci --ignore-scripts
+
+      - name: Check modified integration test
+        run: node node_modules/@biomejs/biome/bin/biome check packages/ipd/test/docker-provider.integration.test.ts
 
       - name: Hydrate and validate generated model data
         run: |

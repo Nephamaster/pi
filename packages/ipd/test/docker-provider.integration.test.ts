@@ -86,7 +86,7 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 				"/workspace/package-lock.json": `{"name":"ipd-smoke","lockfileVersion":3,"requires":true,"packages":{"":{"name":"ipd-smoke","devDependencies":{}}}}\n`,
 				"/workspace/build.mjs": `import {mkdir,writeFile} from "node:fs/promises"; await mkdir("outputs/smoke",{recursive:true}); await writeFile("outputs/smoke/build.txt", "built\\n");\n`,
 				"/workspace/smoke.test.mjs": `import test from "node:test"; import assert from "node:assert/strict"; test("smoke",()=>assert.equal(2+2,4));\n`,
-				"/workspace/server.mjs": `import http from "node:http"; import net from "node:net"; const socket="/scratch/ipd-smoke.sock"; net.createServer(c=>c.end("unix-ok")).listen(socket); http.createServer((_q,r)=>r.end("http-ok")).listen(3010,"127.0.0.1"); console.log("ready");\n`,
+				"/workspace/server.mjs": `import http from "node:http"; import net from "node:net"; const socket="/scratch/ipd-smoke.sock"; setTimeout(()=>{net.createServer(c=>c.end("unix-ok")).listen(socket); http.createServer((_q,r)=>r.end("http-ok")).listen(3010,"127.0.0.1"); console.log("ready")},750);\n`,
 			};
 			for (const [path, content] of Object.entries(files))
 				await current.provider.writeFile(current.lease, current.round, path, Buffer.from(content));
@@ -110,12 +110,21 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 				command: "node server.mjs",
 				cwd: "/workspace",
 			});
-			await new Promise((resolve) => setTimeout(resolve, 300));
-			const client = await current.provider.exec(current.lease, current.round, {
-				command: `node -e 'Promise.all([fetch("http://127.0.0.1:3010").then(r=>r.text()),new Promise((ok,fail)=>{const n=require("node:net").connect("/scratch/ipd-smoke.sock");let s="";n.on("data",d=>s+=d);n.on("end",()=>ok(s));n.on("error",fail)})]).then(v=>{if(v.join("|")!=="http-ok|unix-ok")process.exit(1)})'`,
-				cwd: "/workspace",
-			});
-			expect(client.exitCode).toBe(0);
+			// Process acknowledgement is not application readiness. Probe the actual services.
+			await expect
+				.poll(
+					async () => {
+						const diagnostics: Buffer[] = [];
+						const client = await current.provider.exec(current.lease, current.round, {
+							command: `node -e 'Promise.all([fetch("http://127.0.0.1:3010").then(r=>r.text()),new Promise((ok,fail)=>{const n=require("node:net").connect("/scratch/ipd-smoke.sock");let s="";n.on("data",d=>s+=d);n.on("end",()=>ok(s));n.on("error",fail)})]).then(v=>{if(v.join("|")!=="http-ok|unix-ok")process.exit(1)})'`,
+							cwd: "/workspace",
+							onData: (data) => diagnostics.push(data),
+						});
+						return { exitCode: client.exitCode, output: Buffer.concat(diagnostics).toString() };
+					},
+					{ timeout: 10_000, interval: 100 },
+				)
+				.toMatchObject({ exitCode: 0 });
 			expect((await current.provider.stopProcess(current.lease, service)).state).toBe("stopped");
 
 			process.env.IPD_SYNTHETIC_API_KEY = "must-not-reach-container";
@@ -253,11 +262,19 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 					}),
 				),
 			) as { processId: string };
-			await new Promise((resolve) => setTimeout(resolve, 200));
-			const processLogs = JSON.parse(
-				text(await execute("environment_process_logs", { process_id: started.processId, cursor: 0 })),
-			) as { text: string };
-			expect(processLogs.text).toContain("managed-ready");
+			// The log must already exist when start returns, even if the application is silent.
+			await execute("environment_process_logs", { process_id: started.processId, cursor: 0 });
+			await expect
+				.poll(
+					async () => {
+						const processLogs = JSON.parse(
+							text(await execute("environment_process_logs", { process_id: started.processId, cursor: 0 })),
+						) as { text: string };
+						return processLogs.text;
+					},
+					{ timeout: 10_000, interval: 100 },
+				)
+				.toContain("managed-ready");
 			const stopped = JSON.parse(
 				text(await execute("environment_process_stop", { process_id: started.processId })),
 			) as { state: string };
@@ -329,6 +346,29 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 				current.provider.readFile(finalContext.lease, finalContext.round, "/ipd/inputs/upstream"),
 			).rejects.toMatchObject({ code: "environment_unavailable" });
 			expect(await readFile(join(hostWorkspace, "shared.txt"), "utf8")).toBe("host-secret\n");
+		} finally {
+			await current.manager.releaseRun("run-code-node24");
+		}
+	}, 120_000);
+
+	it("rejects process initialization failures and preserves immediate command exit status", async () => {
+		const current = await environment("code-node24");
+		try {
+			await expect(
+				current.provider.startProcess(current.lease, current.round, {
+					command: "echo must-not-run",
+					cwd: "/workspace/does-not-exist",
+				}),
+			).rejects.toThrow(/failed to start.*ENOENT/);
+			const process = await current.provider.startProcess(current.lease, current.round, {
+				command: "printf 'quick-exit'; exit 7",
+				cwd: "/workspace",
+			});
+			await current.provider.processLogs(current.lease, process, 0);
+			await expect
+				.poll(() => current.provider.processStatus(current.lease, process), { timeout: 10_000, interval: 100 })
+				.toMatchObject({ state: "exited", exitCode: 7 });
+			expect((await current.provider.processLogs(current.lease, process, 0)).data.toString()).toBe("quick-exit");
 		} finally {
 			await current.manager.releaseRun("run-code-node24");
 		}
