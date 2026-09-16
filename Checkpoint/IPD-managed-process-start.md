@@ -32,8 +32,25 @@ recovery, and unified Shell policy belong to the planned later refactor PRs.
 
 Local Node 22.16: all 6 native subprocess tests passed (no mocks, models, Docker,
 or external dependencies). The local environment has no Docker or full repository
-dependencies. Full lint/type checks and real Docker validation must be reported
-from the Node 24 GitHub Actions run; local syntax checks are not integration proof.
+dependencies; the results below are actual Node 24 GitHub Actions runs.
+
+Implementation commit: `390d332240aece38d40bd79f0863f00626267f0a`.
+
+- Run `35094053166`: native subprocess tests **6/6 passed**; integration-test
+  formatting/lint passed; both Profile images built; real Docker tests **4/4
+  passed** (HTTP + Unix IPC + cancellation + secret isolation, Office smoke,
+  complete Pi tool routing/round/export checks, failed startup + quick exit).
+- Run `35094053176`: native-session/governance baseline and repository type check
+  passed. This is a selected regression suite, not every repository test.
+- The Docker workflow subsequently reached its ordinary Pi regression step for
+  the first time and exposed missing host `rg`/`fd` executables (11 failures).
+  These are native-test prerequisites, not failed container services. The
+  workflow now installs the same `fd-find`/`ripgrep` fixtures as PR1's baseline
+  workflow. No production code or assertions were changed for these failures.
+- The workflow/record-only follow-up must rerun all steps, including the IPD
+  environment/governance step that was not reached in the first run. Consult
+  PR #12 for its final Actions results; do not call the initial entire workflow
+  successful solely because its Docker step passed.
 
 ```bash
 node --test packages/ipd/test/process-bridge.test.mjs
