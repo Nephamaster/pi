@@ -4,7 +4,8 @@ FROM node:24.19.0-bookworm-slim@sha256:a9f5f7c91a432850b2a8a7797adf5eadb6c733cee
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        bash=5.2.15-2+b13 build-essential=12.9 ca-certificates=20250419~deb12u1 \
-       git=1:2.39.5-0+deb12u3 python3=3.11.2-1+b1 ripgrep=13.0.0-4+b2 \
+       git=1:2.39.5-0+deb12u3 python3=3.11.2-1+b1 \
+       python3-pip=23.0.1+dfsg-1 python3-venv=3.11.2-1+b1 ripgrep=13.0.0-4+b2 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY common/fs-bridge.mjs common/process-bridge.mjs common/command-bridge.mjs /usr/local/lib/pi-ipd/
