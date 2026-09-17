@@ -135,6 +135,14 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 			...input.participant.lockedTools.map((tool) => tool.id),
 			...(input.controlTools ?? []).map((tool) => tool.name),
 		]);
+		for (const tool of input.participant.lockedTools)
+			for (const dependency of tool.requiredTools ?? []) {
+				if (!input.participant.lockedTools.some((candidate) => candidate.id === dependency))
+					throw new NodeWorkerError(
+						"configuration",
+						`Tool ${tool.id} requires bound companion tool ${dependency}`,
+					);
+			}
 		for (const id of allowedToolNames) {
 			if (
 				input.environmentTools &&
@@ -228,6 +236,21 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 			thinkingLevel,
 			tools: [...allowedToolNames],
 			customTools,
+		});
+		created.session.sessionManager.appendCustomEntry("ipd_execution_configuration", {
+			contextProtocol: "system-sections-v1",
+			externalResultProtocol: "receipt-and-pdf-v1",
+			nodeId: input.nodeId,
+			model: {
+				provider: model.provider,
+				id: model.id,
+				contextWindow: model.contextWindow,
+				maxTokens: model.maxTokens,
+			},
+			thinkingLevel,
+			compaction: settingsManager.getCompactionSettings(model),
+			retry: settingsManager.getRetrySettings(),
+			httpIdleTimeoutMs: settingsManager.getHttpIdleTimeoutMs(),
 		});
 		return created.session;
 	}

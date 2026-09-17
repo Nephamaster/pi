@@ -47,6 +47,8 @@ export interface LockedSkill {
 }
 
 export interface LockedTool {
+	/** Companion tools required by this registered capability, never auto-granted. */
+	requiredTools?: string[];
 	/** Trusted registration of a read-only external service; not a container filesystem tool. */
 	execution?: "control_read";
 	id: string;

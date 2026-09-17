@@ -250,11 +250,20 @@ async function createDefaultService(
 			return { ...skill, baseDir, filePath: join(baseDir, relative(skill.baseDir, skill.filePath)) };
 		}),
 	);
-	assembled.tools = assembled.tools.map((tool) =>
-		externalReadTools.includes(tool.id)
-			? { ...tool, execution: "control_read", hash: hashJson({ definition: tool.hash, execution: "control_read" }) }
-			: tool,
-	);
+	assembled.tools = assembled.tools.map((tool) => {
+		if (!externalReadTools.includes(tool.id)) return tool;
+		const requiredTools =
+			["web_search", "fetch_content", "source_check"].includes(tool.id) &&
+			runtimeToolDefinitions.some((candidate) => candidate.name === "get_search_content")
+				? ["get_search_content"]
+				: [];
+		return {
+			...tool,
+			execution: "control_read",
+			requiredTools,
+			hash: hashJson({ definition: tool.hash, execution: "control_read", requiredTools }),
+		};
+	});
 	const checks = new CheckExecutorRegistry();
 	for (const executor of [createArtifactIntegrityCheckExecutor(), createArtifactFileSetCheckExecutor()]) {
 		const collision = checks.add(executor);
@@ -359,6 +368,9 @@ async function createDefaultService(
 			requiredCommands: skill.requiredCommands,
 		})),
 		tools: assembled.tools.map((tool) => tool.id),
+		toolDependencies: Object.fromEntries(
+			assembled.tools.filter((tool) => tool.requiredTools?.length).map((tool) => [tool.id, tool.requiredTools]),
+		),
 		externalReadTools: assembled.tools.filter((tool) => tool.execution === "control_read").map((tool) => tool.id),
 		unavailableAgentCards: assembled.unavailableAgentCards,
 		mechanicalChecks: checks.list().map((check) => ({ id: check.id, parameters: check.parameters })),

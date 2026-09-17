@@ -58,6 +58,8 @@
 
 ### Fixed
 
+- Moved persistent round state into native system sections, distinguished real resume/rework dispatches, and recorded effective session/deadline policies. Added retrieval receipts and explicit paging dependencies with PPT workflow template 1.0.2.
+
 - Disabled implicit whole-round deadlines and materialized pi-web-access PDF results in the node workspace without host I/O fallback.
 
 - Closed joint-approval invalidation over downstream work, cancelled entire business rounds during export/check, isolated command timeouts from other services, and retained provisional environment ownership after failed cleanup.

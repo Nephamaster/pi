@@ -1,6 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
-import type { ContextEvent, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { BeforeAgentStartEvent, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
 	compileWorkflow,
@@ -9,49 +7,68 @@ import {
 	renderNodeContextFiles,
 	type SubmissionRecord,
 } from "../src/index.ts";
+import { buildNodeRoundPrompt, nodeDispatchKind } from "../src/runtime/node-prompts.ts";
+import type { NodeRoundWork, RoundFeedback } from "../src/runtime/node-worker.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
-const imageResult = (id: string): AgentMessage => ({
-	role: "toolResult",
-	toolCallId: id,
-	toolName: "read",
-	content: [
-		{ type: "text", text: `Read ${id}` },
-		{ type: "image", data: id, mimeType: "image/png" },
-	],
-	isError: false,
-	timestamp: 1,
-});
-
-describe("node context image retention", () => {
-	it("injects current-round data without pruning images or changing native session history", async () => {
+describe("node round system section", () => {
+	it("updates only at dispatch and does not register a per-request context mutation", async () => {
 		let current: string | undefined = "current-round-1";
-		const callbacks: Array<(event: ContextEvent) => { messages: AgentMessage[] } | undefined> = [];
+		const callbacks: Array<(event: BeforeAgentStartEvent) => void> = [];
 		await createCurrentRoundContextExtension(() => current)({
-			on: (_name: string, handler: (typeof callbacks)[number]) => callbacks.push(handler),
+			on: (name: string, handler: (typeof callbacks)[number]) => {
+				expect(name).toBe("before_agent_start");
+				callbacks.push(handler);
+			},
 		} as unknown as ExtensionAPI);
-		const messages: AgentMessage[] = [
-			imageResult("old-image"),
-			fauxAssistantMessage("Let me read the next image"),
-			imageResult("pending-image"),
-			fauxAssistantMessage("", { stopReason: "error", errorMessage: "request failed" }),
-		];
-		const original = structuredClone(messages);
-		const first = callbacks[0]({ type: "context", messages });
-		expect(first?.messages.slice(0, messages.length)).toEqual(original);
-		expect(first?.messages.at(-1)).toMatchObject({ role: "user", content: [{ type: "text", text: current }] });
-		expect(messages).toEqual(original);
+		const event = { systemPromptOptions: { sections: { other: "preserved" } } } as unknown as BeforeAgentStartEvent;
+		callbacks[0](event);
+		expect(event.systemPromptOptions.sections).toEqual({ other: "preserved", ipd_current_round: current });
 		current = "current-round-2";
-		const second = callbacks[0]({ type: "context", messages });
-		expect(second?.messages).toHaveLength(messages.length + 1);
-		expect(second?.messages.at(-1)).toMatchObject({ content: [{ type: "text", text: current }] });
+		callbacks[0](event);
+		expect(event.systemPromptOptions.sections.ipd_current_round).toBe(current);
 		current = undefined;
-		expect(callbacks[0]({ type: "context", messages })).toBeUndefined();
-		expect(messages).toEqual(original);
+		callbacks[0](event);
+		expect(event.systemPromptOptions.sections).toEqual({ other: "preserved" });
 	});
 });
 
 describe("node prompt projections", () => {
+	it.each([
+		["execute", false, undefined],
+		["resume", true, "quality_rework"],
+		["quality_rework", false, "quality_rework"],
+		["mechanical_rework", false, "mechanical_failure"],
+		["submission_correction", true, "submission_correction"],
+	] as const)("distinguishes %s dispatch from retained feedback", (kind, resuming, feedbackType) => {
+		const compiled = compileWorkflow(createCompilerFixture());
+		if (!compiled.ok) throw new Error("Fixture did not compile");
+		const feedback: RoundFeedback[] = feedbackType
+			? [{ type: feedbackType, sourceId: "review-1", issue: "Keep the exact source" }]
+			: [];
+		const work: NodeRoundWork = {
+			runId: "run-1",
+			roundId: "produce:round:2",
+			generation: 3,
+			resuming,
+			node: compiled.baseline.nodes.find((node) => node.definition.kind === "execution")!,
+			inputSubmissions: [],
+			inputBindings: [],
+			forbiddenMutableReadPaths: [],
+			taskContext: { materials: [], unresolvedFacts: [] },
+			feedback,
+		};
+		expect(nodeDispatchKind(work)).toBe(kind);
+		expect(buildNodeRoundPrompt(work)).toContain(`Dispatch: ${kind}`);
+		expect(JSON.parse(renderCurrentRoundContext(work))).toMatchObject({
+			dispatch: kind,
+			generation: 3,
+			feedback: feedback.map((item) => ({ type: item.type, source_id: item.sourceId, issue: item.issue })),
+		});
+		if (kind === "quality_rework") expect(buildNodeRoundPrompt(work)).toContain("review-1");
+		if (kind === "submission_correction") expect(buildNodeRoundPrompt(work)).toContain("not a new quality review");
+	});
+
 	it("orders stable context by task, contract, role, and protocol", () => {
 		const fixture = createCompilerFixture();
 		const compiled = compileWorkflow(fixture);
@@ -180,7 +197,12 @@ describe("node prompt projections", () => {
 			],
 		});
 		expect(context).toContain('"submission_record":"/ipd/inputs/candidate/submission.json"');
-		expect(context).toMatch(/^<ipd_current_round source="runtime">[\s\S]*<\/ipd_current_round>$/);
+		expect(JSON.parse(context)).toMatchObject({
+			run_id: "run-1",
+			round_id: "review-produce:round:1",
+			generation: 0,
+			dispatch: "quality_rework",
+		});
 		expect(context).toContain('"type":"quality_rework"');
 		expect(context).not.toContain("task_context");
 		expect(context).not.toContain("private_detail");

@@ -6,11 +6,11 @@ import { resolveEnvironmentLayout } from "../environment/paths.ts";
 import { DEFAULT_ENVIRONMENT_PATHS } from "../environment/profiles.ts";
 import { canonicalJson } from "../ir/hash.ts";
 import { wrapPromptBlock } from "../prompt/block.ts";
+import { nodeDispatchKind } from "../runtime/node-prompts.ts";
 import type { NodeRoundWork } from "../runtime/node-worker.ts";
 import { loadPrompt } from "./prompt-loader.ts";
 import { renderAgentRuntimeProfile } from "./render-agent-profile.ts";
 
-const CURRENT_CONTEXT_PREFIX = '<ipd_current_round source="runtime">';
 const executionProtocol = loadPrompt("execution-node");
 const reviewProtocol = loadPrompt("review-node");
 
@@ -271,26 +271,24 @@ export function renderCurrentRoundContext(work: NodeRoundWork): string {
 		evidence_ref: item.evidenceRef,
 		expected_correction: item.expectedCorrection,
 	}));
-	return `${CURRENT_CONTEXT_PREFIX}\n${canonicalJson({ round_id: work.roundId, inputs, feedback })}\n</ipd_current_round>`;
+	return canonicalJson({
+		run_id: work.runId,
+		node_id: work.node.definition.node_id,
+		round_id: work.roundId,
+		generation: work.generation ?? 0,
+		dispatch: nodeDispatchKind(work),
+		inputs,
+		feedback,
+	});
 }
 
 export function createCurrentRoundContextExtension(getContext: () => string | undefined): ExtensionFactory {
 	return (pi) => {
-		pi.on("context", (event) => {
+		pi.on("before_agent_start", (event) => {
 			const content = getContext();
-			if (!content) return undefined;
-			// Pi owns history and compaction. A successful reply does not prove that
-			// earlier images were understood or that their findings were saved.
-			return {
-				messages: [
-					...event.messages,
-					{
-						role: "user",
-						content: [{ type: "text", text: content }],
-						timestamp: Date.now(),
-					},
-				],
-			};
+			// One update per real dispatch; Pi retains/diffs this section across tool turns and compaction.
+			if (content === undefined) delete event.systemPromptOptions.sections.ipd_current_round;
+			else event.systemPromptOptions.sections.ipd_current_round = content;
 		});
 	};
 }

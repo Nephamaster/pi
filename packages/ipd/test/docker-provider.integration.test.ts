@@ -229,7 +229,7 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 		}
 	}, 120_000);
 
-	it("materializes an external PDF result before native Pi read, grep and Bash consume it", async () => {
+	it("materializes PDF and paged evidence with receipts through real Pi workspace tools", async () => {
 		const current = await environment("code-node24");
 		const faux = registerFauxProvider();
 		const pdfRoot = join(tmpdir(), "pi-web-pdf");
@@ -243,8 +243,18 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 				label: "Fetch",
 				description: "Registered external fetch fixture",
 				parameters: Type.Object({ url: Type.String() }),
-				async execute() {
+				async execute(_id, input) {
 					fetches++;
+					if (input.url.endsWith(".html"))
+						return {
+							content: [
+								{
+									type: "text",
+									text: "first page; use get_search_content with responseId long-response, offset 10",
+								},
+							],
+							details: { urls: [input.url], responseId: "long-response" },
+						};
 					await mkdir(pdfRoot, { recursive: true });
 					await writeFile(pdfPath, body);
 					return {
@@ -255,6 +265,19 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 							},
 						],
 						details: { urls: ["https://example.com/report.pdf"], responseId: "pdf-response" },
+					};
+				},
+			});
+			const continuation = defineTool({
+				name: "get_search_content",
+				label: "Continue",
+				description: "Registered continuation",
+				parameters: Type.Object({ responseId: Type.String(), offset: Type.Integer() }),
+				async execute(_id, input) {
+					expect(input).toEqual({ responseId: "long-response", offset: 10 });
+					return {
+						content: [{ type: "text", text: "second-page-decision-critical-evidence" }],
+						details: { url: "https://example.com/source.html" },
 					};
 				},
 			});
@@ -269,14 +292,20 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			const compiled = compileWorkflow(createCompilerFixture());
 			if (!compiled.ok) throw new Error("Invalid fixture");
 			const participant = structuredClone(compiled.baseline.nodes[0].agents[0]);
-			participant.lockedTools = ["read", "grep", "bash", "fetch_content"].map((id) => ({
-				id,
-				hash: "a".repeat(64),
-				source: "test",
-				...(id === "fetch_content" ? { execution: "control_read" as const } : {}),
-			}));
+			participant.lockedTools = ["read", "write", "grep", "bash", "fetch_content", "get_search_content"].map(
+				(id) => ({
+					id,
+					hash: "a".repeat(64),
+					source: "test",
+					...(["fetch_content", "get_search_content"].includes(id) ? { execution: "control_read" as const } : {}),
+				}),
+			);
 			const getContext = () => current.manager.context(current.lease.leaseId, current.round.roundId);
-			session = await new PiNodeSessionFactory({ agentDir: root, modelRuntime, customTools: [fetch] }).create({
+			session = await new PiNodeSessionFactory({
+				agentDir: root,
+				modelRuntime,
+				customTools: [fetch, continuation],
+			}).create({
 				nodeId: "pdf-reader",
 				workspace: root,
 				sessionDirectory: join(root, "pdf-sessions"),
@@ -310,6 +339,35 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			expect(results.every((result) => !result.isError)).toBe(true);
 			for (const result of results.slice(1)) expect(JSON.stringify(result.content)).toContain("verified-pdf-body");
 			expect(fetches).toBe(1);
+			faux.setResponses([
+				fauxAssistantMessage(fauxToolCall("fetch_content", { url: "https://example.com/source.html" }), {
+					stopReason: "toolUse",
+				}),
+				fauxAssistantMessage(fauxToolCall("get_search_content", { responseId: "long-response", offset: 10 }), {
+					stopReason: "toolUse",
+				}),
+				(request) => {
+					const last = request.messages.at(-1);
+					if (last?.role !== "toolResult") throw new Error("Missing continuation result");
+					const content = last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+					expect(content).toContain("retrieved_at");
+					expect(content).toContain("second-page-decision-critical-evidence");
+					return fauxAssistantMessage(
+						fauxToolCall("write", { path: "/workspace/outputs/smoke/evidence.md", content }),
+						{ stopReason: "toolUse" },
+					);
+				},
+				fauxAssistantMessage("Saved evidence"),
+			]);
+			await session.prompt("Retrieve and save the omitted evidence");
+			expect(
+				(
+					await current.provider.readFile(current.lease, current.round, "/workspace/outputs/smoke/evidence.md")
+				).toString(),
+			).toContain("second-page-decision-critical-evidence");
+			expect(
+				session.messages.filter((message) => message.role === "toolResult").every((result) => !result.isError),
+			).toBe(true);
 		} finally {
 			await session?.abort();
 			session?.dispose();

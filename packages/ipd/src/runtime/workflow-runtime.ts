@@ -508,7 +508,20 @@ export class WorkflowRuntime {
 					startedAt: Date.now(),
 				});
 			}
-			event.emit("round_started", { generation, attempt: continuing?.attempt ?? 1 }, current.nodeId, roundId);
+			event.emit(
+				"round_started",
+				{
+					generation,
+					attempt: continuing?.attempt ?? 1,
+					executionPolicy: {
+						roundTimeoutMs: this.roundTimeoutMs,
+						softRoundTimeoutMs: this.softRoundTimeoutMs ?? 0,
+						stopTimeoutMs: this.stopTimeoutMs,
+					},
+				},
+				current.nodeId,
+				roundId,
+			);
 			started = true;
 			return true;
 		});

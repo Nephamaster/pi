@@ -69,6 +69,38 @@ it("keeps the registered schema and execution, copying the full PDF body to a no
 	expect(result.content[0]).toMatchObject({ text: expect.stringContaining(path) });
 	expect(JSON.stringify(result.content)).not.toContain(f.root);
 	expect(f.result.content[0].text).toContain(f.path);
+	expect(result.details).toMatchObject({
+		ipd_retrieval: {
+			source_id: "response-a",
+			retrieved_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+			artifacts: [path],
+		},
+	});
+});
+
+it("preserves original retrieval time across paging while reporting the current receipt time", async () => {
+	const f = await fixture();
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		vi.setSystemTime(new Date("2026-09-17T12:00:00Z"));
+		await f.adapt(f.tool).execute("fetch", {}, undefined, undefined, {} as never);
+		vi.setSystemTime(new Date("2026-09-17T12:05:00Z"));
+		const get = f.adapt({
+			...f.tool,
+			name: "get_search_content",
+			execute: async () => ({
+				content: [{ type: "text", text: "next slice" }],
+				details: { url: "https://example.com/report.pdf" },
+			}),
+		});
+		const result = await get.execute("page", { responseId: "response-a" }, undefined, undefined, {} as never);
+		expect(result.details).toMatchObject({
+			ipd_retrieval: { retrieved_at: "2026-09-17T12:00:00.000Z", received_at: "2026-09-17T12:05:00.000Z" },
+		});
+		expect(JSON.stringify(result.content)).toContain("retrieval_receipt");
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 it.each(["outside", "symlink", "source-mismatch", "length-mismatch"])(

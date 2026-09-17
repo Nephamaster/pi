@@ -349,7 +349,7 @@ describe("IPD native session contract", () => {
 		expect(fixture.capture.value).toBeUndefined();
 	});
 
-	it("retains earlier images after a successful tool turn without persisting the injected current context", async () => {
+	it("retains images and stable system state through tool turns, updating only on a new dispatch", async () => {
 		const image = {
 			type: "image" as const,
 			mimeType: "image/png",
@@ -377,7 +377,11 @@ describe("IPD native session contract", () => {
 					(message) => message.role === "toolResult" && message.toolName === "read_picture",
 				);
 				expect(result).toMatchObject({ content: [image] });
-				expect(JSON.stringify(request.messages.at(-1))).toContain("runtime-current-latest");
+				expect(request.messages.at(-1)?.role).toBe("toolResult");
+				expect(JSON.stringify(request.messages.filter((message) => message.role === "system"))).toContain(
+					"runtime-current-first",
+				);
+				expect(JSON.stringify(request.messages)).not.toContain("runtime-current-latest");
 				return fauxAssistantMessage(fauxToolCall("submit_contract", { result: "accepted" }), {
 					stopReason: "toolUse",
 				});
@@ -387,7 +391,23 @@ describe("IPD native session contract", () => {
 		const files = (await readdir(fixture.sessionDirectory)).filter((file) => file.endsWith(".jsonl"));
 		const persisted = await readFile(join(fixture.sessionDirectory, files[0]), "utf8");
 		expect(persisted).toContain(image.data);
-		expect(persisted).not.toContain("runtime-current-");
+		expect(persisted).toContain("runtime-current-first");
+		expect(fixture.session.messages.filter((message) => message.role === "user")).toHaveLength(1);
+		fixture.faux.setResponses([
+			(request) => {
+				expect(JSON.stringify(request.messages.filter((message) => message.role === "system"))).toContain(
+					"runtime-current-latest",
+				);
+				return fauxAssistantMessage("continued");
+			},
+		]);
+		await fixture.prompt("Continue retained work");
+		expect(fixture.session.messages.filter((message) => message.role === "user")).toHaveLength(2);
+		expect(
+			fixture.session.messages.filter(
+				(message) => message.role === "system" && message.sections?.ipd_current_round !== undefined,
+			),
+		).toHaveLength(2);
 		expect(fixture.capture.value).toEqual({ result: "accepted" });
 	});
 
@@ -413,7 +433,10 @@ describe("IPD native session contract", () => {
 				return fauxAssistantMessage("saved-summary");
 			resumed = true;
 			expect(JSON.stringify(request.messages)).toContain("saved-summary");
-			expect(JSON.stringify(request.messages.at(-1))).toContain("current-contract-after-compaction");
+			expect(JSON.stringify(request.messages.filter((message) => message.role === "system"))).toContain(
+				"current-contract-after-compaction",
+			);
+			expect(request.messages.at(-1)?.role).toBe("toolResult");
 			return fauxAssistantMessage(fauxToolCall("submit_contract", { result: "accepted" }), {
 				stopReason: "toolUse",
 			});

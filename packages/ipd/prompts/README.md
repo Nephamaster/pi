@@ -33,8 +33,8 @@ Provider Request
 
 | 部分 | 放什么 | 生命周期 |
 |---|---|---|
-| `systemPrompt` | 稳定规则、角色、契约、Skill Catalog、cwd | Session 稳定 |
-| `messages` | 当前派发、Session 历史、Tool Call/Result、当前 round 动态上下文 | 持续增长；动态上下文按请求替换 |
+| `systemPrompt` | 稳定规则、角色、契约、Skill Catalog、cwd，以及独立的当前轮次 section | 稳定部分不变；轮次 section 仅在真实派发时更新 |
+| `messages` | 真实派发、Session 历史、Tool Call/Result、Pi 原生系统增量 | 原生持久化与压缩；不再逐请求追加 Runtime user 通知 |
 | `tools` | 本角色真实可调用的 ToolDefinition 与参数 Schema | 由当前 Session 绑定决定 |
 
 最重要的理解是：**任务事实、节点契约、角色方法、当前输入版本、工具能力不是同一层信息。** IPD 刻意把它们拆开，避免任何一个 Prompt 同时承担所有职责。
@@ -51,6 +51,7 @@ Pi Base
 → project_context / contextFiles
 → Skill Catalog
 → Current Working Directory
+→ 自定义 system sections（节点的 ipd_current_round）
 ```
 
 来源：[Pi system-prompt.ts](../../coding-agent/src/core/system-prompt.ts)。
@@ -137,7 +138,7 @@ Pi Base
 | Selector 派发 | `<process_selection_assignment>` |
 | Designer 方法准备 / 首次设计 / 修订 | `<workflow_design_method_request>` / `<workflow_design_assignment>` / `<workflow_design_revision>` |
 | 节点派发 | `<node_round_dispatch>` |
-| 当前 round | `<ipd_current_round source="runtime">` |
+| 当前 round | `<ipd_current_round>` |
 | ProcessSpec 查询结果 | `<process_spec_search_results>` / `<process_spec>` |
 | AgentCard 查询结果 | `<agent_card_search_results>` / `<agent_selection_profile>` |
 | Workflow Draft 工具结果 | `<workflow_draft_state>` / `<workflow_draft_operation_result>` / `<workflow_draft_validation>` / `<workflow_draft_submission_result>` |
@@ -452,20 +453,26 @@ cwd
 
 ### 9.3 每个 round 实际新增什么
 
-持久 user message 很小：
+持久 user message 是一次真实派发；不包含反复通知的状态副本：
 
 ```text
 <node_round_dispatch>
 Begin IPD work round write-brief:round:2.
+Dispatch: quality_rework.
+Apply the formal review requirements in ipd_current_round, preserving work that remains valid, then submit a complete revised candidate via submit_artifact. Review references: review-brief:round:1:review.
 </node_round_dispatch>
 ```
 
-每次 Provider 请求前，再由 hidden context extension 临时追加：
+在 `before_agent_start` 中更新 `systemPromptOptions.sections.ipd_current_round`，由 Pi 生成系统 section 或系统增量；不是 user 消息：
 
 ```text
-<ipd_current_round source="runtime">
+<ipd_current_round>
 {
   "round_id": "write-brief:round:2",
+  "run_id": "run-001",
+  "node_id": "write-brief",
+  "generation": 0,
+  "dispatch": "quality_rework",
   "inputs": [
     {
       "input_id": "approved-plan",
@@ -476,12 +483,27 @@ Begin IPD work round write-brief:round:2.
       "submission_record": ".../submission.json"
     }
   ],
-  "feedback": []
+  "feedback": [{"type":"quality_rework","source_id":"review-brief:round:1:review","issue":"Correct the unsupported claim"}]
 }
 </ipd_current_round>
 ```
 
 完整 Manifest / evidence 不内联，需要时从 `submission_record` 读取。
+### 状态与事件的实际位置
+
+`renderCurrentRoundContext` 返回包含 run_id、node_id、round_id、generation、dispatch、inputs、feedback 的 JSON；Pi 为 section 添加 XML 标签。状态在首次执行、恢复、返工或补正的真实派发边界更新一次。工具续接时不调用此更新逻辑。
+
+```text
+system：稳定契约 + ipd_current_round 当前有效状态
+user：一次明确派发（execute / review / resume / quality_rework / mechanical_rework / submission_correction）
+assistant：工具调用
+tool：真实结果
+assistant：继续执行（前面不再多一条 Runtime user）
+```
+
+Pi 把变更保存为原生系统增量；支持中途系统消息的 Provider 在原位收到增量，其他 Provider 得到合并后的系统提示词。原生压缩保留当前系统状态，不依赖一个 alreadyInjected 标志，也不删除有效返工要求。相同 section 内容不会产生重复系统变更。
+
+检索工具的实际结果附带 `retrieval_receipt`：source_id、原始结果接收时间 retrieved_at、本次续读时间 received_at、URLs、outcome、已物化路径。它是工具结果，不是新派发；时间不是来源发布日期，也不保证重新联网刷新。长文续读要求把 get_search_content 显式绑定进节点。
 
 ### 9.4 Execution 的三种正式结果
 
@@ -561,9 +583,11 @@ Docker Review 可以获得 AgentCard 和 Workflow 共同授权且后端支持的
 ```text
 <node_round_dispatch>
 Begin IPD work round review-brief:round:1.
+Dispatch: review.
+Review the exact input versions against the assigned criteria, then call submit_review.
 </node_round_dispatch>
 
-<ipd_current_round source="runtime">
+<ipd_current_round>
 {
   "round_id": "review-brief:round:1",
   "inputs": [
@@ -630,12 +654,12 @@ IPD 不自己重写 Pi 的 Session History，也不建立第二套 memory 系统
         +
 持续 AgentSession 历史
         +
-每次请求重新注入的 ipd_current_round
+由 Pi 保留、仅在真实派发时更新的 ipd_current_round 系统 section
 ```
 
 正式输入和 evidence 保存在 sealed Submission 中；即便对话历史被压缩，模型仍可通过 `submission_record` 回到正式源。
 
-历史图片、重试和上下文压缩由原生 Pi 管理。IPD 不再根据后续 assistant 回复推断图片已被消费或自行删除图片；当前 round 投影仅追加到本次请求副本。
+历史图片、重试和上下文压缩由原生 Pi 管理。IPD 不再根据后续 assistant 回复推断图片已被消费或自行删除图片；当前 round section 随原生系统状态保存、恢复；普通工具续接不会改变它，也不会追加 Runtime user 消息。
 
 ---
 
@@ -959,13 +983,15 @@ Current working directory: /repo/.pi/ipd/runs/run-001/workspace
 ```text
 <node_round_dispatch>
 Begin IPD work round write-brief:round:1.
+Dispatch: execute.
+Execute the frozen contract and call submit_artifact when the complete candidate is ready.
 </node_round_dispatch>
 ```
 
-每次 Provider 请求临时追加：
+本次派发之前更新的系统 section（Pi 原生保留，不逐工具调用重新通知）：
 
 ```text
-<ipd_current_round source="runtime">
+<ipd_current_round>
 {"round_id":"write-brief:round:1","inputs":[],"feedback":[]}
 </ipd_current_round>
 ```
@@ -1079,13 +1105,15 @@ Current working directory: /repo/.pi/ipd/runs/run-001/workspace
 ```text
 <node_round_dispatch>
 Begin IPD work round review-brief:round:1.
+Dispatch: review.
+Review the exact input versions against the assigned criteria, then call submit_review.
 </node_round_dispatch>
 ```
 
-动态 current-round：
+独立的 current-round 系统 section：
 
 ```text
-<ipd_current_round source="runtime">
+<ipd_current_round>
 {
   "round_id":"review-brief:round:1",
   "inputs":[{

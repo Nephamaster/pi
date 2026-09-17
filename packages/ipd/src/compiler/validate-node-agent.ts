@@ -52,6 +52,16 @@ export function validateNodeAgent(
 			);
 	}
 	for (const [refIndex, ref] of agent.tools.entries()) {
+		for (const dependency of catalog.tools.find((tool) => tool.id === ref.id)?.requiredTools ?? []) {
+			if (!agent.tools.some((tool) => tool.id === dependency))
+				addDiagnostic(
+					diagnostics,
+					"tool_dependency_missing",
+					`${path}/tools/${refIndex}`,
+					`Tool ${ref.id} requires bound companion tool ${dependency}`,
+					node.node_id,
+				);
+		}
 		if (!catalog.tools.some((item) => item.id === ref.id))
 			addDiagnostic(
 				diagnostics,

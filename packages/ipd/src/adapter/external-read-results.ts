@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { EnvironmentError, throwIfAborted } from "../environment/contracts.ts";
 import type { EnvironmentToolContext } from "../environment/tool-backend.ts";
+import { wrapPromptBlock } from "../prompt/block.ts";
 
 function object(value: unknown): Record<string, unknown> | undefined {
 	return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -18,7 +19,7 @@ export function createExternalReadResultAdapter(
 	getContext: () => EnvironmentToolContext,
 	pdfDirectory = join(tmpdir(), "pi-web-pdf"),
 ): (tool: ToolDefinition) => ToolDefinition {
-	const responses = new Set<string>();
+	const responses = new Map<string, { retrievedAt: string; urls: string[] }>();
 	const imported = new Map<string, string>();
 	return (tool) => {
 		if (!["web_search", "source_check", "fetch_content", "get_search_content"].includes(tool.name)) return tool;
@@ -36,8 +37,31 @@ export function createExternalReadResultAdapter(
 				throwIfAborted(signal);
 				const details = object(result.details);
 				const responseId = typeof details?.responseId === "string" ? details.responseId : requestedId;
-				if (typeof responseId === "string") responses.add(responseId);
-				if (tool.name !== "fetch_content" && tool.name !== "get_search_content") return result;
+				const receivedAt = new Date().toISOString();
+				const returnedUrls = (Array.isArray(details?.urls) ? details.urls : [details?.url]).filter(
+					(url): url is string => typeof url === "string",
+				);
+				if (typeof responseId === "string" && !responses.has(responseId))
+					responses.set(responseId, { retrievedAt: receivedAt, urls: returnedUrls });
+				const origin = typeof responseId === "string" ? responses.get(responseId) : undefined;
+				const receipt = {
+					source_id: typeof responseId === "string" ? responseId : id,
+					tool: tool.name,
+					retrieved_at: origin?.retrievedAt ?? receivedAt,
+					received_at: receivedAt,
+					urls: origin?.urls.length ? origin.urls : returnedUrls,
+					outcome: details?.error || details?.successful === 0 ? "error" : "returned",
+					artifacts: [] as string[],
+				};
+				const withReceipt = (content = result.content) => ({
+					...result,
+					content: [
+						...content,
+						{ type: "text" as const, text: wrapPromptBlock("retrieval_receipt", JSON.stringify(receipt)) },
+					],
+					details: { ...details, ipd_retrieval: receipt },
+				});
+				if (tool.name !== "fetch_content" && tool.name !== "get_search_content") return withReceipt();
 				const urls = Array.isArray(details?.urls) ? details.urls : [details?.url];
 				const content = [];
 				for (const block of result.content) {
@@ -104,8 +128,9 @@ export function createExternalReadResultAdapter(
 						imported.set(key, destination);
 					}
 					content.push({ ...block, text: block.text.replace(source, destination) });
+					receipt.artifacts.push(destination);
 				}
-				return { ...result, content };
+				return withReceipt(content);
 			},
 		};
 	};
