@@ -19,6 +19,24 @@ export function validateWorkflowRelations(
 	catalog: CompilerAssetCatalog,
 ): ValidatedWorkflow {
 	const diagnostics: CompilerDiagnostic[] = [];
+	const prerequisites = workflow.prerequisites;
+	if (prerequisites && task.materials.length < prerequisites.minimum_materials) {
+		const retrievalBound = prerequisites.retrieval_tools.some(
+			(id) =>
+				catalog.tools.some((tool) => tool.id === id) &&
+				workflow.nodes.some(
+					(node) =>
+						node.kind === "execution" && node.agents.some((agent) => agent.tools.some((tool) => tool.id === id)),
+				),
+		);
+		if (!retrievalBound)
+			add(
+				diagnostics,
+				"workflow_prerequisite_missing",
+				"/prerequisites",
+				`Workflow requires at least ${prerequisites.minimum_materials} task materials or a bound authorized retrieval tool; adapt the Workflow or provide evidence sources`,
+			);
+	}
 	const privateNodeWorkspaces = usesPrivateNodeWorkspaces(catalog);
 	for (const id of duplicates(workflow.nodes.map((node) => node.node_id)))
 		add(diagnostics, "node_duplicate", "/nodes", `Duplicate node ${id}`);

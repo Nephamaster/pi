@@ -8,6 +8,9 @@
 
 ### Added
 
+- Added content-addressed static Run snapshots, revision-aware dashboard caching, typed esbuild dashboard assets, and packed-entry verification in the root build workflow.
+- Added template evidence prerequisites and metadata-only Pi telemetry spans with native Session timing.
+
 - Added the `/workspace` entry for ordinary Pi SDK consumers and real-tool Skill dependency probes.
 - Added managed execution Run pause/resume, retained Session and workspace references, and configurable soft work-package deadlines.
 - Added IPD V2 TaskInput, ProcessSpec, WorkflowDefinition, ExecutionBaseline, Runtime state, and structured submission
@@ -28,6 +31,9 @@
   task, and attaching task materials; selected Workflow templates bypass control-role Agent preparation.
 
 ### Changed
+
+- Centralized candidate/review state transitions and frozen-Baseline lookup indexes; moved PPTX task dependencies out of the host root package into the Office Profile.
+- Allowed default startup with an uninstalled unrelated Profile while retaining fail-closed Docker and capability checks.
 
 - Reorganized prompts into single-owner core rules, task scope, authoritative contract, professional role, role
   protocol, and current-round projections.

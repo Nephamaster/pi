@@ -1,13 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import {
-	buildDashboardSnapshot,
-	IpdDashboardServer,
-	renderDashboardPage,
-	type RunState,
-} from "../src/index.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildDashboardSnapshot, IpdDashboardServer, type RunState, renderDashboardPage } from "../src/index.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
 function stateFixture(): { state: RunState; processSpec: ReturnType<typeof createCompilerFixture>["processSpec"] } {
@@ -27,7 +22,12 @@ function stateFixture(): { state: RunState; processSpec: ReturnType<typeof creat
 		approvals: [],
 		mechanicalChecks: [],
 		events: [
-			{ sequence: 1, type: "process_selected", timestamp: 1, data: { processSpec: fixture.processSpec.process_spec_id } },
+			{
+				sequence: 1,
+				type: "process_selected",
+				timestamp: 1,
+				data: { processSpec: fixture.processSpec.process_spec_id },
+			},
 			{ sequence: 2, type: "workflow_designed", timestamp: 2, data: { workflowId: fixture.workflow.workflow_id } },
 		],
 		operations: {},
@@ -38,6 +38,32 @@ function stateFixture(): { state: RunState; processSpec: ReturnType<typeof creat
 describe("IPD visualization", () => {
 	const roots: string[] = [];
 	const servers: IpdDashboardServer[] = [];
+	it("returns 304 without rereading unchanged Run history and preserves updated revisions", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-dashboard-version-"));
+		roots.push(root);
+		const { state, processSpec } = stateFixture();
+		const getRun = vi.fn(async () => structuredClone(state));
+		const server = new IpdDashboardServer({
+			projectRoot: root,
+			processSpecs: [processSpec],
+			getRun,
+			getRunVersion: async () => String(state.revision),
+		});
+		servers.push(server);
+		const link = await server.registerRun(state.runId);
+		const url = `${new URL(link.url).origin}/api/runs/${state.runId}`;
+		const first = await fetch(url);
+		const etag = first.headers.get("etag")!;
+		await first.text();
+		const same = await fetch(url, { headers: { "If-None-Match": etag } });
+		expect(same.status).toBe(304);
+		expect(getRun).toHaveBeenCalledTimes(1);
+		state.revision++;
+		const next = await fetch(url, { headers: { "If-None-Match": etag } });
+		expect(next.status).toBe(200);
+		expect(await next.json()).toMatchObject({ run: { revision: state.revision } });
+		expect(getRun).toHaveBeenCalledTimes(2);
+	});
 	afterEach(async () => {
 		await Promise.all(servers.splice(0).map((server) => server.close()));
 		await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -82,7 +108,7 @@ describe("IPD visualization", () => {
 		expect(page).toContain("font-size:12px");
 		expect(page).toContain(".selection-rationale{max-height:190px");
 		expect(page).toContain("function renderMarkdown(value)");
-		expect(page).toContain("selectionApplicabilityOpen=previousDetails.open");
+		expect(page).toContain("selectionApplicabilityOpen = previousDetails.open");
 		expect(page).toContain(state.taskInput!.raw_task.text);
 		expect(page).not.toMatch(/<script\s+src=/i);
 		expect(page).not.toMatch(/<link[^>]+stylesheet[^>]+href=/i);

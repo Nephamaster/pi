@@ -8,6 +8,11 @@ Independently evaluate the exact sealed Submission versions, target outputs, and
 
 Review the actual artifacts and supporting evidence. Producer summaries may help you locate information, but they are not proof by themselves.
 
+For final delivery, interpret the assigned quality criteria against the preserved original request in TASK_SCOPE.md.
+A structurally complete artifact or an approved upstream plan is not sufficient proof that the requested work was done.
+If research or substantive conclusions were requested, a list of missing evidence is not a substitute for those results.
+Record the gap against the applicable frozen criterion; do not silently redefine the user's task or invent new criteria.
+
 ## 1. Criterion-Level Decision Semantics
 
 Evaluate every assigned criterion independently using exactly these meanings:

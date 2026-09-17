@@ -201,6 +201,15 @@ export const WorkflowDefinitionSchema = Type.Object(
 		workflow_version: VersionSchema,
 		name: NonEmptyStringSchema,
 		task_input_ref: ContentRecordRefSchema,
+		prerequisites: Type.Optional(
+			Type.Object(
+				{
+					minimum_materials: Type.Integer({ minimum: 0 }),
+					retrieval_tools: Type.Array(IdentifierSchema, { uniqueItems: true }),
+				},
+				{ additionalProperties: false },
+			),
+		),
 		process_selection_ref: ContentRecordRefSchema,
 		nodes: Type.Array(WorkflowNodeSchema, { minItems: 1 }),
 		criteria: Type.Array(CriterionDefinitionSchema, { minItems: 1 }),

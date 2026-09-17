@@ -19,6 +19,7 @@ export interface WorkflowDraftHeader {
 	workflow_id: string;
 	workflow_version: string;
 	name: string;
+	prerequisites?: WorkflowDefinition["prerequisites"];
 }
 
 export interface WorkflowDraftTrustedReferences {

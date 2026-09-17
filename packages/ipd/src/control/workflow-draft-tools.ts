@@ -7,6 +7,7 @@ import {
 	RequirementCoverageSchema,
 	WorkflowCompletionSchema,
 	type WorkflowDefinition,
+	WorkflowDefinitionSchema,
 	WorkflowNodeSchema,
 } from "../contracts/workflow.ts";
 import { hashJson } from "../ir/hash.ts";
@@ -19,6 +20,7 @@ const HeaderSchema = Type.Object(
 		workflow_id: IdentifierSchema,
 		workflow_version: VersionSchema,
 		name: NonEmptyStringSchema,
+		prerequisites: WorkflowDefinitionSchema.properties.prerequisites,
 	},
 	{ additionalProperties: false },
 );

@@ -35,6 +35,7 @@
 			"!**/models.generated.ts",
 			"!**/*.models.ts",
 			"!packages/mom/data/**/*",
+			"!**/dashboard-assets.generated.ts",
 			"!!**/node_modules"
 		]
 	}

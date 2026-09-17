@@ -58,7 +58,7 @@ sandboxDescribe("IPD node Bash sandbox integration", () => {
 		const result = await tool.execute(
 			"call-1",
 			{
-				command: `test ! -r '${deniedInput}' && cat '${approvedInput}' '${skillFile}' > outputs/deck-production/copied.txt && node --version && node -e 'require("pptxgenjs"); process.stdout.write("pptxgenjs-ok\\n")' && python3 --version && pdftoppm -v`,
+				command: `test ! -r '${deniedInput}' && cat '${approvedInput}' '${skillFile}' > outputs/deck-production/copied.txt && node --version && node -e 'require("yaml"); process.stdout.write("module-ok\\n")' && python3 --version && pdftoppm -v`,
 			},
 			undefined,
 			undefined,
@@ -66,7 +66,7 @@ sandboxDescribe("IPD node Bash sandbox integration", () => {
 		);
 
 		expect(result.content.find((item) => item.type === "text")?.text).toMatch(/v\d+\./);
-		expect(result.content.find((item) => item.type === "text")?.text).toContain("pptxgenjs-ok");
+		expect(result.content.find((item) => item.type === "text")?.text).toContain("module-ok");
 		expect(await readFile(join(workspace, "outputs", "deck-production", "copied.txt"), "utf8")).toBe(
 			"approved input\nauthorized skill\n",
 		);

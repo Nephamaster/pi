@@ -1,11 +1,61 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname as dirnameForTest, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { compileWorkflow } from "../src/compiler/compiler.ts";
 import { FileRunStore, prepareRunDirectory, type RunState } from "../src/index.ts";
+import { createCompilerFixture } from "./fixtures.ts";
 
 describe("FileRunStore", () => {
 	const roots: string[] = [];
+
+	it("stores static assets once and hydrates the same public state after reopening", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-static-state-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		const compiled = compileWorkflow(fixture);
+		if (!compiled.ok) throw new Error("Invalid fixture");
+		const directory = await prepareRunDirectory(root, fixture.runId);
+		const store = new FileRunStore();
+		store.bind(fixture.runId, directory.stateFile);
+		await store.create({
+			runId: fixture.runId,
+			revision: 0,
+			phase: "execute",
+			status: "running",
+			baseline: compiled.baseline,
+			taskInput: fixture.taskInput,
+			nodes: [],
+			rounds: [],
+			submissions: [],
+			reviews: [],
+			approvals: [],
+			mechanicalChecks: [],
+			events: [],
+			operations: {},
+		});
+		const before = await readdir(join(dirnameForTest(directory.stateFile), "objects"));
+		await store.mutate(fixture.runId, "progress", {}, (draft, event) => {
+			draft.status = "paused";
+			event.emit("run_paused");
+			return true;
+		});
+		const raw = JSON.parse(await readFile(directory.stateFile, "utf8"));
+		expect(raw.baseline).toBeUndefined();
+		expect(raw.staticRefs.baseline).toMatch(/^[a-f0-9]{64}$/);
+		expect(await readdir(join(dirnameForTest(directory.stateFile), "objects"))).toEqual(before);
+		const reopened = new FileRunStore();
+		reopened.bind(fixture.runId, directory.stateFile);
+		const restored = await reopened.read(fixture.runId);
+		expect(restored.baseline).toEqual(compiled.baseline);
+		expect(restored.taskInput).toEqual(fixture.taskInput);
+		expect(restored.status).toBe("paused");
+		expect(restored.events).toHaveLength(1);
+		await writeFile(join(dirnameForTest(directory.stateFile), "objects", `${raw.staticRefs.baseline}.json`), "{}");
+		const corrupt = new FileRunStore();
+		corrupt.bind(fixture.runId, directory.stateFile);
+		await expect(corrupt.read(fixture.runId)).rejects.toThrow("Corrupt Run object");
+	});
 	afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 	it("serializes mutations and reuses an identical operation result", async () => {

@@ -16,6 +16,7 @@ export async function loadRegisteredDockerProfile(
 	templatePath: string,
 	docker: DockerCommandRunner,
 	signal?: AbortSignal,
+	allowMissing = false,
 ): Promise<RegisteredExecutionProfile> {
 	let template: DockerProfileTemplate;
 	try {
@@ -36,10 +37,25 @@ export async function loadRegisteredDockerProfile(
 		);
 	const inspection = await docker.run(
 		["image", "inspect", template.image.reference, "--format", "{{.Id}}|{{.Os}}/{{.Architecture}}"],
-		{ signal },
+		{ signal, acceptedExitCodes: [0, 1] },
 	);
+	if (inspection.exitCode !== 0) {
+		const detail = inspection.stderr.toString("utf8").trim();
+		if (allowMissing && /No such image|No such object/i.test(detail))
+			throw new MissingDockerProfileError(template.image.reference);
+		throw new EnvironmentError(
+			"environment_unavailable",
+			`Cannot inspect Profile image ${template.image.reference}: ${detail}`,
+		);
+	}
 	const [contentId, platform] = inspection.stdout.toString("utf8").trim().split("|");
 	const resolved = structuredClone(template);
 	resolved.image = { reference: template.image.reference, contentId, platform };
 	return registerExecutionProfiles([resolved])[0];
+}
+
+export class MissingDockerProfileError extends EnvironmentError {
+	constructor(reference: string) {
+		super("profile_incompatible", `ExecutionProfile image is not installed: ${reference}`);
+	}
 }

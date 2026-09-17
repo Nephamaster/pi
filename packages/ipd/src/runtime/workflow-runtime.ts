@@ -3,35 +3,30 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { ReportNodeBlocked, SubmitReview } from "../adapter/structured-submissions.ts";
 import { ArtifactValidationError } from "../artifact/manifest.ts";
+import { baselineIndex } from "../compiler/baseline-index.ts";
 import type { EffectiveNode, ExecutionBaseline } from "../contracts/baseline.ts";
-import type { JsonValue } from "../contracts/primitives.ts";
 import type { MechanicalCheckRecord, RunState, SubmissionRecord } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { ExecutionNode, ReviewNode } from "../contracts/workflow.ts";
 import type { MechanicalChecker } from "../gate/mechanical-checker.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
 import { materializeFinalSubmission } from "./final-submission.ts";
+import { applyCandidateSubmission, applyReviewDecision } from "./governance-transitions.ts";
 import { bounded, isTerminal } from "./lifecycle.ts";
 import { type NodeRoundWork, NodeSubmissionProtocolError, type NodeWorker, NodeWorkerError } from "./node-worker.ts";
 import { validateReviewSubmission } from "./review-validation.ts";
 import type { RunDirectory } from "./run-directory.ts";
 import type { RunStore } from "./run-store.ts";
 import {
-	addApprovals,
-	invalidateFromNode,
-	markReworkAddressed,
 	markRunCancelled,
 	nodeIsReady,
 	projectInputSubmissions,
 	readyNodes,
-	refreshSubmissionStatus,
 	requireBaseline,
 	resolveInputBindings,
-	resolveReworkForTargets,
 	reworkFeedback,
 	roundInputsAreValid,
 	runIsComplete,
-	supersedePendingRework,
 	taskContextForNode,
 } from "./runtime-state.ts";
 import { type SubmissionStore, SubmissionValidationError } from "./submission-store.ts";
@@ -257,9 +252,7 @@ export class WorkflowRuntime {
 						state.rounds
 							.filter((round) => round.status === "paused")
 							.map((round) => {
-								const node = requireBaseline(state).nodes.find(
-									(item) => item.definition.node_id === round.nodeId,
-								)!;
+								const node = baselineIndex(requireBaseline(state)).nodes.get(round.nodeId)!;
 								return this.worker.stopRound?.(
 									state.runId,
 									round.nodeId,
@@ -317,7 +310,7 @@ export class WorkflowRuntime {
 			throw new Error("The recorded failure requires explicit reconciliation before resume");
 		for (const node of state.nodes.filter((item) => ["paused", "blocked"].includes(item.status))) {
 			const round = state.rounds.filter((item) => item.nodeId === node.nodeId).at(-1);
-			const effective = requireBaseline(state).nodes.find((item) => item.definition.node_id === node.nodeId)!;
+			const effective = baselineIndex(requireBaseline(state)).nodes.get(node.nodeId)!;
 			if (
 				round &&
 				(!roundInputsAreValid(effective, round, state) ||
@@ -564,7 +557,7 @@ export class WorkflowRuntime {
 			await this.assertCurrent(work);
 			await this.worker.prepareRound?.(work, work.signal);
 			await this.assertCurrent(work);
-			await (node.kind === "execution" ? this.runExecution(work, node) : this.runReview(work, node));
+			await (node.kind === "execution" ? this.runExecution(work, node) : this.runReview(work));
 		})();
 		this.inFlight.add(operation);
 		void operation.finally(() => this.inFlight.delete(operation)).catch(() => {});
@@ -790,34 +783,12 @@ export class WorkflowRuntime {
 			work.runId,
 			`submit:${work.roundId}:${work.generation ?? 0}`,
 			{ submissionId: record.submissionId },
-			(draft, event) => {
-				const current = draft.nodes.find((item) => item.nodeId === node.node_id)!;
-				const round = draft.rounds.find((item) => item.roundId === work.roundId)!;
-				if (
-					draft.status !== "running" ||
-					(draft.generation ?? 0) !== (work.generation ?? 0) ||
-					current.activeRoundId !== work.roundId ||
-					!roundInputsAreValid(work.node, round, draft)
-				) {
-					event.emit("late_submission_ignored", { submissionId: record.submissionId }, node.node_id, work.roundId);
-					return false;
-				}
-				record.status = result === "PASS" ? "candidate" : "rejected";
-				draft.submissions.push(record);
-				draft.mechanicalChecks.push(...mechanicalChecks);
-				if (result === "PASS") markReworkAddressed(draft, node.node_id);
-				current.activeRoundId = undefined;
-				current.status = result === "PASS" ? "waiting_review" : result === "FAIL" ? "waiting_rework" : "blocked";
-				round.status = "submitted";
-				round.finishedAt = Date.now();
-				event.emit("submission_recorded", { result }, node.node_id, work.roundId);
-				return true;
-			},
+			(draft, event) => applyCandidateSubmission(draft, event, work, record, mechanicalChecks, result),
 		);
 		if (accepted) this.unregisteredSubmissions.delete(record.submissionId);
 	}
 
-	private async runReview(work: NodeRoundWork, node: ReviewNode): Promise<void> {
+	private async runReview(work: NodeRoundWork): Promise<void> {
 		let report: SubmitReview | undefined;
 		let correctionWork = work;
 		for (let correction = 0; correction < 10; correction++) {
@@ -845,87 +816,11 @@ export class WorkflowRuntime {
 			}
 		}
 		if (!report) throw new NodeWorkerError("configuration", "Review submission correction limit reached", false);
-		const invalidatedRounds: Array<{ nodeId: string; roundId: string }> = [];
-		await this.store.mutate(
+		const invalidatedRounds = await this.store.mutate(
 			work.runId,
 			`review:${work.roundId}:${work.generation ?? 0}`,
 			{ decision: report.decision },
-			(draft, event) => {
-				const current = draft.nodes.find((item) => item.nodeId === node.node_id)!;
-				const round = draft.rounds.find((item) => item.roundId === work.roundId)!;
-				if (
-					draft.status !== "running" ||
-					(draft.generation ?? 0) !== (work.generation ?? 0) ||
-					current.activeRoundId !== work.roundId ||
-					!roundInputsAreValid(work.node, round, draft)
-				) {
-					event.emit("late_review_ignored", { decision: report.decision }, node.node_id, work.roundId);
-					return false;
-				}
-				const reviewId = `${work.roundId}:generation:${work.generation ?? 0}:review`;
-				const submissionIds = [...new Set(work.inputSubmissions.map((item) => item.submissionId))];
-				const reworkNodeIds = [
-					...new Set(
-						report.criteria.flatMap((criterion) => criterion.rework_targets.map((target) => target.node_id)),
-					),
-				];
-				if (report.decision === "REWORK") supersedePendingRework(draft, reworkNodeIds);
-				draft.reviews.push({
-					reviewId,
-					reviewNodeId: node.node_id,
-					roundId: work.roundId,
-					submissionIds,
-					decision: report.decision,
-					criteria: report.criteria.map((item) => ({
-						criterionId: item.criterion_id,
-						result: item.result,
-						evidence: item.evidence as JsonValue,
-						rationale: item.rationale,
-						requiredRework: item.required_rework,
-						reworkTargets: item.rework_targets.map((target) => ({
-							nodeId: target.node_id,
-							outputId: target.output_id,
-							status: "pending",
-						})),
-					})),
-					status: "active",
-					createdAt: Date.now(),
-				});
-				if (report.decision === "PASS") {
-					addApprovals(
-						draft,
-						reviewId,
-						node.node_id,
-						node.targets.map((target) => {
-							const binding = work.inputBindings.find((item) => {
-								const submission = draft.submissions.find(
-									(candidate) => candidate.submissionId === item.submissionId,
-								);
-								return submission?.nodeId === target.node_id && item.outputId === target.output_id;
-							});
-							if (!binding)
-								throw new Error(`Review target has no bound Submission: ${target.node_id}:${target.output_id}`);
-							return {
-								submissionId: binding.submissionId,
-								outputId: target.output_id,
-								criterionIds: [...target.criterion_refs],
-							};
-						}),
-					);
-					resolveReworkForTargets(draft, node.targets);
-					for (const submissionId of submissionIds) refreshSubmissionStatus(draft, submissionId);
-				} else if (report.decision === "REWORK") {
-					for (const targetId of reworkNodeIds)
-						invalidatedRounds.push(...invalidateFromNode(draft, targetId, work.roundId));
-				}
-				current.activeRoundId = undefined;
-				current.status =
-					report.decision === "PASS" ? "succeeded" : report.decision === "REWORK" ? "waiting" : "blocked";
-				round.status = "completed";
-				round.finishedAt = Date.now();
-				event.emit("review_recorded", { decision: report.decision }, node.node_id, work.roundId);
-				return true;
-			},
+			(draft, event) => applyReviewDecision(draft, event, work, report),
 		);
 		if (invalidatedRounds.length > 0) {
 			const state = await this.store.read(work.runId);
@@ -934,7 +829,7 @@ export class WorkflowRuntime {
 				await bounded(
 					Promise.all(
 						invalidatedRounds.map((invalidated) => {
-							const affected = baseline.nodes.find((item) => item.definition.node_id === invalidated.nodeId);
+							const affected = baselineIndex(baseline).nodes.get(invalidated.nodeId);
 							const participant = affected?.agents[0];
 							return participant
 								? (this.worker.stopRound?.(

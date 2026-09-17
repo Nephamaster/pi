@@ -1,4 +1,6 @@
 // 计算节点就绪、完整批准、返工失效和 Run 完成状态。
+
+import { baselineIndex } from "../compiler/baseline-index.ts";
 import type { EffectiveNode, ExecutionBaseline } from "../contracts/baseline.ts";
 import type {
 	ApprovalRecord,
@@ -17,10 +19,10 @@ export interface ResolvedInputBinding extends RoundInputBindingRecord {
 	submission: SubmissionRecord;
 }
 
-export interface InvalidatedRound {
+export type InvalidatedRound = {
 	nodeId: string;
 	roundId: string;
-}
+};
 
 export function markRunCancelled(state: RunState): void {
 	state.status = "cancelled";
@@ -84,12 +86,11 @@ function outputIsFullyApproved(
 	);
 	if (approvals.some((approval) => approval === undefined)) return false;
 	const baseline = requireBaseline(state);
-	const node = baseline.workflow.nodes.find((item) => item.node_id === nodeId);
-	const output = node?.kind === "execution" ? node.outputs.find((item) => item.output_id === outputId) : undefined;
+	const index = baselineIndex(baseline);
+	const output = index.outputs.get(graphOutputKey(nodeId, outputId));
 	if (!output) return false;
 	const semanticCriteria = output.criterion_refs.filter(
-		(criterionId) =>
-			baseline.workflow.criteria.find((item) => item.criterion_id === criterionId)?.kind === "semantic",
+		(criterionId) => index.criteria.get(criterionId)?.kind === "semantic",
 	);
 	const approvedCriteria = new Set(approvals.flatMap((approval) => approval?.criterionIds ?? []));
 	return semanticCriteria.length > 0 && semanticCriteria.every((criterionId) => approvedCriteria.has(criterionId));
@@ -193,7 +194,7 @@ export function nodeIsReady(node: EffectiveNode, state: RunState): boolean {
 }
 
 export function readyNodes(state: RunState): EffectiveNode[] {
-	return requireBaseline(state).nodes.filter((node) => nodeIsReady(node, state));
+	return [...baselineIndex(requireBaseline(state)).nodes.values()].filter((node) => nodeIsReady(node, state));
 }
 
 export function roundInputsAreValid(node: EffectiveNode, round: RoundRecord, state: RunState): boolean {

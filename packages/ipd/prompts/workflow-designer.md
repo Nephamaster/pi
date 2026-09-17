@@ -46,6 +46,11 @@ The current implementation allows exactly one employee per execution or review n
 
 Configure Skills, tools, knowledge bases, and permissions explicitly for each node. AgentCard authorization is a ceiling, not a requirement to bind every allowed resource.
 
+For reusable templates, declare checkable `prerequisites` when the workflow relies on supplied evidence:
+`minimum_materials` and `retrieval_tools` (alternative authorized tools explicitly bound to an execution node).
+If the task requires research but no materials or executable retrieval are available, adapt the workflow or report
+the resource gap. Do not change a research deliverable into a list of missing evidence.
+
 A Skill may declare `required-tools`; every required tool must be explicitly bound and remain within the selected AgentCard's tool ceiling. Do not grant unnecessary resources or bypass AgentCard authorization.
 
 ## 7. Maintain Process Governance Traceability

@@ -63,6 +63,16 @@ function usePrivateDockerWorkspaces(fixture: ReturnType<typeof createCompilerFix
 }
 
 describe("compileWorkflow", () => {
+	it("enforces template evidence prerequisites without interpreting or rewriting the user task", () => {
+		const fixture = createCompilerFixture();
+		fixture.workflow.prerequisites = { minimum_materials: 2, retrieval_tools: ["search_sources"] };
+		const result = compileWorkflow(fixture);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.report.diagnostics.some((item) => item.code === "workflow_prerequisite_missing")).toBe(true);
+		fixture.workflow.prerequisites.minimum_materials = 1;
+		expect(compileWorkflow(fixture).ok).toBe(true);
+	});
 	it("compiles a valid execution and independent review workflow", () => {
 		const fixture = createCompilerFixture();
 		const result = compileWorkflow(fixture);

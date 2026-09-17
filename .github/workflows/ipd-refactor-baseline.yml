@@ -15,6 +15,8 @@ on:
       - "package-lock.json"
       - "vitest.base.ts"
       - "scripts/check-entry-graphs.mjs"
+      - "scripts/generate-ipd-dashboard.mjs"
+      - "scripts/check-ipd-install.mjs"
   push:
     branches: [main]
     paths:
@@ -29,6 +31,8 @@ on:
       - "package-lock.json"
       - "vitest.base.ts"
       - "scripts/check-entry-graphs.mjs"
+      - "scripts/generate-ipd-dashboard.mjs"
+      - "scripts/check-ipd-install.mjs"
 
 permissions:
   contents: read
@@ -72,6 +76,19 @@ jobs:
 
       - name: Check existing entry-point dependency boundaries
         run: node scripts/check-entry-graphs.mjs
+
+      - name: Build all workspace packages and verify packed IPD entries
+        run: |
+          npm run build:offline
+          npm run check:ipd-install
+          npm run check:ipd-dashboard
+
+      - name: Verify live and offline dashboard in Chromium
+        working-directory: packages/ipd
+        run: |
+          export PI_IPD_CHROME="$(command -v google-chrome)"
+          test -x "$PI_IPD_CHROME"
+          PI_OFFLINE=1 node ../../node_modules/vitest/dist/cli.js --run test/dashboard-browser.test.ts
 
       - name: Check session refactor formatting and lint
         run: >-
@@ -147,6 +164,11 @@ jobs:
           test/ipd-service.test.ts
           test/compiler.test.ts
           test/workflow-asset-store.test.ts
+          test/run-store.test.ts
+          test/telemetry.test.ts
+          test/profile-loader.test.ts
+          test/visualization.test.ts
+          test/visualization-script.test.ts
 
       # The repository command autoformats the whole tree. Report inherited
       # formatting drift, but require all PR2-owned files to already be clean.

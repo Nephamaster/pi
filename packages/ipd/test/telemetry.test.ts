@@ -6,6 +6,31 @@ import { FileIpdTelemetry } from "../src/index.ts";
 
 describe("FileIpdTelemetry", () => {
 	const roots: string[] = [];
+	it("exports passive Pi spans with metadata only and preserves callback rejection identity", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-spans-"));
+		roots.push(root);
+		const file = join(root, "metrics.ndjson");
+		const telemetry = new FileIpdTelemetry(file);
+		const error = new Error("secret-provider-error");
+		let called = 0;
+		await expect(
+			telemetry.context({ runId: "run", apiKey: "secret-key" }).startSpan({ name: "ipd.test" }, (span) => {
+				called++;
+				span.setAttributes({ nodeId: "produce", prompt: "secret-task" });
+				span.addEvent("ipd.step", { toolName: "read", payload: "secret-file" });
+				throw error;
+			}),
+		).rejects.toBe(error);
+		expect(called).toBe(1);
+		await telemetry.flush();
+		const text = await readFile(file, "utf8");
+		expect(text).not.toContain("secret-");
+		expect(JSON.parse(text)).toMatchObject({
+			source: "pi_telemetry",
+			status: "error",
+			attributes: { runId: "run", nodeId: "produce" },
+		});
+	});
 	afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 	it("writes ordered metrics outside RunState", async () => {

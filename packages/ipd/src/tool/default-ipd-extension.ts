@@ -21,7 +21,7 @@ import { WorkflowDraftManager } from "../control/workflow-draft.ts";
 import { DockerCli } from "../environment/docker-adapter.ts";
 import { DockerEnvironmentProvider } from "../environment/docker-provider.ts";
 import { EnvironmentManager } from "../environment/manager.ts";
-import { loadRegisteredDockerProfile } from "../environment/profile-loader.ts";
+import { loadRegisteredDockerProfile, MissingDockerProfileError } from "../environment/profile-loader.ts";
 import { createEnvironmentToolDescriptors } from "../environment/tool-backend.ts";
 import {
 	createArtifactFileSetCheckExecutor,
@@ -227,6 +227,7 @@ async function createDefaultService(
 		if (collision) throw new Error(collision.message);
 	}
 	let environmentProfiles: Awaited<ReturnType<typeof loadRegisteredDockerProfile>>[] = [];
+	const unavailableProfiles: string[] = [];
 	let environmentManager: EnvironmentManager | undefined;
 	let assets = toCompilerAssetCatalog(assembled, checks);
 	if (selectedEnvironmentMode === "docker") {
@@ -235,14 +236,23 @@ async function createDefaultService(
 			dockerConfigDirectory: join("/tmp", "pi-ipd-docker-config", projectIdentity),
 			managementTimeoutMs: runtimeInteger("PI_IPD_DOCKER_TIMEOUT_MS", 120_000, 1),
 		});
-		environmentProfiles = await Promise.all(
-			["code-node24", "office-pptx"].map((profile) =>
-				loadRegisteredDockerProfile(
-					fileURLToPath(new URL(`../../environments/${profile}/profile.template.json`, import.meta.url)),
-					docker,
-				),
-			),
+		const loadedProfiles = await Promise.all(
+			["code-node24", "office-pptx"].map(async (profile) => {
+				try {
+					return await loadRegisteredDockerProfile(
+						fileURLToPath(new URL(`../../environments/${profile}/profile.template.json`, import.meta.url)),
+						docker,
+						undefined,
+						true,
+					);
+				} catch (error) {
+					if (!(error instanceof MissingDockerProfileError)) throw error;
+					unavailableProfiles.push(error.message);
+					return undefined;
+				}
+			}),
 		);
+		environmentProfiles = loadedProfiles.filter((profile) => profile !== undefined);
 		const environmentPolicy = {
 			allowedProfiles: environmentProfiles.map(({ profile }) => ({ id: profile.id, version: profile.version })),
 			defaultProfile: { id: "code-node24", version: "1.0.0" },
@@ -280,6 +290,7 @@ async function createDefaultService(
 	}
 	const telemetry = new FileIpdTelemetry(join(context.cwd, ".pi", "ipd", "telemetry.ndjson"));
 	const store = new FileRunStore({
+		telemetryContext: telemetry.context(),
 		onMutationMetric: (metric) => telemetry.record({ source: "run_store", ...metric }),
 	});
 	const workflowAssets = new FileWorkflowAssetStore({ directory: join(context.cwd, ".pi", "ipd", "workflow") });
@@ -298,6 +309,7 @@ async function createDefaultService(
 		onSessionEvent: (event) => telemetry.recordSessionEvent(event),
 	});
 	const assetSummary = toJsonValue({
+		unavailableProfiles,
 		skills: assembled.skills.map((skill) => ({
 			id: skill.id,
 			description: skill.description,
@@ -326,6 +338,7 @@ async function createDefaultService(
 		projectRoot: context.cwd,
 		processSpecs: assembled.processSpecs,
 		getRun: (runId) => store.read(runId),
+		getRunVersion: (runId) => store.version(runId),
 		host: process.env.PI_IPD_DASHBOARD_HOST ?? "127.0.0.1",
 		port: dashboardPort(),
 	});

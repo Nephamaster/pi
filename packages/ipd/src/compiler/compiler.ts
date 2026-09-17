@@ -23,6 +23,7 @@ import {
 } from "../environment/profiles.ts";
 import { freezeDeep, hashJson } from "../ir/hash.ts";
 import { validateSchema } from "../ir/validation.ts";
+import { baselineIndex } from "./baseline-index.ts";
 import type { CompilerAssetCatalog } from "./types.ts";
 import { validateProcessCoverage } from "./validate-process-coverage.ts";
 import { validateProcessSpecSemantics } from "./validate-process-spec.ts";
@@ -298,5 +299,7 @@ export function compileWorkflow(input: CompileWorkflowInput): CompileWorkflowRes
 		graph: validated.graph,
 		report,
 	};
-	return { ok: true, baseline: freezeDeep(baseline) };
+	const frozen = freezeDeep(baseline);
+	baselineIndex(frozen);
+	return { ok: true, baseline: frozen };
 }

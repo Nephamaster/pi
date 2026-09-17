@@ -1,8 +1,10 @@
+import { stat } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 import type { ProcessSpec } from "../contracts/process-spec.ts";
 import type { RunState } from "../contracts/runtime.ts";
-import { buildDashboardSnapshot, readWorkflowDraft } from "./dashboard-model.ts";
+import { buildDashboardSnapshot, type DashboardSnapshot, readWorkflowDraft } from "./dashboard-model.ts";
 import { renderDashboardPage } from "./dashboard-page.ts";
 
 export interface DashboardRunLink {
@@ -17,6 +19,7 @@ export interface IpdDashboardServerOptions {
 	projectRoot: string;
 	processSpecs: readonly ProcessSpec[];
 	getRun(runId: string): Promise<RunState>;
+	getRunVersion?(runId: string): Promise<string>;
 	host?: string;
 	port?: number;
 }
@@ -31,6 +34,7 @@ export class IpdDashboardServer {
 	private server?: Server;
 	private origin?: string;
 	private starting?: Promise<void>;
+	private readonly snapshots = new Map<string, { version: string; snapshot: DashboardSnapshot }>();
 
 	constructor(options: IpdDashboardServerOptions) {
 		this.options = options;
@@ -76,7 +80,12 @@ export class IpdDashboardServer {
 		if (this.starting) return this.starting;
 		this.starting = new Promise<void>((resolve, reject) => {
 			const server = createServer((request, response) => {
-				void this.handle(request.url ?? "/", request.method ?? "GET", response).catch((error) => {
+				void this.handle(
+					request.url ?? "/",
+					request.method ?? "GET",
+					response,
+					request.headers["if-none-match"],
+				).catch((error) => {
 					if (response.headersSent) response.destroy(error instanceof Error ? error : new Error(String(error)));
 					else text(response, 500, error instanceof Error ? error.message : String(error));
 				});
@@ -104,7 +113,7 @@ export class IpdDashboardServer {
 		}
 	}
 
-	private async handle(rawUrl: string, method: string, response: ServerResponse): Promise<void> {
+	private async handle(rawUrl: string, method: string, response: ServerResponse, ifNoneMatch?: string): Promise<void> {
 		if (method !== "GET") return text(response, 405, "Method not allowed");
 		try {
 			const url = new URL(rawUrl, "http://localhost");
@@ -132,7 +141,16 @@ export class IpdDashboardServer {
 			if (api) {
 				const runId = decodeURIComponent(api[1]);
 				assertRunId(runId);
-				return json(response, 200, await this.snapshotData(runId));
+				const snapshot = await this.snapshotData(runId);
+				const etag = `"${snapshot.run.revision}:${snapshot.workflow.draftRevision ?? -1}"`;
+				response.setHeader("ETag", etag);
+				if (ifNoneMatch === etag) {
+					response.statusCode = 304;
+					commonHeaders(response);
+					response.end();
+					return;
+				}
+				return json(response, 200, snapshot);
 			}
 			return text(response, 404, "Not found");
 		} catch (error) {
@@ -152,11 +170,27 @@ export class IpdDashboardServer {
 	}
 
 	private async snapshotData(runId: string) {
+		const stateVersion = await this.options.getRunVersion?.(runId);
+		let draftVersion = "none";
+		try {
+			const file = await stat(join(this.options.projectRoot, ".pi", "ipd", "runs", runId, "workflow-draft.json"), {
+				bigint: true,
+			});
+			draftVersion = `${file.ino}:${file.mtimeNs}:${file.size}`;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		}
+		const version = `${stateVersion}/${draftVersion}`;
+		const cached = this.snapshots.get(runId);
+		if (stateVersion !== undefined && cached?.version === version) return cached.snapshot;
 		const [state, draft] = await Promise.all([
 			this.options.getRun(runId),
 			readWorkflowDraft(this.options.projectRoot, runId),
 		]);
-		return buildDashboardSnapshot(state, this.options.processSpecs, draft);
+		const snapshot = buildDashboardSnapshot(state, this.options.processSpecs, draft);
+		if (this.snapshots.size >= 32) this.snapshots.delete(this.snapshots.keys().next().value!);
+		this.snapshots.set(runId, { version, snapshot });
+		return snapshot;
 	}
 
 	private rootPage(): string {
@@ -186,13 +220,17 @@ function safeFilename(value: string): string {
 }
 
 function escapeHtml(value: string): string {
-	return value.replace(/[&<>"']/g, (character) => ({
-		"&": "&amp;",
-		"<": "&lt;",
-		">": "&gt;",
-		'"': "&quot;",
-		"'": "&#39;",
-	})[character] ?? character);
+	return value.replace(
+		/[&<>"']/g,
+		(character) =>
+			({
+				"&": "&amp;",
+				"<": "&lt;",
+				">": "&gt;",
+				'"': "&quot;",
+				"'": "&#39;",
+			})[character] ?? character,
+	);
 }
 
 function commonHeaders(response: ServerResponse): void {

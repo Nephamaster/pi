@@ -28,6 +28,13 @@ Process Selector. Selecting both a ProcessSpec and a Workflow asset also skips t
 template to the current TaskInput and ProcessSelection, compiles it deterministically, and activates Runtime only when
 the template remains valid. Workflow templates already contain their node AgentCard assignments.
 
+Templates may declare `prerequisites: { minimum_materials: 1, retrieval_tools: ["search_sources"] }`.
+The Compiler requires either enough user-supplied materials or a registered retrieval tool actually bound to an
+execution node (normal AgentCard/Profile checks still apply). Without either, compilation reports
+`workflow_prerequisite_missing`; provide sources or explicitly adapt the Workflow using the Designer. The Compiler
+does not infer that an arbitrary URL or a passing structural check proves sufficient research. Final reviewers must
+evaluate assigned quality criteria against the preserved original task, including substantive content adequacy.
+
 ## Main capabilities
 
 - TaskInput and ProcessSpec v2, WorkflowDefinition v3, ExecutionBaseline, and Runtime state contracts.
@@ -61,6 +68,11 @@ does not mutate Runtime state. As the Workflow Designer incrementally builds the
 updates. After compilation, the same view switches to the frozen execution graph and overlays live node status,
 rounds, reviews, rework relationships, and recent events.
 
+The server caches the versioned dashboard projection using state/draft file versions. Unchanged polls return HTTP 304
+with a revision ETag and do not reread Run history or rebuild the page. The client uses the same typed renderer for
+live and offline views; TS/CSS are bundled by `scripts/generate-ipd-dashboard.mjs` using esbuild. Generated assets are
+embedded in HTML and checked for source consistency by `npm run check:ipd-dashboard`.
+
 The snapshot endpoint returns a single standalone HTML file with the current projection embedded. It does not require
 the IPD server after download, so it can be archived or shared as a point-in-time Workflow snapshot.
 
@@ -85,6 +97,13 @@ assignments, and Runtime events.
 Run data is stored under `<project>/.pi/ipd/runs/<run-id>/`; reusable Workflow assets are stored under
 `<project>/.pi/ipd/workflow/`.
 
+The on-disk state snapshot uses `storageVersion: 1` and hash references to immutable `objects/<hash>.json` files for
+Baseline, task, selection and locked static assets. Back up the whole Run directory, not just `state.json`.
+`FileRunStore.read()` and `ipd_get_run` still return a hydrated RunState. Existing inline snapshots are read and migrated
+on their next committed mutation. Business state, audit events and operation idempotency remain in one atomic state
+replacement; object files are durable before publication. Interrupted writes can leave unreferenced object files;
+these are retained, not automatically deleted from a potentially active Run.
+
 ## Controlled execution environments
 
 The default mode is Docker/OCI. Build the two trusted local Profiles before starting a Run:
@@ -98,6 +117,10 @@ PptxGenJS, the PPTX Skill's Python dependencies, LibreOffice, Poppler, fontconfi
 Profile templates contain only trusted image references; service initialization resolves each reference to the current
 immutable Docker image ID and platform. A missing or changed image fails before Workflow execution and never falls
 back to the host.
+
+An uninstalled optional Profile is omitted from the executable catalog with a diagnostic. A text-only Workflow can
+therefore use `code-node24` without an Office image. Docker connection errors still fail initialization; a task requiring
+an unavailable capability fails compilation. Existing Runs retain their frozen image identities.
 
 Each node receives one lease that survives normal rounds and rework. All local `read`, `write`, `edit`, `grep`, `find`,
 `ls`, image reads, Bash, full command logs, and managed processes use the same private filesystem. The model sees only:
@@ -147,6 +170,19 @@ PI_IPD_ROUND_TIMEOUT_MS=1800000
 Low-frequency state-write and round-duration metrics are appended outside authoritative Run state at
 `<project>/.pi/ipd/telemetry.ndjson`. Run state writes use a per-file writer lock and fail closed when another process
 is mutating the same Run.
+
+Native Session observations include model message duration/token counts, tool duration/ToolCall identity and native
+retry/compaction counts. State mutations also expose the Pi `TelemetryContext` contract through a local metadata-only
+exporter. Model message duration is not a breakdown of provider queue/transport time. Prompts, tool payloads, headers
+and free-form provider errors are not written to telemetry.
+
+## Build and verify
+
+Root `npm run build` and `npm run build:offline` build IPD after coding-agent. The offline command requires hydrated
+model data. Both generate and type-check the dashboard; bridge consistency is checked before compiling IPD.
+`npm run check:ipd-install` consumes the real npm-packed file set in a temporary directory using current workspace
+dependencies; it does not publish or claim a fresh registry installation. PPTX/React/icon/sharp runtime dependencies
+belong to the Office image, not the host root package. Legacy users must provision their own task dependencies.
 
 ## Current boundaries
 

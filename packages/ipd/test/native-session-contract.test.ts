@@ -199,7 +199,13 @@ describe("IPD native session contract", () => {
 		const task = "Record work once, then submit the result.";
 		fixture.faux.setResponses([
 			(context) => {
-				expect(context.tools?.map((tool) => tool.name).sort()).toEqual(["record_work", "submit_contract"]);
+				expect(
+					context.messages
+						.filter((message) => message.role === "system")
+						.flatMap((message) => message.toolsAdded ?? [])
+						.map((tool) => tool.name)
+						.sort(),
+				).toEqual(["record_work", "submit_contract"]);
 				return fauxAssistantMessage([fauxToolCall("record_work", {})], { stopReason: "toolUse" });
 			},
 			fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),

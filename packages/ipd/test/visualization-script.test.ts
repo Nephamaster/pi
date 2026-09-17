@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDashboardSnapshot, renderDashboardPage } from "../src/index.ts";
+import { renderMarkdown } from "../src/visualization/dashboard-markdown.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
 function inlineScript(page: string): string {
@@ -47,9 +48,6 @@ describe("IPD visualization generated script", () => {
 	});
 
 	it("renders common Markdown blocks without trusting embedded HTML", () => {
-		const script = pageScript();
-		const helpers = script.slice(0, script.indexOf("function displayPhase"));
-		const renderMarkdown = new Function(`${helpers}; return renderMarkdown;`)() as (value: string) => string;
 		const rendered = renderMarkdown("# 标题\n\n**重点**\n\n1. 第一项\n2. 第二项\n\n<script>alert(1)</script>");
 
 		expect(rendered).toContain("<h1>标题</h1>");

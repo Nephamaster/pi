@@ -26,7 +26,17 @@ describe("PiNodeSessionFactory", () => {
 		let observedSystemPrompt = "";
 		faux.setResponses([
 			(context) => {
-				observedSystemPrompt = context.systemPrompt ?? "";
+				observedSystemPrompt = context.messages
+					.filter((message) => message.role === "system")
+					.map((message) =>
+						[
+							typeof message.content === "string"
+								? message.content
+								: message.content.map((part) => part.text).join("\n"),
+							...Object.values(message.sections ?? {}).filter((value) => value !== null),
+						].join("\n"),
+					)
+					.join("\n");
 				return fauxAssistantMessage("first complete");
 			},
 			fauxAssistantMessage("rework complete"),

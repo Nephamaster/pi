@@ -121,10 +121,13 @@ export function buildDashboardSnapshot(
 	const workflowCriteria = workflow?.criteria ?? draft?.criteria ?? [];
 	const runtimeNodes = new Map(state.nodes.map((node) => [node.nodeId, node]));
 	const effectiveNodes = new Map(state.baseline?.nodes.map((node) => [node.definition.node_id, node]) ?? []);
+	const environments = new Map(state.baseline?.environmentBindings.map((binding) => [binding.nodeId, binding]) ?? []);
+	const roundCounts = new Map<string, number>();
+	for (const round of state.rounds) roundCounts.set(round.nodeId, (roundCounts.get(round.nodeId) ?? 0) + 1);
 	const nodes = workflowNodes.map((node): DashboardNode => {
 		const runtime = runtimeNodes.get(node.node_id);
 		const effective = effectiveNodes.get(node.node_id);
-		const environment = state.baseline?.environmentBindings.find((binding) => binding.nodeId === node.node_id);
+		const environment = environments.get(node.node_id);
 		const participant = node.agents[0];
 		return {
 			id: node.node_id,
@@ -156,9 +159,10 @@ export function buildDashboardSnapshot(
 				externalActions: participant.permissions.external_actions,
 			},
 			inputs: node.inputs.map(inputLabel),
-			outputs: node.kind === "execution" ? node.outputs.map((output) => output.output_id) : node.targets.map(targetLabel),
+			outputs:
+				node.kind === "execution" ? node.outputs.map((output) => output.output_id) : node.targets.map(targetLabel),
 			...(runtime?.activeRoundId ? { activeRoundId: runtime.activeRoundId } : {}),
-			roundCount: state.rounds.filter((round) => round.nodeId === node.node_id).length,
+			roundCount: roundCounts.get(node.node_id) ?? 0,
 		};
 	});
 	return {
@@ -219,7 +223,9 @@ function selectionView(state: RunState, processSpecs: readonly ProcessSpec[]): D
 	const spec =
 		state.selectedProcessSpec ??
 		processSpecs.find(
-			(item) => item.process_spec_id === selection.process_spec_ref.id && item.version === selection.process_spec_ref.version,
+			(item) =>
+				item.process_spec_id === selection.process_spec_ref.id &&
+				item.version === selection.process_spec_ref.version,
 		);
 	return {
 		status: "selected",

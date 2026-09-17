@@ -141,6 +141,26 @@ for (const [pkgDir, budgets] of Object.entries(BUDGETS)) {
 	}
 }
 
+// Domain transitions remain pure; the browser cannot acquire server-side capabilities.
+for (const entry of [
+	"packages/ipd/src/runtime/governance-transitions.ts",
+	"packages/ipd/src/runtime/runtime-state.ts",
+	"packages/ipd/src/compiler/baseline-index.ts",
+	"packages/ipd/src/visualization/dashboard-client.ts",
+]) {
+	for (const file of walk(resolve(ROOT, entry))) {
+		const path = relative(ROOT, file);
+		if (/packages\/ipd\/src\/(adapter|environment|control)\//.test(path)) {
+			console.error(`${entry} must not reach ${path}`); failures++;
+		}
+		for (const match of readFileSync(file, "utf8").matchAll(SPEC)) {
+			if (/^node:|^@earendil-works\/pi-(coding-agent|agent-core)/.test(match[2])) {
+				console.error(`${entry} must not import ${match[2]} through ${path}`); failures++;
+			}
+		}
+	}
+}
+
 if (failures > 0) {
 	console.error(`\n${failures} entry-point budget violation(s).`);
 	process.exit(1);
