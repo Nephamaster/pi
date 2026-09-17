@@ -48,28 +48,25 @@ export class NetworkedDockerEnvironmentProvider extends DockerEnvironmentProvide
 			this.internetLeases.add(request.leaseId);
 			return prepared;
 		} catch (error) {
-			await super
-				.dispose(
-					{
-						leaseId: request.leaseId,
-						runId: request.runId,
-						nodeId: request.binding.nodeId,
-						participantId: request.binding.participantId,
-						provider: "docker",
-						providerHandle: prepared.providerHandle,
-						generation: 0,
-						state: "ready",
-						image: prepared.image,
-						createdAt: new Date().toISOString(),
-					} satisfies EnvironmentLease,
-				)
-				.catch(() => {});
+			const cleanupLease: EnvironmentLease = {
+				leaseId: request.leaseId,
+				runId: request.runId,
+				nodeId: request.binding.nodeId,
+				participantId: request.binding.participantId,
+				provider: "docker",
+				providerHandle: prepared.providerHandle,
+				generation: 0,
+				state: "ready",
+				...(prepared.image ? { image: prepared.image } : {}),
+				createdAt: new Date().toISOString(),
+			};
+			await super.dispose(cleanupLease).catch(() => {});
 			throw error;
 		}
 	}
 
-	override async describe(lease: EnvironmentLease, signal?: AbortSignal): Promise<Record<string, unknown>> {
-		const description = await super.describe(lease, signal);
+	override async describe(lease: EnvironmentLease): Promise<Record<string, unknown>> {
+		const description = await super.describe(lease);
 		return this.internetLeases.has(lease.leaseId) ? { ...description, network: { mode: "internet" } } : description;
 	}
 
