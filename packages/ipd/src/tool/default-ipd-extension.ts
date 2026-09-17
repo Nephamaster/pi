@@ -19,7 +19,7 @@ import { IpdControlPlane } from "../control/control-plane.ts";
 import { type PiControlRoleOptions, PiProcessSelector, PiWorkflowDesigner } from "../control/pi-control-roles.ts";
 import { WorkflowDraftManager } from "../control/workflow-draft.ts";
 import { DockerCli } from "../environment/docker-adapter.ts";
-import { DockerEnvironmentProvider } from "../environment/docker-provider.ts";
+import { NetworkedDockerEnvironmentProvider } from "../environment/docker-network-provider.ts";
 import { EnvironmentManager } from "../environment/manager.ts";
 import { loadRegisteredDockerProfile, MissingDockerProfileError } from "../environment/profile-loader.ts";
 import { createEnvironmentToolDescriptors } from "../environment/tool-backend.ts";
@@ -50,6 +50,13 @@ const OUTER_IPD_TOOLS = new Set([
 	"ipd_read_events",
 	"ipd_get_result",
 ]);
+
+const DEFAULT_DOCKER_PROFILE_TEMPLATES = [
+	["code-node24", "profile.template.json"],
+	["code-node24", "profile.internet.template.json"],
+	["office-pptx", "profile.template.json"],
+	["office-pptx", "profile.internet.template.json"],
+] as const;
 
 function executableTools(pi: ExtensionAPI): ToolDefinition[] {
 	if (!("getToolDefinitions" in pi))
@@ -237,10 +244,10 @@ async function createDefaultService(
 			managementTimeoutMs: runtimeInteger("PI_IPD_DOCKER_TIMEOUT_MS", 120_000, 1),
 		});
 		const loadedProfiles = await Promise.all(
-			["code-node24", "office-pptx"].map(async (profile) => {
+			DEFAULT_DOCKER_PROFILE_TEMPLATES.map(async ([directory, file]) => {
 				try {
 					return await loadRegisteredDockerProfile(
-						fileURLToPath(new URL(`../../environments/${profile}/profile.template.json`, import.meta.url)),
+						fileURLToPath(new URL(`../../environments/${directory}/${file}`, import.meta.url)),
 						docker,
 						undefined,
 						true,
@@ -262,7 +269,7 @@ async function createDefaultService(
 			policy: environmentPolicy,
 		});
 		environmentManager = new EnvironmentManager([
-			new DockerEnvironmentProvider({
+			new NetworkedDockerEnvironmentProvider({
 				docker,
 				storageRoot: join("/tmp", "pi-ipd-environments", projectIdentity),
 			}),
@@ -325,6 +332,7 @@ async function createDefaultService(
 			provider: profile.provider,
 			capabilities: profile.capabilities,
 			commands: profile.commands,
+			network: profile.network,
 		})),
 	});
 	const executionIdentity = toJsonValue({
