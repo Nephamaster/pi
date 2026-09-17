@@ -38,6 +38,26 @@ const EnvironmentPathsSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+const NetworkSchema = Type.Union([
+	Type.Object({ mode: Type.Literal("none") }, { additionalProperties: false }),
+	Type.Object(
+		{
+			mode: Type.Literal("restricted"),
+			allowedEndpoints: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object({ mode: Type.Literal("internet") }, { additionalProperties: false }),
+]);
+const ProbeSchema = Type.Object(
+	{
+		id: IdentifierSchema,
+		version: VersionSchema,
+		command: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+		timeoutSeconds: PositiveIntegerSchema,
+	},
+	{ additionalProperties: false },
+);
 const CommonProfileFields = {
 	schemaVersion: Type.Literal(1),
 	id: IdentifierSchema,
@@ -49,16 +69,7 @@ const CommonProfileFields = {
 	commands: Type.Array(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._+-]+$" }), { uniqueItems: true }),
 	supportedTools: Type.Array(IdentifierSchema, { uniqueItems: true }),
 	environment: Type.Record(Type.String(), Type.String()),
-	network: Type.Union([
-		Type.Object({ mode: Type.Literal("none") }, { additionalProperties: false }),
-		Type.Object(
-			{
-				mode: Type.Literal("restricted"),
-				allowedEndpoints: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-			},
-			{ additionalProperties: false },
-		),
-	]),
+	network: NetworkSchema,
 	resources: Type.Object(
 		{
 			memoryBytes: PositiveIntegerSchema,
@@ -68,17 +79,7 @@ const CommonProfileFields = {
 		},
 		{ additionalProperties: false },
 	),
-	probes: Type.Array(
-		Type.Object(
-			{
-				id: IdentifierSchema,
-				version: VersionSchema,
-				command: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
-				timeoutSeconds: PositiveIntegerSchema,
-			},
-			{ additionalProperties: false },
-		),
-	),
+	probes: Type.Array(ProbeSchema),
 	paths: EnvironmentPathsSchema,
 };
 
@@ -121,8 +122,10 @@ const SkillEnvironmentRequirementsSchema = Type.Object(
 			),
 		),
 		commands: Type.Optional(Type.Array(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._+-]+$" }))),
-		network: Type.Optional(Type.Union([Type.Literal("none"), Type.Literal("restricted")])),
-		probes: Type.Optional(CommonProfileFields.probes),
+		network: Type.Optional(
+			Type.Union([Type.Literal("none"), Type.Literal("restricted"), Type.Literal("internet")]),
+		),
+		probes: Type.Optional(Type.Array(ProbeSchema)),
 	},
 	{ additionalProperties: false },
 );
@@ -184,10 +187,9 @@ export function registerExecutionProfiles(values: readonly unknown[]): Registere
 				`Invalid ExecutionProfile: ${result.diagnostics.map((item) => `${item.path} ${item.message}`).join("; ")}`,
 			);
 		const profile = structuredClone(result.value) as ExecutionProfile;
-		const hash = hashJson(profile);
 		return {
 			profile,
-			ref: { id: profile.id, version: profile.version, hash },
+			ref: { id: profile.id, version: profile.version, hash: hashJson(profile) },
 			probeHash: hashJson(profile.probes),
 		};
 	});
@@ -276,7 +278,8 @@ export function mergeSkillEnvironmentRequirements(skills: readonly LockedSkill[]
 			capabilities.set(requirement.id, existing ?? requirement.version);
 		}
 		const requestedNetwork = skill.environmentRequirements?.network;
-		if (requestedNetwork === "restricted") network = "restricted";
+		if (requestedNetwork === "internet") network = "internet";
+		else if (requestedNetwork === "restricted" && network !== "internet") network = "restricted";
 		else if (requestedNetwork === "none" && network === undefined) network = "none";
 	}
 	return {
