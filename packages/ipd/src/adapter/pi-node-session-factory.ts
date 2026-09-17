@@ -5,6 +5,7 @@ import {
 	type AgentSession,
 	createAgentSessionFromServices,
 	createAgentSessionServices,
+	type InlineExtension,
 	type ModelRuntime,
 	SessionManager,
 	SettingsManager,
@@ -16,14 +17,25 @@ import type { NodePermissionsSchema } from "../contracts/workflow.ts";
 import type { EnvironmentPaths } from "../environment/contracts.ts";
 import { hashSkillPackage } from "../registry/skill-package.ts";
 import { NodeWorkerError } from "../runtime/node-worker.ts";
+import { createControlReadTool } from "./control-read.ts";
 import { createCurrentRoundContextExtension, type VirtualContextFile } from "./node-context.ts";
-import { createNodeFileScopeExtension } from "./node-file-scope.ts";
-import { createNodeSandboxedBashTool } from "./node-sandbox.ts";
 import type { NodeSessionFactory } from "./node-session-adapter.ts";
 import { type IpdSessionSettings, projectIpdSessionSettings } from "./session-policy.ts";
 import { createSubmissionResultExtension } from "./structured-submissions.ts";
 
+export const BUILTIN_IO_TOOLS: ReadonlySet<string> = new Set([
+	"read",
+	"write",
+	"edit",
+	"grep",
+	"find",
+	"ls",
+	"bash",
+	"powershell",
+]);
+
 export interface PiNodeSessionCreateInput {
+	controlRole?: boolean;
 	nodeId: string;
 	workspace: string;
 	sessionDirectory: string;
@@ -43,7 +55,17 @@ export interface PiNodeSessionCreateInput {
 	environmentPaths?: EnvironmentPaths;
 }
 
+export type LegacyNodeToolAdapter = (
+	input: PiNodeSessionCreateInput,
+	verify: () => Promise<void>,
+) => {
+	tools: readonly ToolDefinition[];
+	extensions: InlineExtension[];
+	nativeFileTools: true;
+};
+
 export interface PiNodeSessionFactoryOptions {
+	legacyToolAdapter?: LegacyNodeToolAdapter;
 	agentDir: string;
 	modelRuntime: ModelRuntime;
 	customTools?: readonly ToolDefinition[];
@@ -52,6 +74,7 @@ export interface PiNodeSessionFactoryOptions {
 }
 
 export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCreateInput> {
+	private readonly legacyToolAdapter?: LegacyNodeToolAdapter;
 	private readonly agentDir: string;
 	private readonly modelRuntime: ModelRuntime;
 	private readonly customTools: readonly ToolDefinition[];
@@ -59,6 +82,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 
 	constructor(options: PiNodeSessionFactoryOptions) {
 		this.agentDir = options.agentDir;
+		this.legacyToolAdapter = options.legacyToolAdapter;
 		this.modelRuntime = options.modelRuntime;
 		this.customTools = options.customTools ?? [];
 		this.sessionSettings = projectIpdSessionSettings(options.sessionSettings);
@@ -88,14 +112,35 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 		}
 		const thinkingLevel =
 			cardModel.thinkingLevel === "inherit" ? input.runDefaultThinkingLevel : cardModel.thinkingLevel;
-		const permissions = input.permissions ?? {
-			read_paths: input.participant.agentCard.permissions.readScopes,
-			write_paths:
-				input.participant.agentCard.permissions.workspace === "write"
-					? input.participant.agentCard.permissions.writeScopes
-					: [],
-			external_actions: input.participant.agentCard.permissions.externalActions,
-		};
+		const legacy =
+			!input.environmentTools && !input.controlRole
+				? this.legacyToolAdapter?.(input, verifyLockedSkills)
+				: undefined;
+		const backendTools =
+			input.environmentTools ??
+			legacy?.tools ??
+			(input.controlRole
+				? [
+						createControlReadTool(
+							input.workspace,
+							input.participant.lockedSkills.map((skill) => skill.baseDir),
+							verifyLockedSkills,
+						),
+					]
+				: []);
+		const allowedToolNames = new Set([
+			...input.participant.lockedTools.map((tool) => tool.id),
+			...(input.controlTools ?? []).map((tool) => tool.name),
+		]);
+		for (const id of allowedToolNames) {
+			if (!BUILTIN_IO_TOOLS.has(id)) continue;
+			if (legacy?.nativeFileTools && id !== "bash" && id !== "powershell") continue;
+			if (!backendTools.some((tool) => tool.name === id))
+				throw new NodeWorkerError(
+					"configuration",
+					`Tool ${id} requires an explicit execution backend; host fallback is disabled`,
+				);
+		}
 		const settingsManager = SettingsManager.inMemory(this.sessionSettings, { projectTrusted: false });
 		const services = await createAgentSessionServices({
 			cwd: input.workspace,
@@ -127,25 +172,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 						hidden: true,
 						factory: createSubmissionResultExtension(input.controlTools ?? []),
 					},
-					...(input.environmentTools
-						? []
-						: [
-								{
-									name: "ipd-node-file-scope",
-									hidden: true,
-									factory: createNodeFileScopeExtension({
-										workspace: input.workspace,
-										permissions,
-										additionalReadRoots: () => [
-											...input.participant.lockedSkills.map((skill) => skill.baseDir),
-											...(input.getAdditionalReadRoots?.() ?? []),
-										],
-										deniedReadRoots: input.getDeniedReadRoots,
-										allowReadOwnWritePaths: input.allowReadOwnWritePaths,
-										beforeRead: verifyLockedSkills,
-									}),
-								},
-							]),
+					...(legacy?.extensions ?? []),
 					...(input.getCurrentContext
 						? [
 								{
@@ -161,50 +188,21 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 		});
 		const serviceError = services.diagnostics.find((diagnostic) => diagnostic.type === "error");
 		if (serviceError) throw new NodeWorkerError("configuration", serviceError.message);
-		const allowedTools = [
-			...input.participant.lockedTools.map((tool) => tool.id),
-			...(input.controlTools ?? []).map((tool) => tool.name),
-		];
-		const allowedToolNames = new Set(allowedTools);
 		const customTools = [...this.customTools, ...(input.controlTools ?? [])].filter((tool) =>
 			allowedToolNames.has(tool.name),
 		);
-		for (const tool of input.environmentTools ?? []) {
+		for (const tool of backendTools) {
 			if (!allowedToolNames.has(tool.name)) continue;
 			const existing = customTools.findIndex((candidate) => candidate.name === tool.name);
 			if (existing >= 0) customTools.splice(existing, 1);
 			customTools.push(tool);
-		}
-		if (!input.environmentTools && allowedToolNames.has("bash")) {
-			const nonBashTools = customTools.filter((tool) => tool.name !== "bash");
-			customTools.length = 0;
-			customTools.push(
-				...nonBashTools,
-				createNodeSandboxedBashTool({
-					workspace: input.workspace,
-					sessionDirectory: input.sessionDirectory,
-					nodeId: input.nodeId,
-					participantId: input.participant.participantId,
-					permissions,
-					additionalReadRoots: () => [
-						...input.participant.lockedSkills.map((skill) => skill.baseDir),
-						...(input.getAdditionalReadRoots?.() ?? []),
-					],
-					deniedReadRoots: input.getDeniedReadRoots,
-					allowReadOwnWritePaths: input.allowReadOwnWritePaths,
-					requiredCommands: [
-						...new Set(input.participant.lockedSkills.flatMap((skill) => skill.requiredCommands ?? [])),
-					],
-					beforeExec: verifyLockedSkills,
-				}),
-			);
 		}
 		const created = await createAgentSessionFromServices({
 			services: input.environmentCwd ? { ...services, cwd: input.environmentCwd } : services,
 			sessionManager: SessionManager.create(input.workspace, input.sessionDirectory),
 			model,
 			thinkingLevel,
-			tools: allowedTools,
+			tools: [...allowedToolNames],
 			customTools,
 		});
 		return created.session;

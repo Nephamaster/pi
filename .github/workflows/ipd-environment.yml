@@ -7,12 +7,16 @@ on:
       - ".github/workflows/ipd-environment.yml"
       - "packages/coding-agent/src/core/tools/**"
       - "packages/ipd/**"
+      - ".pi/skills/pptx/**"
+      - "scripts/generate-ipd-bridges.mjs"
   push:
     branches: [main]
     paths:
       - ".github/workflows/ipd-environment.yml"
       - "packages/coding-agent/src/core/tools/**"
       - "packages/ipd/**"
+      - ".pi/skills/pptx/**"
+      - "scripts/generate-ipd-bridges.mjs"
 
 concurrency:
   group: ipd-environment-${{ github.ref }}
@@ -46,6 +50,11 @@ jobs:
 
       - name: Check modified integration test
         run: node node_modules/@biomejs/biome/bin/biome check packages/ipd/test/docker-provider.integration.test.ts
+
+      - name: Check generated bridge assets and default entry boundaries
+        run: |
+          node scripts/generate-ipd-bridges.mjs --check
+          node scripts/check-entry-graphs.mjs
 
       - name: Hydrate and validate generated model data
         run: |

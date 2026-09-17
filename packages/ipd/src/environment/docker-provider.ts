@@ -5,6 +5,7 @@ import { copyFile, lstat, mkdir, readFile, realpath, rm } from "node:fs/promises
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { hashJson } from "../ir/hash.ts";
 import { hashSkillPackage } from "../registry/skill-package.ts";
+import { BRIDGE_VERSION, type BridgeRequest, encodeBridgeRequest, quoteCommand, shellArgv } from "./bridge/protocol.ts";
 import {
 	buildIsolatedEnvironment,
 	type EnvironmentBinding,
@@ -24,7 +25,7 @@ import {
 	type RoundBinding,
 	throwIfAborted,
 } from "./contracts.ts";
-import type { DockerCommandRunner } from "./docker-adapter.ts";
+import type { DockerCommandRunner, DockerRunOptions, DockerRunResult } from "./docker-adapter.ts";
 import {
 	assertVirtualExportAllowed,
 	assertVirtualPathAllowed,
@@ -33,7 +34,6 @@ import {
 	hashWorkspaceState,
 	materializeEnvironmentAssets,
 	materializeEnvironmentInputs,
-	normalizeVirtualPath,
 	resolveEnvironmentLayout,
 } from "./paths.ts";
 
@@ -75,6 +75,22 @@ function parseJson<T>(content: Buffer, description: string): T {
 	} catch (error) {
 		throw new EnvironmentError("environment_lost", `Environment returned invalid ${description}`, { cause: error });
 	}
+}
+
+function commandEnvironment(
+	binding: EnvironmentBinding,
+	overrides: Record<string, string> = {},
+): Record<string, string> {
+	return buildIsolatedEnvironment(binding.environment, {
+		HOME: binding.paths.home,
+		TMPDIR: binding.paths.temporary,
+		TMP: binding.paths.temporary,
+		TEMP: binding.paths.temporary,
+		XDG_CONFIG_HOME: `${binding.paths.home}/.config`,
+		XDG_CACHE_HOME: binding.paths.cache,
+		PYTHONDONTWRITEBYTECODE: "1",
+		...overrides,
+	});
 }
 
 export class DockerEnvironmentProvider implements EnvironmentProvider {
@@ -149,14 +165,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 				state.homeRoot,
 			].map((directory) => mkdir(directory, { recursive: true, mode: 0o700 })),
 		);
-		const environment = buildIsolatedEnvironment(request.binding.environment, {
-			HOME: request.binding.paths.home,
-			TMPDIR: request.binding.paths.temporary,
-			TMP: request.binding.paths.temporary,
-			TEMP: request.binding.paths.temporary,
-			XDG_CONFIG_HOME: `${request.binding.paths.home}/.config`,
-			XDG_CACHE_HOME: request.binding.paths.cache,
-		});
+		const environment = commandEnvironment(request.binding);
 		const runtimeUser = `${runtimeUid}:${runtimeGid}`;
 		const mount = (source: string, destination: string, readonly = false) =>
 			`type=bind,src=${source},dst=${destination}${readonly ? ",readonly" : ""}`;
@@ -317,8 +326,23 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 					{ cause: error },
 				);
 			}
+			const hello = await this.docker.run(
+				[
+					"exec",
+					state.containerName,
+					"/usr/local/bin/node",
+					"/usr/local/lib/pi-ipd/command-bridge.mjs",
+					encodeBridgeRequest({ version: BRIDGE_VERSION, operation: "hello" }),
+				],
+				{ signal },
+			);
+			if (parseJson<{ version: number }>(hello.stdout, "bridge handshake").version !== BRIDGE_VERSION)
+				throw new EnvironmentError(
+					"profile_incompatible",
+					"Container bridge version does not match the host; rebuild the execution image",
+				);
 			for (const probe of request.binding.probes) {
-				const result = await this.docker.run(["exec", state.containerName, ...probe.command], {
+				const result = await this.runCommand(state, shellArgv(quoteCommand(probe.command)), {
 					signal,
 					timeoutMs: probe.timeoutSeconds * 1000,
 					acceptedExitCodes: COMMAND_EXIT_CODES,
@@ -351,7 +375,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		}
 		await Promise.all(
 			[...state.processes.values()]
-				.filter((process) => process.state === "running")
+				.filter((process) => process.state === "running" || process.state === "stopping")
 				.map((process) => this.stopProcess(lease, process, signal)),
 		);
 		state.processes.clear();
@@ -434,35 +458,20 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			if (!(name in state.binding.environment))
 				throw new EnvironmentError("policy_denied", `Command environment variable is not authorized: ${name}`);
 		}
-		const environment = buildIsolatedEnvironment(state.binding.environment, request.environment ?? {});
-		const command = request.fullOutputPath
-			? [
-					"/bin/bash",
-					"-lc",
-					`set -o pipefail; mkdir -p -- "$(dirname -- "$2")"; /bin/bash -lc "$1" 2>&1 | tee -- "$2"; exit "\${PIPESTATUS[0]}"`,
-					"--",
-					request.command,
-					assertVirtualPathAllowed(request.fullOutputPath, state.binding, "write"),
-				]
-			: ["/bin/bash", "-lc", request.command];
 		try {
-			const result = await this.docker.run(
-				[
-					"exec",
-					"--workdir",
-					cwd,
-					...Object.entries(environment).flatMap(([name, value]) => ["--env", `${name}=${value}`]),
-					state.containerName,
-					...command,
-				],
-				{
-					signal,
-					timeoutMs: request.timeoutSeconds ? request.timeoutSeconds * 1000 : undefined,
-					onStdout: request.onData,
-					onStderr: request.onData,
-					acceptedExitCodes: COMMAND_EXIT_CODES,
-				},
-			);
+			const result = await this.runCommand(state, shellArgv(request.command), {
+				cwd,
+				environment: request.environment,
+				logPath: request.fullOutputPath
+					? assertVirtualPathAllowed(request.fullOutputPath, state.binding, "write")
+					: undefined,
+				signal,
+				timeoutMs: request.timeoutSeconds ? request.timeoutSeconds * 1000 : 0,
+				onStdout: request.onData,
+				onStderr: request.onData,
+				acceptedExitCodes: COMMAND_EXIT_CODES,
+				streamOutput: true,
+			});
 			return { exitCode: result.exitCode };
 		} catch (error) {
 			if (error instanceof EnvironmentError && ["cancelled", "process_timeout"].includes(error.code)) {
@@ -477,9 +486,10 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 	async readFile(lease: EnvironmentLease, binding: RoundBinding, path: string, signal?: AbortSignal): Promise<Buffer> {
 		const state = this.requiredActiveState(lease, binding, "read");
 		const target = assertVirtualPathAllowed(path, state.binding, "read");
-		const result = await this.docker.run(
-			["exec", state.containerName, "node", "/usr/local/lib/pi-ipd/fs-bridge.mjs", "read", target],
-			{ signal },
+		const result = await this.fileOperation(
+			state,
+			{ version: BRIDGE_VERSION, operation: "read", path: target },
+			signal,
 		);
 		return result.stdout;
 	}
@@ -492,9 +502,10 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 	): Promise<EnvironmentFileStat> {
 		const state = this.requiredActiveState(lease, binding, "read");
 		const target = assertVirtualPathAllowed(path, state.binding, "read");
-		const result = await this.docker.run(
-			["exec", state.containerName, "node", "/usr/local/lib/pi-ipd/fs-bridge.mjs", "stat", target],
-			{ signal },
+		const result = await this.fileOperation(
+			state,
+			{ version: BRIDGE_VERSION, operation: "stat", path: target },
+			signal,
 		);
 		return parseJson<EnvironmentFileStat>(result.stdout, "file status");
 	}
@@ -507,10 +518,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 	): Promise<void> {
 		const state = this.requiredActiveState(lease, binding, "write");
 		const target = assertVirtualPathAllowed(path, state.binding, "write");
-		await this.docker.run(
-			["exec", state.containerName, "node", "/usr/local/lib/pi-ipd/fs-bridge.mjs", "mkdir", target],
-			{ signal },
-		);
+		await this.fileOperation(state, { version: BRIDGE_VERSION, operation: "mkdir", path: target }, signal);
 	}
 
 	async writeFile(
@@ -522,10 +530,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 	): Promise<void> {
 		const state = this.requiredActiveState(lease, binding, "write");
 		const target = assertVirtualPathAllowed(path, state.binding, "write");
-		await this.docker.run(
-			["exec", "--interactive", state.containerName, "node", "/usr/local/lib/pi-ipd/fs-bridge.mjs", "write", target],
-			{ signal, input: content },
-		);
+		await this.fileOperation(state, { version: BRIDGE_VERSION, operation: "write", path: target }, signal, content);
 	}
 
 	async list(
@@ -536,9 +541,10 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 	): Promise<EnvironmentDirectoryEntry[]> {
 		const state = this.requiredActiveState(lease, binding, "read");
 		const target = assertVirtualPathAllowed(path, state.binding, "read");
-		const result = await this.docker.run(
-			["exec", state.containerName, "node", "/usr/local/lib/pi-ipd/fs-bridge.mjs", "list", target],
-			{ signal },
+		const result = await this.fileOperation(
+			state,
+			{ version: BRIDGE_VERSION, operation: "list", path: target },
+			signal,
 		);
 		return parseJson<EnvironmentDirectoryEntry[]>(result.stdout, "directory listing");
 	}
@@ -559,8 +565,6 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		const state = this.requiredActiveState(lease, binding, "read");
 		const target = assertVirtualPathAllowed(request.path, state.binding, "read");
 		const args = [
-			"exec",
-			state.containerName,
 			"rg",
 			"--json",
 			"--line-number",
@@ -571,7 +575,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			request.pattern,
 			target,
 		];
-		const result = await this.docker.run(args, { signal, acceptedExitCodes: [0, 1] });
+		const result = await this.runCommand(state, args, { signal, acceptedExitCodes: [0, 1] });
 		const matches: EnvironmentSearchMatch[] = [];
 		for (const line of result.stdout.toString("utf8").split("\n")) {
 			if (!line) continue;
@@ -594,10 +598,9 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 	): Promise<string[]> {
 		const state = this.requiredActiveState(lease, binding, "read");
 		const target = assertVirtualPathAllowed(request.path, state.binding, "read");
-		const result = await this.docker.run(
+		const result = await this.runCommand(
+			state,
 			[
-				"exec",
-				state.containerName,
 				"rg",
 				"--files",
 				"--hidden",
@@ -630,22 +633,28 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			throw new EnvironmentError("policy_denied", "Managed process environment overrides are not enabled");
 		const processId = randomUUID();
 		const cwd = assertVirtualWorkingDirectoryAllowed(request.cwd, state.binding);
-		const result = await this.docker.run(
+		const result = await this.runCommand(
+			state,
 			[
-				"exec",
-				state.containerName,
-				"node",
+				"/usr/local/bin/node",
 				"/usr/local/lib/pi-ipd/process-bridge.mjs",
-				"start",
-				state.binding.paths.scratch,
-				processId,
-				cwd,
-				request.command,
+				encodeBridgeRequest({
+					version: BRIDGE_VERSION,
+					operation: "start",
+					scratch: state.binding.paths.scratch,
+					processId,
+					launch: {
+						argv: shellArgv(request.command),
+						cwd,
+						environment: commandEnvironment(state.binding),
+						maxLogBytes: state.binding.resources.logBytes,
+					},
+				}),
 			],
 			{ signal },
 		);
-		const started = parseJson<{ pid: number }>(result.stdout, "process start result");
-		if (!Number.isInteger(started.pid) || started.pid < 1)
+		const started = parseJson<{ version: number; pid: number }>(result.stdout, "process start result");
+		if (started.version !== BRIDGE_VERSION || !Number.isInteger(started.pid) || started.pid < 1)
 			throw new EnvironmentError("environment_lost", "Environment returned an invalid process ID");
 		const process: ProcessHandle = {
 			processId,
@@ -661,15 +670,17 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 
 	async processStatus(lease: EnvironmentLease, process: ProcessHandle, signal?: AbortSignal): Promise<ProcessHandle> {
 		const state = this.requiredProcess(lease, process);
-		const result = await this.docker.run(
+		const result = await this.runCommand(
+			state,
 			[
-				"exec",
-				state.containerName,
-				"node",
+				"/usr/local/bin/node",
 				"/usr/local/lib/pi-ipd/process-bridge.mjs",
-				"status",
-				state.binding.paths.scratch,
-				process.processId,
+				encodeBridgeRequest({
+					version: BRIDGE_VERSION,
+					operation: "status",
+					scratch: state.binding.paths.scratch,
+					processId: process.processId,
+				}),
 			],
 			{ signal },
 		);
@@ -689,28 +700,51 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		const state = this.requiredProcess(lease, process);
 		if (!Number.isInteger(cursor) || cursor < 0) throw new EnvironmentError("policy_denied", "Invalid log cursor");
 		const logPath = `${state.binding.paths.scratch}/.ipd-processes/${process.processId}.log`;
-		const content = await this.readProcessFile(state, logPath, signal);
-		const next = Math.min(content.length, cursor + state.binding.resources.logBytes);
-		return { data: content.subarray(cursor, next), cursor: next, eof: next === content.length };
+		const stat = await this.fileOperation(
+			state,
+			{ version: BRIDGE_VERSION, operation: "stat", path: logPath },
+			signal,
+		);
+		const size = parseJson<EnvironmentFileStat>(stat.stdout, "process log size").size;
+		const next = Math.min(size, cursor + Math.min(state.binding.resources.logBytes, 1024 * 1024));
+		const data =
+			next <= cursor
+				? Buffer.alloc(0)
+				: (
+						await this.fileOperation(
+							state,
+							{
+								version: BRIDGE_VERSION,
+								operation: "read",
+								path: logPath,
+								offset: cursor,
+								length: next - cursor,
+							},
+							signal,
+						)
+					).stdout;
+		return { data, cursor: next, eof: next === size };
 	}
 
 	async stopProcess(lease: EnvironmentLease, process: ProcessHandle, signal?: AbortSignal): Promise<ProcessHandle> {
 		const state = this.requiredProcess(lease, process);
 		const current = state.processes.get(process.processId)!;
-		if (current.state !== "running") {
+		if (!["running", "stopping"].includes(current.state)) {
 			current.stopResult = "already_stopped";
 			return structuredClone(current);
 		}
 		current.state = "stopping";
-		const result = await this.docker.run(
+		const result = await this.runCommand(
+			state,
 			[
-				"exec",
-				state.containerName,
-				"node",
+				"/usr/local/bin/node",
 				"/usr/local/lib/pi-ipd/process-bridge.mjs",
-				"stop",
-				state.binding.paths.scratch,
-				process.processId,
+				encodeBridgeRequest({
+					version: BRIDGE_VERSION,
+					operation: "stop",
+					scratch: state.binding.paths.scratch,
+					processId: process.processId,
+				}),
 			],
 			{ signal },
 		);
@@ -881,6 +915,58 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		throwIfAborted(signal);
 	}
 
+	private runCommand(
+		state: DockerLeaseState,
+		argv: string[],
+		options: DockerRunOptions & { cwd?: string; environment?: Record<string, string>; logPath?: string } = {},
+	): Promise<DockerRunResult> {
+		return this.docker.run(
+			[
+				"exec",
+				...(options.input ? ["--interactive"] : []),
+				state.containerName,
+				"/usr/local/bin/node",
+				"/usr/local/lib/pi-ipd/command-bridge.mjs",
+				encodeBridgeRequest({
+					version: BRIDGE_VERSION,
+					operation: "exec",
+					launch: {
+						argv,
+						cwd: options.cwd ?? state.binding.paths.workspace,
+						environment: commandEnvironment(state.binding, options.environment),
+						maxLogBytes: state.binding.resources.logBytes,
+						logPath: options.logPath,
+					},
+				}),
+			],
+			options,
+		);
+	}
+
+	private async fileOperation(
+		state: DockerLeaseState,
+		request: BridgeRequest,
+		signal?: AbortSignal,
+		input?: Buffer,
+	): Promise<DockerRunResult> {
+		const result = await this.runCommand(
+			state,
+			["/usr/local/bin/node", "/usr/local/lib/pi-ipd/fs-bridge.mjs", encodeBridgeRequest(request)],
+			{ signal, input, acceptedExitCodes: [0, 1] },
+		);
+		if (result.exitCode !== 0) {
+			const error = parseJson<{ bridgeError: { code: string; message: string } }>(
+				result.stderr,
+				"file error",
+			).bridgeError;
+			throw new EnvironmentError(
+				["ENOENT", "ENOTDIR"].includes(error.code) ? "path_not_found" : "environment_unavailable",
+				error.message,
+			);
+		}
+		return result;
+	}
+
 	private requiredState(lease: EnvironmentLease): DockerLeaseState {
 		const state = this.leases.get(lease.leaseId);
 		if (!state || state.containerName !== lease.providerHandle)
@@ -921,14 +1007,5 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		)
 			throw new EnvironmentError("policy_denied", `Stale or unknown managed process: ${process.processId}`);
 		return state;
-	}
-
-	private async readProcessFile(state: DockerLeaseState, path: string, signal?: AbortSignal): Promise<Buffer> {
-		normalizeVirtualPath(path);
-		const result = await this.docker.run(
-			["exec", state.containerName, "node", "/usr/local/lib/pi-ipd/fs-bridge.mjs", "read", path],
-			{ signal },
-		);
-		return result.stdout;
 	}
 }

@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
-FROM pi-ipd/code-node24:1.0.0
+ARG IPD_CODE_IMAGE=pi-ipd/code-node24:1.0.0
+FROM ${IPD_CODE_IMAGE}
 
 USER 0:0
 RUN apt-get update \

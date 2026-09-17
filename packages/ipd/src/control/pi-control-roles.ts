@@ -117,6 +117,7 @@ export class PiProcessSelector implements ProcessSelector {
 				nodeId: roleId,
 				participantId: roleId,
 				createInput: {
+					controlRole: true,
 					nodeId: roleId,
 					workspace: this.options.workspace,
 					sessionDirectory: this.options.sessionDirectory,
@@ -315,6 +316,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				nodeId: "workflow-designer",
 				participantId: "workflow-designer",
 				createInput: {
+					controlRole: true,
 					nodeId: "workflow-designer",
 					workspace: options.workspace,
 					sessionDirectory: options.sessionDirectory,

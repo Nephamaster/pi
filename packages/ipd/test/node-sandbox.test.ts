@@ -10,7 +10,7 @@ const spawnMock = vi.hoisted(() => vi.fn());
 
 vi.mock("node:child_process", () => ({ spawn: spawnMock }));
 
-import { createNodeSandboxedBashTool, denyReadExcept } from "../src/adapter/node-sandbox.ts";
+import { createNodeSandboxedBashTool, denyReadExcept } from "../src/legacy/node-sandbox.ts";
 
 describe("IPD node Bash sandbox", () => {
 	const roots: string[] = [];

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
-import { createNodeFileScopeExtension, isPathWithinRoots } from "../src/index.ts";
+import { createNodeFileScopeExtension, isPathWithinRoots } from "../src/legacy/node-file-scope.ts";
 
 describe("node file scope", () => {
 	const roots: string[] = [];

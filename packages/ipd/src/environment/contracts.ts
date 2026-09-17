@@ -9,6 +9,7 @@ export const ENVIRONMENT_ERROR_CODES = [
 	"command_failed",
 	"process_timeout",
 	"environment_lost",
+	"path_not_found",
 	"cancelled",
 	"external_outcome_unknown",
 ] as const;
@@ -42,6 +43,7 @@ export interface SkillEnvironmentRequirements {
 	capabilities: EnvironmentCapabilityRequirement[];
 	commands: string[];
 	network?: "none" | "restricted";
+	probes?: EnvironmentProbe[];
 }
 
 export interface EnvironmentProbe {
@@ -350,13 +352,13 @@ const ENVIRONMENT_VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export function buildIsolatedEnvironment(
 	profileEnvironment: Readonly<Record<string, string>>,
 	authorizedEnvironment: Readonly<Record<string, string>> = {},
-): NodeJS.ProcessEnv {
-	const result: NodeJS.ProcessEnv = {};
+): Record<string, string> {
+	const result: Record<string, string> = {};
 	for (const source of [profileEnvironment, authorizedEnvironment]) {
 		for (const [name, value] of Object.entries(source)) {
 			if (!ENVIRONMENT_VARIABLE_NAME.test(name))
 				throw new EnvironmentError("policy_denied", `Invalid environment variable name: ${name}`);
-			if (name === "NODE_OPTIONS" || name === "PYTHONPATH" || name === "LD_PRELOAD")
+			if (["NODE_OPTIONS", "PYTHONPATH", "LD_PRELOAD", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS"].includes(name))
 				throw new EnvironmentError("policy_denied", `Environment variable is not authorized: ${name}`);
 			result[name] = value;
 		}

@@ -10,6 +10,14 @@
 		".": {
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
+		},
+		"./legacy": {
+			"types": "./dist/legacy.d.ts",
+			"import": "./dist/legacy.js"
+		},
+		"./workspace": {
+			"types": "./dist/workspace.d.ts",
+			"import": "./dist/workspace.js"
 		}
 	},
 	"files": [
@@ -27,7 +35,6 @@
 		"test": "vitest --run"
 	},
 	"dependencies": {
-		"@anthropic-ai/sandbox-runtime": "0.0.26",
 		"@earendil-works/pi-agent-core": "^0.85.1",
 		"@earendil-works/pi-ai": "^0.85.1",
 		"@earendil-works/pi-coding-agent": "^0.85.1",
@@ -42,5 +49,13 @@
 	},
 	"engines": {
 		"node": ">=24"
+	},
+	"peerDependencies": {
+		"@anthropic-ai/sandbox-runtime": "0.0.26"
+	},
+	"peerDependenciesMeta": {
+		"@anthropic-ai/sandbox-runtime": {
+			"optional": true
+		}
 	}
 }

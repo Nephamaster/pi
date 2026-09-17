@@ -35,6 +35,8 @@ describe("IPD native session contract", () => {
 			getCurrentContext?: () => string | undefined;
 			extraTools?: readonly ToolDefinition[];
 			contextWindow?: number;
+			lockedIoTools?: string[];
+			environmentTools?: readonly ToolDefinition[];
 		} = {},
 	) {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-native-contract-"));
@@ -116,7 +118,13 @@ describe("IPD native session contract", () => {
 			workspace: root,
 			sessionDirectory,
 			systemPrompt: "Complete the synthetic task and submit its result.",
-			participant,
+			participant: {
+				...participant,
+				lockedTools:
+					options.lockedIoTools?.map((id) => ({ id, hash: "a".repeat(64), source: "test" })) ??
+					participant.lockedTools,
+			},
+			environmentTools: options.environmentTools,
 			runDefaultModel: model,
 			runDefaultThinkingLevel: "off" as const,
 			controlTools: [recordWork, submission, ...(options.extraTools ?? [])],
@@ -148,6 +156,31 @@ describe("IPD native session contract", () => {
 		const settings = SettingsManager.inMemory({}, { projectTrusted: false });
 		expect(settings.getRetrySettings().enabled).toBe(true);
 		expect(settings.getCompactionSettings().enabled).toBe(true);
+	});
+
+	it.each(["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"])(
+		"never falls back to the host for an unbound %s backend",
+		async (tool) => {
+			await expect(createFixture({ lockedIoTools: [tool] })).rejects.toThrow(
+				"requires an explicit execution backend",
+			);
+		},
+	);
+
+	it("rejects an incomplete environment tool set instead of filling it with host tools", async () => {
+		await expect(createFixture({ lockedIoTools: ["read"], environmentTools: [] })).rejects.toThrow(
+			"host fallback is disabled",
+		);
+		const read = defineTool({
+			name: "read",
+			label: "Host read",
+			description: "Must not bypass backend selection",
+			parameters: Type.Object({}),
+			async execute() {
+				throw new Error("must not execute");
+			},
+		});
+		await expect(createFixture({ extraTools: [read] })).rejects.toThrow("host fallback is disabled");
 	});
 
 	it("exposes the actual Pi session and persisted identity without another session facade", async () => {

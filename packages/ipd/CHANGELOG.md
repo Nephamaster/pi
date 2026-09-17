@@ -2,8 +2,13 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Removed implicit host I/O fallback. Legacy adapters now require the explicit `/legacy` entry and optional sandbox-runtime peer; execution images must be rebuilt for the versioned bridge protocol.
+
 ### Added
 
+- Added the `/workspace` entry for ordinary Pi SDK consumers and real-tool Skill dependency probes.
 - Added managed execution Run pause/resume, retained Session and workspace references, and configurable soft work-package deadlines.
 - Added IPD V2 TaskInput, ProcessSpec, WorkflowDefinition, ExecutionBaseline, Runtime state, and structured submission
   contracts.
@@ -45,6 +50,7 @@
 
 ### Fixed
 
+- Unified command, log, managed-process and probe environments; preserved Profile interpreter selection without login shell overrides.
 - Retained ownership of blocked Runs, bounded cancellation and cleanup, and fenced late submissions by execution generation without consuming quality rework rounds.
 - Prevented sandbox-runtime bridge socket failures by using a short per-command temporary directory for `TMPDIR`,
   `TMP`, and `TEMP` instead of a Run-scoped path.

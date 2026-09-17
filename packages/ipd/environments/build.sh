@@ -2,13 +2,17 @@
 set -euo pipefail
 
 environment_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+code_image=${PI_IPD_CODE_IMAGE:-pi-ipd/code-node24:1.0.0}
+office_image=${PI_IPD_OFFICE_IMAGE:-pi-ipd/office-pptx:1.0.0}
+node "${environment_root}/../../../scripts/generate-ipd-bridges.mjs" --check
 
-docker build \
+docker build "$@" \
   --file "${environment_root}/code-node24/Dockerfile" \
-  --tag pi-ipd/code-node24:1.0.0 \
+  --tag "${code_image}" \
   "${environment_root}"
 
-docker build \
+docker build "$@" \
+  --build-arg "IPD_CODE_IMAGE=${code_image}" \
   --file "${environment_root}/office-pptx/Dockerfile" \
-  --tag pi-ipd/office-pptx:1.0.0 \
+  --tag "${office_image}" \
   "${environment_root}"

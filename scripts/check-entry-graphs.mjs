@@ -31,6 +31,10 @@ const WORKSPACE = {
  * narrow entry states the graph it is allowed to reach.
  */
 const BUDGETS = {
+	"packages/ipd": {
+		".": { maxFiles: 200, forbid: ["packages/ipd/src/legacy/", "packages/ipd/src/legacy.ts"] },
+		"./workspace": { maxFiles: 20, forbid: ["packages/ipd/src/runtime/", "packages/ipd/src/control/", "packages/ipd/src/contracts/", "packages/ipd/src/adapter/"] },
+	},
 	"packages/ai": {
 		"./utils/*": { maxFiles: 3, forbid: ["providers/", "api/", "index.ts"] },
 	},
@@ -82,6 +86,10 @@ function walk(entryFile) {
 
 /** `./dist/harness/context.js` in the exports map is `src/harness/context.ts` on disk. */
 function sourceFor(pkgDir, distPath) {
+	if (pkgDir === "packages/ipd" && process.argv.includes("--installed-ipd")) {
+		const file = resolve(ROOT, pkgDir, distPath);
+		return existsSync(file) ? file : undefined;
+	}
 	const rel = distPath.replace(/^\.\/dist\//, "").replace(/\.js$/, ".ts");
 	const file = resolve(ROOT, pkgDir, "src", rel);
 	return existsSync(file) ? file : undefined;
@@ -114,7 +122,7 @@ for (const [pkgDir, budgets] of Object.entries(BUDGETS)) {
 				failures += 1;
 				continue;
 			}
-			const graph = [...walk(source)].map((file) => relative(ROOT, file));
+			const graph = [...walk(source)].map((file) => relative(ROOT, file).replace(/^packages\/ipd\/dist\//, "packages/ipd/src/").replace(/\.js$/, ".ts"));
 			if (graph.length > budget.maxFiles) {
 				console.error(
 					`${pkgDir} export "${name}" reaches ${graph.length} files, budget ${budget.maxFiles}\n` +

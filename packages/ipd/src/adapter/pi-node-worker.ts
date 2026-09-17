@@ -7,11 +7,12 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { RunResourceReference, WorkProgressReference } from "../contracts/runtime.ts";
+import { quoteCommand } from "../environment/bridge/protocol.ts";
 import { EnvironmentError } from "../environment/contracts.ts";
 import type { EnvironmentManager } from "../environment/manager.ts";
 import { hashEnvironmentSource, hashWorkspaceState } from "../environment/paths.ts";
 import type { EnvironmentToolContext } from "../environment/tool-backend.ts";
-import { createEnvironmentToolDefinitions } from "../environment/tool-backend.ts";
+import { createEnvironmentToolDefinitions, verifyEnvironmentProbes } from "../environment/tool-backend.ts";
 import { buildNodeRoundPrompt, buildNodeSystemPrompt } from "../runtime/node-prompts.ts";
 import {
 	type NodeRoundWork,
@@ -21,7 +22,11 @@ import {
 } from "../runtime/node-worker.ts";
 import { renderCurrentRoundContext, renderNodeContextFiles } from "./node-context.ts";
 import { NodeSessionAdapter, type NodeSessionEventEnvelope } from "./node-session-adapter.ts";
-import { type PiNodeSessionCreateInput, PiNodeSessionFactory } from "./pi-node-session-factory.ts";
+import {
+	type LegacyNodeToolAdapter,
+	type PiNodeSessionCreateInput,
+	PiNodeSessionFactory,
+} from "./pi-node-session-factory.ts";
 import type { IpdSessionSettings } from "./session-policy.ts";
 import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "./structured-submissions.ts";
 import {
@@ -44,6 +49,7 @@ interface WorkerBinding {
 }
 
 export interface PiNodeWorkerOptions {
+	legacyToolAdapter?: LegacyNodeToolAdapter;
 	agentDir: string;
 	workspace: string;
 	sessionDirectory: string;
@@ -85,6 +91,7 @@ export class PiNodeWorker implements NodeWorker {
 				agentDir: options.agentDir,
 				modelRuntime: options.modelRuntime,
 				customTools: options.customTools,
+				legacyToolAdapter: options.legacyToolAdapter,
 				sessionSettings: options.sessionSettings,
 			}),
 			options.onSessionEvent,
@@ -158,6 +165,38 @@ export class PiNodeWorker implements NodeWorker {
 			signal,
 		);
 		binding.environment = this.options.environmentManager.context(lease.leaseId, round.roundId);
+		const commands = [
+			...new Set(
+				work.node.agents[0].lockedSkills.flatMap((skill) => [
+					...(skill.requiredCommands ?? []),
+					...(skill.environmentRequirements?.commands ?? []),
+				]),
+			),
+		];
+		const probes = work.node.agents[0].lockedSkills.flatMap((skill) =>
+			(skill.environmentRequirements?.probes ?? []).map((probe) => ({
+				...probe,
+				id: `${skill.id}:${probe.id}`,
+				command: probe.command.map((arg) =>
+					arg.replaceAll("$SKILL_DIR", `${paths.skills}/${skill.id}/${skill.hash}`),
+				),
+			})),
+		);
+		if (commands.length || probes.length) {
+			await verifyEnvironmentProbes(
+				{ hostWorkspace: this.options.workspace, getContext: () => binding.environment! },
+				[
+					...commands.map((command) => ({
+						id: `command:${command}`,
+						version: "1.0.0",
+						command: ["/bin/bash", "--noprofile", "--norc", "-c", `command -v ${quoteCommand([command])}`],
+						timeoutSeconds: 10,
+					})),
+					...probes,
+				],
+				signal,
+			);
+		}
 	}
 
 	async exportSubmission(

@@ -10,6 +10,7 @@ import {
 	type Skill,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { BUILTIN_IO_TOOLS, type LegacyNodeToolAdapter } from "../adapter/pi-node-session-factory.ts";
 import { PiNodeWorker } from "../adapter/pi-node-worker.ts";
 import { type IpdSessionSettings, loadIpdSessionSettings } from "../adapter/session-policy.ts";
 import { compileWorkflow } from "../compiler/compiler.ts";
@@ -40,7 +41,6 @@ import { WorkflowRuntime } from "../runtime/workflow-runtime.ts";
 import { IpdDashboardServer } from "../visualization/dashboard-server.ts";
 import { registerIpdCreateRunTool } from "./ipd-extension.ts";
 
-const BUILTIN_TOOLS = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"]);
 const OUTER_IPD_TOOLS = new Set([
 	"ipd",
 	"ipd_get_run",
@@ -117,7 +117,12 @@ async function modelRuntime(context: ExtensionContext): Promise<ModelRuntime> {
 	return runtime;
 }
 
-export function registerDefaultIpdExtension(pi: ExtensionAPI): void {
+export interface DefaultIpdExtensionOptions {
+	environmentMode?: "docker" | "legacy-srt";
+	legacyToolAdapter?: LegacyNodeToolAdapter;
+}
+
+export function registerDefaultIpdExtension(pi: ExtensionAPI, options: DefaultIpdExtensionOptions = {}): void {
 	let activeSkills: Skill[] = [];
 	const services = new Map<string, Promise<IpdService>>();
 
@@ -158,7 +163,7 @@ export function registerDefaultIpdExtension(pi: ExtensionAPI): void {
 			thinkingLevel: context.thinkingLevel ?? "off",
 			projectTrusted: context.isProjectTrusted(),
 			sessionSettings,
-			environmentMode: environmentMode(),
+			environmentMode: options.environmentMode ?? environmentMode(),
 			skills: skillHashes.sort((left, right) => left.path.localeCompare(right.path)),
 			tools: toolDefinitions
 				.map((tool) => ({
@@ -174,7 +179,7 @@ export function registerDefaultIpdExtension(pi: ExtensionAPI): void {
 		});
 		const existing = services.get(key);
 		if (existing) return existing;
-		const service = createDefaultService(context, model, effectiveSkills, toolDefinitions, sessionSettings);
+		const service = createDefaultService(context, model, effectiveSkills, toolDefinitions, sessionSettings, options);
 		services.set(key, service);
 		void service.catch(() => {
 			if (services.get(key) === service) services.delete(key);
@@ -189,9 +194,12 @@ async function createDefaultService(
 	skills: readonly Skill[],
 	toolDefinitions: readonly ToolDefinition[],
 	sessionSettings: IpdSessionSettings,
+	options: DefaultIpdExtensionOptions,
 ): Promise<IpdService> {
 	const agentDir = getAgentDir();
-	const selectedEnvironmentMode = environmentMode();
+	const selectedEnvironmentMode = options.environmentMode ?? environmentMode();
+	if (selectedEnvironmentMode === "legacy-srt" && !options.legacyToolAdapter)
+		throw new Error("legacy-srt requires the explicit @earendil-works/pi-ipd/legacy entry");
 	const runtimeToolDefinitions = [
 		...toolDefinitions,
 		...(selectedEnvironmentMode === "docker" ? createEnvironmentToolDescriptors() : []),
@@ -275,7 +283,7 @@ async function createDefaultService(
 		onMutationMetric: (metric) => telemetry.record({ source: "run_store", ...metric }),
 	});
 	const workflowAssets = new FileWorkflowAssetStore({ directory: join(context.cwd, ".pi", "ipd", "workflow") });
-	const customTools = runtimeToolDefinitions.filter((tool) => !BUILTIN_TOOLS.has(tool.name));
+	const customTools = runtimeToolDefinitions.filter((tool) => !BUILTIN_IO_TOOLS.has(tool.name));
 	const managerByRun = new Map<string, WorkflowDraftManager>();
 	const roleOptions = (runId: string, card: typeof selectorCard): PiControlRoleOptions => ({
 		agentDir,
@@ -400,6 +408,7 @@ async function createDefaultService(
 				store,
 				directory,
 				new PiNodeWorker({
+					legacyToolAdapter: selectedEnvironmentMode === "legacy-srt" ? options.legacyToolAdapter : undefined,
 					agentDir,
 					workspace: directory.workspace,
 					sessionDirectory: directory.sessions,

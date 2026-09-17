@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { decodeBridgeRequest } from "../src/environment/bridge/protocol.ts";
 import type {
 	DockerCommandRunner,
 	DockerRunOptions,
@@ -10,7 +11,7 @@ import type {
 	EnvironmentLease,
 	RoundBinding,
 } from "../src/index.ts";
-import { DockerEnvironmentProvider } from "../src/index.ts";
+import { createEnvironmentToolDefinitions, DockerEnvironmentProvider } from "../src/index.ts";
 
 const imageId = `sha256:${"a".repeat(64)}`;
 
@@ -48,10 +49,22 @@ function binding(): EnvironmentBinding {
 }
 
 class FauxDocker implements DockerCommandRunner {
+	fileError?: { code: string; message: string };
 	readonly calls: Array<{ args: string[]; options: DockerRunOptions }> = [];
 
 	async run(args: readonly string[], options: DockerRunOptions = {}): Promise<DockerRunResult> {
 		this.calls.push({ args: [...args], options });
+		if (this.fileError && args.includes("/usr/local/lib/pi-ipd/command-bridge.mjs")) {
+			const request = decodeBridgeRequest(args.at(-1)!);
+			if (request.operation === "exec" && request.launch.argv.includes("/usr/local/lib/pi-ipd/fs-bridge.mjs"))
+				return {
+					exitCode: 1,
+					stdout: Buffer.alloc(0),
+					stderr: Buffer.from(JSON.stringify({ bridgeError: this.fileError })),
+				};
+		}
+		if (args.includes("/usr/local/lib/pi-ipd/command-bridge.mjs") && JSON.parse(args.at(-1)!).operation === "hello")
+			return { exitCode: 0, stdout: Buffer.from(JSON.stringify({ version: 1 })), stderr: Buffer.alloc(0) };
 		if (args[0] === "image" && args[1] === "inspect")
 			return { exitCode: 0, stdout: Buffer.from(`${imageId}|linux/amd64\n`), stderr: Buffer.alloc(0) };
 		if (args[0] === "container" && args[1] === "inspect" && args.at(-1) === "{{json .HostConfig}}")
@@ -131,6 +144,18 @@ describe("DockerEnvironmentProvider", () => {
 		await expect(provider.exec(lease, round, { command: "pwd", cwd: "/etc" })).rejects.toMatchObject({
 			code: "policy_denied",
 		});
+		const find = createEnvironmentToolDefinitions({
+			hostWorkspace: "/workspace",
+			getContext: () => ({ provider, lease, round, binding: configuredBinding }),
+		}).find((tool) => tool.name === "find")!;
+		docker.fileError = { code: "EACCES", message: "Synthetic permission failure" };
+		await expect(
+			find.execute("denied", { path: "/workspace", pattern: "*" }, undefined, undefined, {} as never),
+		).rejects.toThrow("Synthetic permission failure");
+		docker.fileError = { code: "ENOENT", message: "Synthetic missing path" };
+		await expect(
+			find.execute("missing", { path: "/workspace", pattern: "*" }, undefined, undefined, {} as never),
+		).rejects.toThrow("Path not found: /workspace");
 		await provider.dispose(lease);
 		expect(
 			docker.calls.some((call) => call.args.slice(0, 3).join(" ") === `rm --force ${prepared.providerHandle}`),

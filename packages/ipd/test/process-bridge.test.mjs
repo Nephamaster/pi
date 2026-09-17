@@ -34,9 +34,10 @@ async function fixture(t) {
 		}
 		await rm(root, { recursive: true, force: true });
 	});
-	const call = async (operation, id, extra = [], environment = {}) => {
+	const call = async (operation, id, extra = [], environment = {}, maxLogBytes = 1048576) => {
 		ids.add(id);
-		return exec(process.execPath, [bridge, operation, scratch, id, ...extra], {
+		const launch = operation === "start" ? { argv: ["/bin/bash", "--noprofile", "--norc", "-c", extra[1]], cwd: extra[0], environment: { PATH: process.env.PATH, HOME: root, ...environment, NODE_OPTIONS: "" }, maxLogBytes } : undefined;
+		return exec(process.execPath, [bridge, JSON.stringify({ version: 1, operation, scratch, processId: id, launch })], {
 			timeout: 15_000,
 			env: { ...process.env, NODE_OPTIONS: "", ...environment },
 		});
@@ -124,7 +125,7 @@ test("runner bootstrap errors fail before readiness and remain in the log", asyn
 	const f = await fixture(t);
 	const id = randomUUID();
 	const preload = join(f.root, "bootstrap.mjs");
-	await writeFile(preload, 'if(process.argv[2]==="run"){console.error("synthetic-bootstrap-error");process.exit(23)}');
+	await writeFile(preload, 'if(JSON.parse(process.argv[2]).operation==="run"){console.error("synthetic-bootstrap-error");process.exit(23)}');
 	await assert.rejects(
 		f.call("start", id, [f.cwd, "echo must-not-run"], { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` }),
 		(error) => {
@@ -141,7 +142,7 @@ test("startup acknowledgement has a deadline and a stalled runner cannot execute
 	const f = await fixture(t);
 	const id = randomUUID();
 	const preload = join(f.root, "stall.mjs");
-	await writeFile(preload, 'if(process.argv[2]==="run"){await new Promise(resolve=>setTimeout(resolve,60000))}');
+	await writeFile(preload, 'if(JSON.parse(process.argv[2]).operation==="run"){await new Promise(resolve=>setTimeout(resolve,60000))}');
 	await assert.rejects(
 		f.call("start", id, [f.cwd, "echo must-not-run"], { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` }),
 		(error) => {
@@ -165,4 +166,40 @@ test("startup acknowledgement has a deadline and a stalled runner cannot execute
 			}
 		});
 	}
+});
+
+test("normal, full-log and managed commands share cwd and explicit environment without login startup", async (t) => {
+	const f = await fixture(t);
+	const executable = fileURLToPath(new URL("../environments/common/command-bridge.mjs", import.meta.url));
+	await writeFile(join(f.root, ".bash_profile"), "export IPD_PROFILE_VALUE=wrong; export PATH=/wrong\n");
+	const environment = { PATH: "/profile-only", HOME: f.root, IPD_PROFILE_VALUE: "profile" };
+	const script = command('console.log(JSON.stringify({cwd:process.cwd(),path:process.env.PATH,value:process.env.IPD_PROFILE_VALUE,secret:process.env.IPD_HOST_SECRET}))');
+	const launch = { argv: ["/bin/bash", "--noprofile", "--norc", "-c", script], cwd: f.cwd, environment, maxLogBytes: 1024 };
+	const expected = `${JSON.stringify({cwd:f.cwd,path:"/profile-only",value:"profile"})}\n`;
+	const options = { timeout: 15000, env: { ...process.env, NODE_OPTIONS: "", IPD_HOST_SECRET: "must-not-reach-command" } };
+	assert.equal((await exec(process.execPath, [executable, JSON.stringify({version:1,operation:"exec",launch})], options)).stdout, expected);
+	const logPath = join(f.root, "full output.log");
+	assert.equal((await exec(process.execPath, [executable, JSON.stringify({version:1,operation:"exec",launch:{...launch,logPath}})], options)).stdout, expected);
+	assert.equal(await readFile(logPath,"utf8"), expected);
+	const id = randomUUID();
+	await f.call("start", id, [f.cwd, script], environment);
+	await eventually(async()=>assert.equal((await f.state(id)).state,"exited"));
+	assert.equal(await f.log(id), expected);
+});
+
+test("managed logs stay bounded and say when output is truncated", async (t) => {
+	const f = await fixture(t); const id = randomUUID();
+	await f.call("start", id, [f.cwd, command('process.stdout.write("x".repeat(65536))')], {}, 1024);
+	await eventually(async()=>assert.equal((await f.state(id)).state,"exited"));
+	const log = await f.log(id);
+	assert.ok(Buffer.byteLength(log) <= 1024);
+	assert.match(log, /Output truncated at the environment log limit/);
+});
+
+test("rejects incompatible bridge versions before executing a command", async (t) => {
+	const f = await fixture(t);
+	const executable = fileURLToPath(new URL("../environments/common/command-bridge.mjs", import.meta.url));
+	await assert.rejects(exec(process.execPath,[executable,JSON.stringify({version:99,operation:"exec"})],{cwd:f.cwd,env:{...process.env,NODE_OPTIONS:""}}),error=>{
+		assert.match(error.stderr,/Unsupported bridge protocol version/); return true;
+	});
 });

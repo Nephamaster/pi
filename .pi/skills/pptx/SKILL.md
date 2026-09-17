@@ -21,6 +21,23 @@ environment-requirements:
     - soffice
     - pdftoppm
   network: none
+  probes:
+    - id: office-wrapper
+      version: "1.0.0"
+      command: ["python3", "$SKILL_DIR/scripts/office/soffice.py", "--version"]
+      timeoutSeconds: 20
+    - id: validate-cli
+      version: "1.0.0"
+      command: ["python3", "$SKILL_DIR/scripts/office/validate.py", "--help"]
+      timeoutSeconds: 20
+    - id: thumbnail-cli
+      version: "1.0.0"
+      command: ["python3", "$SKILL_DIR/scripts/thumbnail.py", "--help"]
+      timeoutSeconds: 20
+    - id: pptx-dependencies
+      version: "1.0.0"
+      command: ["node", "-e", "for (const name of ['pptxgenjs','react','react-dom/server','react-icons','sharp']) require(name)"]
+      timeoutSeconds: 20
 ---
 
 # PPTX creation, editing, and analysis

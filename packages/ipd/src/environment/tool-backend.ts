@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import {
+	createBashTool,
 	createBashToolDefinition,
 	createEditToolDefinition,
 	createFindToolDefinition,
@@ -13,14 +14,17 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import Type from "typebox";
+import { quoteCommand } from "./bridge/protocol.ts";
 import type {
 	EnvironmentBinding,
 	EnvironmentLease,
+	EnvironmentProbe,
 	EnvironmentProvider,
 	EnvironmentSearchMatch,
 	ProcessHandle,
 	RoundBinding,
 } from "./contracts.ts";
+import { EnvironmentError } from "./contracts.ts";
 
 export interface EnvironmentToolContext {
 	provider: EnvironmentProvider;
@@ -187,8 +191,9 @@ export function createEnvironmentToolDefinitions(options: EnvironmentToolBackend
 		try {
 			await stat(value, signal);
 			return true;
-		} catch {
-			return false;
+		} catch (error) {
+			if (error instanceof EnvironmentError && error.code === "path_not_found") return false;
+			throw error;
 		}
 	};
 
@@ -352,30 +357,59 @@ export function createEnvironmentToolDefinitions(options: EnvironmentToolBackend
 				},
 			}),
 		),
-		defineTool(
-			createBashToolDefinition(options.hostWorkspace, {
-				exposeSessionEnvironment: false,
-				remoteFullOutputPath: (toolCallId) =>
-					`${context().binding.paths.scratch}/logs/${createHash("sha256").update(toolCallId).digest("hex")}.log`,
-				operations: {
-					exec: async (command, cwd, execution) => {
-						const current = context();
-						return current.provider.exec(
-							current.lease,
-							current.round,
-							{
-								command,
-								cwd: path(cwd),
-								timeoutSeconds: execution.timeout,
-								onData: execution.onData,
-								fullOutputPath: execution.fullOutputPath,
-							},
-							execution.signal,
-						);
-					},
-				},
-			}),
-		),
+		defineTool(createBashToolDefinition(options.hostWorkspace, environmentBashOptions(options))),
 		...createEnvironmentProcessTools(options.getContext),
 	];
+}
+
+function environmentBashOptions(
+	options: EnvironmentToolBackendOptions,
+): NonNullable<Parameters<typeof createBashToolDefinition>[1]> {
+	return {
+		exposeSessionEnvironment: false,
+		remoteFullOutputPath: (toolCallId) =>
+			`${options.getContext().binding.paths.scratch}/logs/${createHash("sha256").update(toolCallId).digest("hex")}.log`,
+		operations: {
+			exec: async (command, cwd, execution) => {
+				const current = options.getContext();
+				return current.provider.exec(
+					current.lease,
+					current.round,
+					{
+						command,
+						cwd: virtualPath(cwd, options.hostWorkspace, current.binding.paths.workspace),
+						timeoutSeconds: execution.timeout,
+						onData: execution.onData,
+						fullOutputPath: execution.fullOutputPath,
+					},
+					execution.signal,
+				);
+			},
+		},
+	};
+}
+
+export async function verifyEnvironmentProbes(
+	options: EnvironmentToolBackendOptions,
+	probes: readonly EnvironmentProbe[],
+	signal?: AbortSignal,
+): Promise<void> {
+	const tool = createBashTool(options.hostWorkspace, environmentBashOptions(options));
+	for (const probe of probes) {
+		try {
+			await tool.execute(
+				`preflight:${probe.id}`,
+				{ command: quoteCommand(probe.command), timeout: probe.timeoutSeconds },
+				signal,
+			);
+		} catch (error) {
+			if (signal?.aborted)
+				throw new EnvironmentError("cancelled", "Environment preflight was cancelled", { cause: error });
+			throw new EnvironmentError(
+				"profile_incompatible",
+				`Environment probe failed through the Bash tool: ${probe.id}`,
+				{ cause: error },
+			);
+		}
+	}
 }

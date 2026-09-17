@@ -3,7 +3,15 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import {
+	type AgentToolResult,
+	createAgentSessionFromServices,
+	createAgentSessionServices,
+	ModelRuntime,
+	SessionManager,
+	SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	createEnvironmentBinding,
@@ -14,7 +22,9 @@ import {
 	hashEnvironmentSource,
 	hashSkillPackage,
 	loadRegisteredDockerProfile,
-} from "../src/index.ts";
+	parseSkillEnvironmentRequirements,
+	verifyEnvironmentProbes,
+} from "../src/workspace.ts";
 
 const integrationEnabled = process.env.PI_IPD_DOCKER_INTEGRATION === "1";
 const environmentsRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "environments");
@@ -32,11 +42,16 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 		if (root) await rm(root, { recursive: true, force: true });
 	});
 
-	async function environment(profileName: "code-node24" | "office-pptx") {
-		const registered = await loadRegisteredDockerProfile(
-			join(environmentsRoot, profileName, "profile.template.json"),
-			docker,
-		);
+	async function environment(profileName: "code-node24" | "office-pptx", realSkill = false) {
+		let templatePath = join(environmentsRoot, profileName, "profile.template.json");
+		const image = profileName === "code-node24" ? process.env.PI_IPD_CODE_IMAGE : process.env.PI_IPD_OFFICE_IMAGE;
+		if (image) {
+			const template = JSON.parse(await readFile(templatePath, "utf8")) as { image: { reference: string } };
+			template.image.reference = image;
+			templatePath = join(root, `${profileName}.json`);
+			await writeFile(templatePath, JSON.stringify(template));
+		}
+		const registered = await loadRegisteredDockerProfile(templatePath, docker);
 		const binding = createEnvironmentBinding({
 			nodeId: "smoke",
 			participantId: "worker",
@@ -52,9 +67,13 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 		const provider = new DockerEnvironmentProvider({ docker, storageRoot: join(root, "leases") });
 		const manager = new EnvironmentManager([provider]);
 		const lease = await manager.prepare(`run-${profileName}`, binding);
-		const skillRoot = join(root, `skill-${profileName}`);
-		await mkdir(skillRoot, { recursive: true });
-		await writeFile(join(skillRoot, "SKILL.md"), `---\nname: smoke\ndescription: smoke\n---\n${profileName}\n`);
+		const skillRoot = realSkill
+			? fileURLToPath(new URL("../../../.pi/skills/pptx", import.meta.url))
+			: join(root, `skill-${profileName}`);
+		if (!realSkill) {
+			await mkdir(skillRoot, { recursive: true });
+			await writeFile(join(skillRoot, "SKILL.md"), `---\nname: smoke\ndescription: smoke\n---\n${profileName}\n`);
+		}
 		const skillHash = await hashSkillPackage(skillRoot);
 		await manager.bindStaticAssets(lease.leaseId, [
 			{
@@ -75,8 +94,36 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			inputs: [],
 			allowedOperations: ["read", "write", "exec", "process", "export"],
 		});
-		return { manager, provider, lease, round };
+		return { manager, provider, lease, round, skillRoot, skillPath: `/ipd/skills/smoke/${skillHash}` };
 	}
+
+	it.each(["code-node24", "office-pptx"] as const)(
+		"ships the generated bridges unchanged in %s",
+		async (profile) => {
+			const current = await environment(profile);
+			try {
+				const names = ["command-bridge.mjs", "process-bridge.mjs", "fs-bridge.mjs"];
+				const output: Buffer[] = [];
+				await current.provider.exec(current.lease, current.round, {
+					cwd: "/workspace",
+					command: `node -e 'const fs=require("node:fs"),crypto=require("node:crypto");for(const name of ${JSON.stringify(names)})console.log(name+" "+crypto.createHash("sha256").update(fs.readFileSync("/usr/local/lib/pi-ipd/"+name)).digest("hex"))'`,
+					onData: (data) => output.push(data),
+				});
+				const expected = await Promise.all(
+					names.map(
+						async (name) =>
+							`${name} ${createHash("sha256")
+								.update(await readFile(join(environmentsRoot, "common", name)))
+								.digest("hex")}`,
+					),
+				);
+				expect(Buffer.concat(output).toString().trim().split("\n")).toEqual(expected);
+			} finally {
+				await current.manager.releaseRun(`run-${profile}`);
+			}
+		},
+		120_000,
+	);
 
 	it("runs the real code Profile with persistent files, local HTTP, Unix IPC, cancellation, and no host secret", async () => {
 		const current = await environment("code-node24");
@@ -157,9 +204,129 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 		}
 	}, 120_000);
 
-	it("generates and renders a real multilingual PPTX with chart, notes, text, image, and font checks", async () => {
-		const current = await environment("office-pptx");
+	it.each(["code-node24", "office-pptx"] as const)(
+		"uses identical interpreter selection for all %s command paths",
+		async (profile) => {
+			const current = await environment(profile);
+			try {
+				const command = "python3 -c 'import sys; print(sys.executable)'";
+				const normal: Buffer[] = [];
+				const logged: Buffer[] = [];
+				await current.provider.exec(current.lease, current.round, {
+					command,
+					cwd: "/workspace",
+					onData: (data) => normal.push(data),
+				});
+				await current.provider.exec(current.lease, current.round, {
+					command,
+					cwd: "/workspace",
+					fullOutputPath: "/scratch/interpreter.log",
+					onData: (data) => logged.push(data),
+				});
+				const process = await current.provider.startProcess(current.lease, current.round, {
+					command,
+					cwd: "/workspace",
+				});
+				await expect
+					.poll(() => current.provider.processStatus(current.lease, process))
+					.toMatchObject({ state: "exited", exitCode: 0 });
+				const output = Buffer.concat(normal).toString();
+				expect(Buffer.concat(logged).toString()).toBe(output);
+				expect((await current.provider.processLogs(current.lease, process, 0)).data.toString()).toBe(output);
+				expect(
+					(await current.provider.readFile(current.lease, current.round, "/scratch/interpreter.log")).toString(),
+				).toBe(output);
+				expect(output.trim()).toBe(profile === "office-pptx" ? "/opt/pi-ipd/venv/bin/python3" : "/usr/bin/python3");
+			} finally {
+				await current.manager.releaseRun(`run-${profile}`);
+			}
+		},
+		120_000,
+	);
+
+	it("uses the same Workspace tools from an ordinary Pi SDK session without an IPD Runtime", async () => {
+		const current = await environment("code-node24");
+		const faux = registerFauxProvider();
+		const host = join(root, "ordinary-sdk");
+		await mkdir(host);
+		const model = faux.getModel();
+		const modelRuntime = await ModelRuntime.create({
+			authPath: join(host, "auth.json"),
+			modelsPath: null,
+			refreshOnCreate: false,
+		});
+		modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: model.api, models: [model] });
+		await modelRuntime.setRuntimeApiKey(model.provider, "faux-key");
+		const services = await createAgentSessionServices({
+			cwd: host,
+			agentDir: host,
+			modelRuntime,
+			settingsManager: SettingsManager.inMemory({}, { projectTrusted: false }),
+			resourceLoaderOptions: {
+				noExtensions: true,
+				noSkills: true,
+				noContextFiles: true,
+				noPromptTemplates: true,
+				noThemes: true,
+			},
+		});
+		const tools = createEnvironmentToolDefinitions({
+			hostWorkspace: host,
+			getContext: () => current.manager.context(current.lease.leaseId, current.round.roundId),
+		});
+		const { session } = await createAgentSessionFromServices({
+			services,
+			model,
+			thinkingLevel: "off",
+			sessionManager: SessionManager.inMemory(host),
+			tools: ["write", "read", "bash"],
+			customTools: tools,
+		});
 		try {
+			await writeFile(join(host, "sdk.txt"), "host decoy");
+			faux.setResponses([
+				fauxAssistantMessage(fauxToolCall("write", { path: "sdk.txt", content: "ordinary SDK workspace" }), {
+					stopReason: "toolUse",
+				}),
+				fauxAssistantMessage(fauxToolCall("read", { path: "sdk.txt" }), { stopReason: "toolUse" }),
+				(context) => {
+					expect(JSON.stringify(context.messages)).toContain("ordinary SDK workspace");
+					return fauxAssistantMessage(fauxToolCall("bash", { command: "cat sdk.txt" }), { stopReason: "toolUse" });
+				},
+				fauxAssistantMessage("Done"),
+			]);
+			await session.prompt("Write and inspect a file in the provided Workspace.");
+			expect(faux.state.callCount).toBe(4);
+			expect((await current.provider.readFile(current.lease, current.round, "/workspace/sdk.txt")).toString()).toBe(
+				"ordinary SDK workspace",
+			);
+			expect(await readFile(join(host, "sdk.txt"), "utf8")).toBe("host decoy");
+		} finally {
+			await session.abort();
+			session.dispose();
+			faux.unregister();
+			await current.manager.releaseRun("run-code-node24");
+		}
+	}, 120_000);
+
+	it("generates and renders a real multilingual PPTX with chart, notes, text, image, and font checks", async () => {
+		const current = await environment("office-pptx", true);
+		try {
+			const backend = {
+				hostWorkspace: root,
+				getContext: () => current.manager.context(current.lease.leaseId, current.round.roundId),
+			};
+			const requirements = parseSkillEnvironmentRequirements(
+				await readFile(join(current.skillRoot, "SKILL.md"), "utf8"),
+				"pptx",
+			)!;
+			await verifyEnvironmentProbes(
+				backend,
+				(requirements.probes ?? []).map((probe) => ({
+					...probe,
+					command: probe.command.map((arg) => arg.replaceAll("$SKILL_DIR", current.skillPath)),
+				})),
+			);
 			const script = `const pptxgen=require("pptxgenjs"); const p=new pptxgen(); p.layout="LAYOUT_WIDE"; p.author="IPD smoke"; const s=p.addSlide(); s.addText("IPD Office Smoke / 中文演示",{x:0.7,y:0.5,w:7,h:0.5,fontFace:"Noto Sans CJK SC",fontSize:24}); s.addChart(p.ChartType.bar,[{name:"Score",labels:["A","B"],values:[2,4]}],{x:0.8,y:1.4,w:6,h:4}); s.addNotes("Synthetic speaker note / 合成备注"); p.writeFile({fileName:"/workspace/outputs/smoke/smoke.pptx"});\n`;
 			await current.provider.writeFile(
 				current.lease,
@@ -169,8 +336,10 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			);
 			const command = [
 				"node /workspace/outputs/smoke/create.cjs",
+				`python3 ${current.skillPath}/scripts/office/validate.py /workspace/outputs/smoke/smoke.pptx`,
+				"python3 -m markitdown /workspace/outputs/smoke/smoke.pptx",
 				'python3 -c \'import zipfile; z=zipfile.ZipFile("/workspace/outputs/smoke/smoke.pptx"); assert any(n.startswith("ppt/notesSlides/") for n in z.namelist())\'',
-				"soffice --headless -env:UserInstallation=file:///tmp/lo-profile --convert-to pdf --outdir /workspace/outputs/smoke /workspace/outputs/smoke/smoke.pptx",
+				`python3 ${current.skillPath}/scripts/office/soffice.py --headless -env:UserInstallation=file:///tmp/lo-profile --convert-to pdf --outdir /workspace/outputs/smoke /workspace/outputs/smoke/smoke.pptx`,
 				"pdfinfo /workspace/outputs/smoke/smoke.pdf | grep -Eq '^Pages:[[:space:]]+1$'",
 				"pdftoppm -f 1 -singlefile -png -r 96 /workspace/outputs/smoke/smoke.pdf /workspace/outputs/smoke/rendered",
 				"test -s /workspace/outputs/smoke/rendered.png",
@@ -178,19 +347,42 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 				"grep -q 'IPD Office Smoke' /workspace/outputs/smoke/text.txt",
 				"fc-match 'Noto Sans CJK SC' | grep -qi 'NotoSansCJK'",
 			].join(" && ");
-			const logs: Buffer[] = [];
-			const result = await current.provider.exec(current.lease, current.round, {
-				command,
-				cwd: "/workspace",
-				timeoutSeconds: 120,
-				onData: (data) => logs.push(data),
-			});
-			expect(Buffer.concat(logs).toString()).not.toContain("Error");
-			expect(result.exitCode).toBe(0);
+			const tools = createEnvironmentToolDefinitions(backend);
+			const bash = tools.find((tool) => tool.name === "bash")!;
+			const result = await bash.execute(
+				"real-skill-qa",
+				{ command, timeout: 120 },
+				undefined,
+				undefined,
+				{} as never,
+			);
+			expect(
+				result.content
+					.filter((part) => part.type === "text")
+					.map((part) => part.text)
+					.join("\n"),
+			).toContain("All validations PASSED");
+			const image = await tools
+				.find((tool) => tool.name === "read")!
+				.execute(
+					"rendered-qa",
+					{ path: "/workspace/outputs/smoke/rendered.png" },
+					undefined,
+					undefined,
+					{} as never,
+				);
+			expect(image.content.some((part) => part.type === "image")).toBe(true);
 			const entries = await current.provider.list(current.lease, current.round, "/workspace/outputs/smoke");
 			expect(entries.map((entry) => entry.name)).toEqual(
 				expect.arrayContaining(["smoke.pptx", "smoke.pdf", "rendered.png", "text.txt"]),
 			);
+			const exported = await current.provider.exportOutputs(current.lease, current.round, {
+				destination: join(root, "office-delivery"),
+				outputs: [{ outputId: "smoke", outputRoot: "outputs/smoke", logicalPath: "outputs/smoke/smoke.pptx" }],
+			});
+			const delivered = await readFile(exported.files[0].stagedPath);
+			expect(delivered.subarray(0, 2).toString()).toBe("PK");
+			expect(createHash("sha256").update(delivered).digest("hex")).toBe(exported.files[0].sha256);
 		} finally {
 			await current.manager.releaseRun("run-office-pptx");
 		}
@@ -344,7 +536,7 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			const finalContext = current.manager.context(current.lease.leaseId, finalRound.roundId);
 			await expect(
 				current.provider.readFile(finalContext.lease, finalContext.round, "/ipd/inputs/upstream"),
-			).rejects.toMatchObject({ code: "environment_unavailable" });
+			).rejects.toMatchObject({ code: "path_not_found" });
 			expect(await readFile(join(hostWorkspace, "shared.txt"), "utf8")).toBe("host-secret\n");
 		} finally {
 			await current.manager.releaseRun("run-code-node24");

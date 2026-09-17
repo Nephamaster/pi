@@ -1,11 +1,7 @@
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-	CheckExecutorRegistry,
-	createArtifactFileSetCheckExecutor,
-	effectiveNodeReadRoots,
-	MechanicalChecker,
-} from "../src/index.ts";
+import { CheckExecutorRegistry, createArtifactFileSetCheckExecutor, MechanicalChecker } from "../src/index.ts";
+import { effectiveNodeReadRoots } from "../src/legacy/node-file-scope.ts";
 
 describe("IPD P0 runtime safety", () => {
 	it("lets execution read its owned write root without widening review permissions", () => {

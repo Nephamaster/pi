@@ -12,8 +12,10 @@ export interface DockerCliOptions {
 }
 
 export interface DockerRunOptions {
+	streamOutput?: boolean;
 	input?: Buffer;
 	signal?: AbortSignal;
+	/** Zero leaves the command deadline to its caller; omission uses the management deadline. */
 	timeoutMs?: number;
 	onStdout?: (data: Buffer) => void;
 	onStderr?: (data: Buffer) => void;
@@ -48,6 +50,7 @@ export class DockerCli implements DockerCommandRunner {
 	async run(args: readonly string[], options: DockerRunOptions = {}): Promise<DockerRunResult> {
 		throwIfAborted(options.signal);
 		await mkdir(this.dockerConfigDirectory, { recursive: true, mode: 0o700 });
+		throwIfAborted(options.signal);
 		const timeoutMs = options.timeoutMs ?? this.managementTimeoutMs;
 		return new Promise((resolve, reject) => {
 			const child = spawn(this.executable, [...args], {
@@ -63,7 +66,7 @@ export class DockerCli implements DockerCommandRunner {
 			const finish = (operation: () => void) => {
 				if (settled) return;
 				settled = true;
-				clearTimeout(timer);
+				if (timer) clearTimeout(timer);
 				options.signal?.removeEventListener("abort", abort);
 				operation();
 			};
@@ -75,12 +78,23 @@ export class DockerCli implements DockerCommandRunner {
 				}
 			};
 			const abort = () => kill();
-			const timer = setTimeout(() => {
-				timedOut = true;
-				kill();
-			}, timeoutMs);
+			const timer =
+				timeoutMs > 0
+					? setTimeout(() => {
+							timedOut = true;
+							kill();
+						}, timeoutMs)
+					: undefined;
 			options.signal?.addEventListener("abort", abort, { once: true });
+			if (options.signal?.aborted) abort();
 			const collect = (target: Buffer[], callback: ((data: Buffer) => void) | undefined, data: Buffer) => {
+				if (options.streamOutput) {
+					const available = Math.max(0, this.maxOutputBytes - outputBytes);
+					if (available) target.push(data.subarray(0, available));
+					outputBytes += data.length;
+					callback?.(data);
+					return;
+				}
 				outputBytes += data.length;
 				if (outputBytes > this.maxOutputBytes) {
 					kill();
@@ -115,7 +129,7 @@ export class DockerCli implements DockerCommandRunner {
 						reject(new EnvironmentError("process_timeout", `Docker operation timed out after ${timeoutMs}ms`));
 						return;
 					}
-					if (outputBytes > this.maxOutputBytes) {
+					if (!options.streamOutput && outputBytes > this.maxOutputBytes) {
 						reject(new EnvironmentError("environment_unavailable", "Docker output exceeded the trusted limit"));
 						return;
 					}
@@ -134,6 +148,7 @@ export class DockerCli implements DockerCommandRunner {
 					resolve(result);
 				}),
 			);
+			child.stdin?.on("error", () => {});
 			if (options.input) child.stdin?.end(options.input);
 		});
 	}

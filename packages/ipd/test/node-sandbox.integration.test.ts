@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createNodeSandboxedBashTool } from "../src/adapter/node-sandbox.ts";
+import { createNodeSandboxedBashTool } from "../src/legacy/node-sandbox.ts";
 
 function commandExists(command: string): boolean {
 	return spawnSync("which", [command], { stdio: "ignore" }).status === 0;

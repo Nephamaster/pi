@@ -122,6 +122,7 @@ const SkillEnvironmentRequirementsSchema = Type.Object(
 		),
 		commands: Type.Optional(Type.Array(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._+-]+$" }))),
 		network: Type.Optional(Type.Union([Type.Literal("none"), Type.Literal("restricted")])),
+		probes: Type.Optional(CommonProfileFields.probes),
 	},
 	{ additionalProperties: false },
 );
@@ -170,6 +171,7 @@ export function parseSkillEnvironmentRequirements(
 		capabilities: result.value.capabilities?.map((item) => ({ ...item })) ?? [],
 		commands: [...new Set(result.value.commands ?? [])],
 		network: result.value.network,
+		...(result.value.probes ? { probes: result.value.probes } : {}),
 	};
 }
 
