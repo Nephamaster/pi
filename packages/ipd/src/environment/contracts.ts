@@ -42,7 +42,12 @@ export interface SkillEnvironmentRequirements {
 	schemaVersion: 1;
 	capabilities: EnvironmentCapabilityRequirement[];
 	commands: string[];
-	network?: "none" | "restricted";
+	/**
+	 * none: no external network is required.
+	 * restricted: requires a policy-enforced allowlist (not implemented by the Docker provider yet).
+	 * internet: explicitly permits ordinary outbound Internet access from the isolated workspace.
+	 */
+	network?: "none" | "restricted" | "internet";
 	probes?: EnvironmentProbe[];
 }
 
@@ -92,7 +97,14 @@ interface CommonExecutionProfile {
 	commands: string[];
 	supportedTools: string[];
 	environment: Record<string, string>;
-	network: { mode: "none" } | { mode: "restricted"; allowedEndpoints: string[] };
+	/**
+	 * Network is a trusted Profile policy, not an Agent-controlled Docker argument.
+	 * internet is intentionally named as unrestricted outbound access; it must never be described as restricted egress.
+	 */
+	network:
+		| { mode: "none" }
+		| { mode: "restricted"; allowedEndpoints: string[] }
+		| { mode: "internet" };
 	resources: EnvironmentResourceLimits;
 	probes: EnvironmentProbe[];
 	paths: EnvironmentPaths;
