@@ -319,44 +319,64 @@ export function invalidateFromNode(state: RunState, nodeId: string, excludeRound
 		root.status = "rejected";
 		affected.add(root.submissionId);
 	}
+
+	const index = baselineIndex(requireBaseline(state));
 	let changed = true;
 	while (changed) {
 		changed = false;
+
 		for (const submission of state.submissions) {
-			if (submission.status === "stale" || !submission.inputSubmissionIds.some((id) => affected.has(id))) continue;
+			if (["rejected", "stale"].includes(submission.status)) continue;
+			const producerRound = state.rounds.find((round) => round.roundId === submission.roundId);
+			const producerNode = index.nodes.get(submission.nodeId);
+			const dataDependencyStale = submission.inputSubmissionIds.some((id) => affected.has(id));
+			const approvalDependencyStale =
+				producerRound !== undefined && producerNode !== undefined && !roundInputsAreValid(producerNode, producerRound, state);
+			if (!dataDependencyStale && !approvalDependencyStale) continue;
 			submission.status = "stale";
 			affected.add(submission.submissionId);
 			const consumer = state.nodes.find((item) => item.nodeId === submission.nodeId);
 			if (consumer) consumer.status = "waiting_rework";
 			changed = true;
 		}
+
+		for (const approval of state.approvals) {
+			if (!affected.has(approval.submissionId) || approval.status === "stale") continue;
+			approval.status = "stale";
+			changed = true;
+		}
+
+		const staleReviewIds = new Set<string>();
+		for (const review of state.reviews) {
+			if (!review.submissionIds.some((id) => affected.has(id))) continue;
+			staleReviewIds.add(review.reviewId);
+			if (review.status !== "stale") {
+				review.status = "stale";
+				changed = true;
+			}
+			const reviewer = state.nodes.find((item) => item.nodeId === review.reviewNodeId);
+			if (reviewer && reviewer.status !== "waiting") reviewer.status = "waiting";
+		}
+
+		const approvalAffectedSubmissions = new Set<string>();
+		for (const approval of state.approvals) {
+			if (!staleReviewIds.has(approval.reviewId)) continue;
+			if (approval.status !== "stale") {
+				approval.status = "stale";
+				changed = true;
+			}
+			approvalAffectedSubmissions.add(approval.submissionId);
+		}
+		for (const submissionId of approvalAffectedSubmissions) refreshSubmissionStatus(state, submissionId);
 	}
-	const staleReviewIds = new Set<string>();
-	for (const approval of state.approvals) {
-		if (affected.has(approval.submissionId)) approval.status = "stale";
-	}
-	for (const review of state.reviews) {
-		if (!review.submissionIds.some((id) => affected.has(id))) continue;
-		review.status = "stale";
-		staleReviewIds.add(review.reviewId);
-		const reviewer = state.nodes.find((item) => item.nodeId === review.reviewNodeId);
-		if (reviewer) reviewer.status = "waiting";
-	}
-	const additionalAffectedSubmissions = new Set<string>();
-	for (const approval of state.approvals) {
-		if (!staleReviewIds.has(approval.reviewId)) continue;
-		approval.status = "stale";
-		additionalAffectedSubmissions.add(approval.submissionId);
-	}
-	for (const submissionId of additionalAffectedSubmissions) refreshSubmissionStatus(state, submissionId);
+
 	const invalidated: InvalidatedRound[] = [];
 	for (const round of state.rounds) {
-		if (
-			round.status !== "active" ||
-			round.roundId === excludeRoundId ||
-			!round.inputSubmissionIds.some((id) => affected.has(id))
-		)
-			continue;
+		if (round.status !== "active" || round.roundId === excludeRoundId) continue;
+		const consumerNode = index.nodes.get(round.nodeId);
+		const directDependencyStale = round.inputSubmissionIds.some((id) => affected.has(id));
+		const approvalDependencyStale = consumerNode !== undefined && !roundInputsAreValid(consumerNode, round, state);
+		if (!directDependencyStale && !approvalDependencyStale) continue;
 		round.status = "invalidated";
 		round.finishedAt = Date.now();
 		const consumer = state.nodes.find((item) => item.nodeId === round.nodeId);
