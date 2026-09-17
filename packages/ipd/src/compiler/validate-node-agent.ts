@@ -164,12 +164,19 @@ export function validateNodeAgent(
 			"Review participants cannot publish writes or perform external actions",
 			node.node_id,
 		);
-	if (node.kind === "review" && agent.tools.some((tool) => ["write", "edit", "powershell"].includes(tool.id)))
+	const reviewHasUnsafeTool =
+		node.kind === "review" &&
+		agent.tools.some(
+			(tool) =>
+				["write", "edit", "powershell"].includes(tool.id) ||
+				(tool.id === "bash" && !usesPrivateNodeWorkspaces(catalog)),
+		);
+	if (reviewHasUnsafeTool)
 		addDiagnostic(
 			diagnostics,
 			"review_mutation_tool_forbidden",
 			`${path}/tools`,
-			"Review participants cannot receive write, edit, or host PowerShell tools; Bash is allowed only inside the isolated review workspace for verification",
+			"Review participants cannot receive write/edit or host Shell mutation tools; Bash is permitted only with an isolated private node workspace for verification",
 			node.node_id,
 		);
 	if (node.kind === "execution" && agent.permissions.write_paths.length === 0 && !usesPrivateNodeWorkspaces(catalog))
