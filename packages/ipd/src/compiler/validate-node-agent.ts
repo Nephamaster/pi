@@ -161,15 +161,15 @@ export function validateNodeAgent(
 			diagnostics,
 			"review_not_read_only",
 			`${path}/permissions`,
-			"Review participants must be read-only and cannot perform external actions",
+			"Review participants cannot publish writes or perform external actions",
 			node.node_id,
 		);
-	if (node.kind === "review" && agent.tools.some((tool) => ["write", "edit", "bash", "powershell"].includes(tool.id)))
+	if (node.kind === "review" && agent.tools.some((tool) => ["write", "edit", "powershell"].includes(tool.id)))
 		addDiagnostic(
 			diagnostics,
 			"review_mutation_tool_forbidden",
 			`${path}/tools`,
-			"Review participants cannot receive write, edit, or general-purpose Shell tools",
+			"Review participants cannot receive write, edit, or host PowerShell tools; Bash is allowed only inside the isolated review workspace for verification",
 			node.node_id,
 		);
 	if (node.kind === "execution" && agent.permissions.write_paths.length === 0 && !usesPrivateNodeWorkspaces(catalog))
