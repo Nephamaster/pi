@@ -6,6 +6,20 @@ import { DockerCli } from "../src/index.ts";
 
 describe("DockerCli", () => {
 	const roots: string[] = [];
+	it("separates file data limits from Docker management limits", async () => {
+		const root = await mkdtemp(join(tmpdir(), "ipd-data-limit-"));
+		roots.push(root);
+		const docker = new DockerCli({
+			executable: process.execPath,
+			dockerConfigDirectory: join(root, "config"),
+			maxOutputBytes: 8,
+		});
+		const args = ["-e", 'process.stdout.write("0123456789")'];
+		expect((await docker.run(args, { maxOutputBytes: 16, outputLimitCode: "output_limit" })).stdout.length).toBe(10);
+		await expect(docker.run(args, { maxOutputBytes: 4, outputLimitCode: "output_limit" })).rejects.toMatchObject({
+			code: "output_limit",
+		});
+	});
 
 	afterEach(async () => {
 		await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));

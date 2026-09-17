@@ -85,6 +85,19 @@ class DelayedFactory implements NodeSessionFactory<string> {
 }
 
 describe("NodeSessionAdapter", () => {
+	it("treats stopping an idle model as a no-op while preserving active-round identity checks", async () => {
+		const factory = new FakeFactory();
+		const adapter = new NodeSessionAdapter(factory);
+		await adapter.stop("run", "node", "p", "preparing");
+		await adapter.create({ runId: "run", nodeId: "node", participantId: "p", createInput: "config" });
+		await adapter.dispatch("run", "node", "p", "round", "task");
+		await adapter.stop("run", "node", "p", "round");
+		factory.session.hold = true;
+		const running = adapter.dispatch("run", "node", "p", "next", "task");
+		await expect(adapter.stop("run", "node", "p", "round")).rejects.toThrow("not active");
+		await adapter.stop("run", "node", "p", "next");
+		await expect(running).rejects.toMatchObject({ kind: "cancelled" });
+	});
 	it("does not let rejected overlapping work reset a capture or replace current context", async () => {
 		const factory = new FakeFactory();
 		const adapter = new NodeSessionAdapter(factory);

@@ -1,14 +1,26 @@
-import { lstat, mkdir, open, readdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { decodeBridgeRequest } from "./protocol.ts";
+import { searchFiles } from "./search.ts";
 
 try {
 	const request = decodeBridgeRequest(process.argv[2] ?? "");
 	if (!("path" in request)) throw new Error("File bridge requires a file operation");
 	const { operation, path } = request;
 	if (operation === "read") {
-		if (request.length === undefined) process.stdout.write(await readFile(path));
-		else {
+		if (request.length === undefined) {
+			const file = await open(path, "r");
+			try {
+				if ((await file.stat()).size > 64 * 1024 * 1024)
+					throw Object.assign(
+						new Error("File exceeds the 64 MiB read transport limit; inspect a smaller extract with Bash"),
+						{ code: "OUTPUT_LIMIT" },
+					);
+				process.stdout.write(await file.readFile());
+			} finally {
+				await file.close();
+			}
+		} else {
 			const file = await open(path, "r");
 			try {
 				const buffer = Buffer.alloc(request.length);
@@ -18,6 +30,8 @@ try {
 				await file.close();
 			}
 		}
+	} else if (operation === "search" || operation === "find") {
+		process.stdout.write(JSON.stringify(await searchFiles(request)));
 	} else if (operation === "write") {
 		const chunks: Buffer[] = [];
 		for await (const chunk of process.stdin) chunks.push(chunk as Buffer);

@@ -81,6 +81,7 @@ jobs:
         run: |
           npm run build:offline
           npm run check:ipd-install
+          node scripts/check-ipd-install.mjs --clean
           npm run check:ipd-dashboard
 
       - name: Verify live and offline dashboard in Chromium
@@ -154,6 +155,7 @@ jobs:
           test/runtime-state.test.ts
           test/review-validation.test.ts
           test/runtime-rework.test.ts
+          test/round-invalidation.test.ts
           test/p0-runtime-safety.test.ts
           test/workflow-runtime.test.ts
           test/run-lifecycle.test.ts

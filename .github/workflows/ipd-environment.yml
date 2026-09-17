@@ -74,6 +74,13 @@ jobs:
         working-directory: packages/coding-agent
         run: node ../../node_modules/vitest/dist/cli.js --run test/file-mutation-queue.test.ts test/tool-execution-component.test.ts test/tools.test.ts
 
+      - name: Verify restricted public egress and isolated project installs
+        env:
+          PI_IPD_NETWORK_INTEGRATION: "1"
+          PI_OFFLINE: "1"
+        working-directory: packages/ipd
+        run: node ../../node_modules/vitest/dist/cli.js --run test/network-environment.integration.test.ts
+
       - name: Run IPD environment and governance regression
         working-directory: packages/ipd
         run: >-
@@ -88,3 +95,5 @@ jobs:
           test/workflow-runtime.test.ts
           test/runtime-rework.test.ts
           test/p0-runtime-safety.test.ts
+          test/egress-policy.test.ts
+          test/round-invalidation.test.ts

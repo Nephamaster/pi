@@ -20,7 +20,6 @@ environment-requirements:
     - python3
     - soffice
     - pdftoppm
-  network: none
   probes:
     - id: office-wrapper
       version: "1.0.0"

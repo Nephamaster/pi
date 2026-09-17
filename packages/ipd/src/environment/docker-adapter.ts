@@ -12,6 +12,8 @@ export interface DockerCliOptions {
 }
 
 export interface DockerRunOptions {
+	maxOutputBytes?: number;
+	outputLimitCode?: "environment_unavailable" | "output_limit";
 	streamOutput?: boolean;
 	input?: Buffer;
 	signal?: AbortSignal;
@@ -52,6 +54,7 @@ export class DockerCli implements DockerCommandRunner {
 		await mkdir(this.dockerConfigDirectory, { recursive: true, mode: 0o700 });
 		throwIfAborted(options.signal);
 		const timeoutMs = options.timeoutMs ?? this.managementTimeoutMs;
+		const maxOutputBytes = options.maxOutputBytes ?? this.maxOutputBytes;
 		return new Promise((resolve, reject) => {
 			const child = spawn(this.executable, [...args], {
 				env: { PATH: this.path, DOCKER_CONFIG: this.dockerConfigDirectory },
@@ -89,14 +92,14 @@ export class DockerCli implements DockerCommandRunner {
 			if (options.signal?.aborted) abort();
 			const collect = (target: Buffer[], callback: ((data: Buffer) => void) | undefined, data: Buffer) => {
 				if (options.streamOutput) {
-					const available = Math.max(0, this.maxOutputBytes - outputBytes);
+					const available = Math.max(0, maxOutputBytes - outputBytes);
 					if (available) target.push(data.subarray(0, available));
 					outputBytes += data.length;
 					callback?.(data);
 					return;
 				}
 				outputBytes += data.length;
-				if (outputBytes > this.maxOutputBytes) {
+				if (outputBytes > maxOutputBytes) {
 					kill();
 					return;
 				}
@@ -129,8 +132,13 @@ export class DockerCli implements DockerCommandRunner {
 						reject(new EnvironmentError("process_timeout", `Docker operation timed out after ${timeoutMs}ms`));
 						return;
 					}
-					if (!options.streamOutput && outputBytes > this.maxOutputBytes) {
-						reject(new EnvironmentError("environment_unavailable", "Docker output exceeded the trusted limit"));
+					if (!options.streamOutput && outputBytes > maxOutputBytes) {
+						reject(
+							new EnvironmentError(
+								options.outputLimitCode ?? "environment_unavailable",
+								`Operation output exceeded ${maxOutputBytes} bytes`,
+							),
+						);
 						return;
 					}
 					const exitCode = code ?? -1;

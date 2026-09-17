@@ -315,6 +315,8 @@ export function invalidateFromNode(state: RunState, nodeId: string, excludeRound
 		.filter((item) => item.nodeId === nodeId && ["candidate", "approved"].includes(item.status))
 		.at(-1);
 	const affected = new Set<string>();
+	const invalidated: InvalidatedRound[] = [];
+	const nodes = baselineIndex(requireBaseline(state)).nodes;
 	if (root) {
 		root.status = "rejected";
 		affected.add(root.submissionId);
@@ -322,49 +324,65 @@ export function invalidateFromNode(state: RunState, nodeId: string, excludeRound
 	let changed = true;
 	while (changed) {
 		changed = false;
+		// Revoking a joint review can invalidate approvals of otherwise unchanged inputs.
+		for (const review of state.reviews) {
+			const round = state.rounds.find((item) => item.roundId === review.roundId);
+			const node = nodes.get(review.reviewNodeId);
+			if (
+				review.status === "stale" ||
+				(!review.submissionIds.some((id) => affected.has(id)) &&
+					!(round && node && !roundInputsAreValid(node, round, state)))
+			)
+				continue;
+			review.status = "stale";
+			const reviewer = state.nodes.find((item) => item.nodeId === review.reviewNodeId);
+			if (reviewer) reviewer.status = "waiting";
+			changed = true;
+		}
+		for (const approval of state.approvals) {
+			if (approval.status !== "active") continue;
+			if (
+				!affected.has(approval.submissionId) &&
+				!state.reviews.some((review) => review.reviewId === approval.reviewId && review.status === "stale")
+			)
+				continue;
+			approval.status = "stale";
+			refreshSubmissionStatus(state, approval.submissionId);
+			changed = true;
+		}
 		for (const submission of state.submissions) {
-			if (submission.status === "stale" || !submission.inputSubmissionIds.some((id) => affected.has(id))) continue;
+			if (!["candidate", "approved"].includes(submission.status)) continue;
+			const round = state.rounds.find((item) => item.roundId === submission.roundId);
+			const node = nodes.get(submission.nodeId);
+			if (
+				!submission.inputSubmissionIds.some((id) => affected.has(id)) &&
+				!(round && node && !roundInputsAreValid(node, round, state))
+			)
+				continue;
 			submission.status = "stale";
 			affected.add(submission.submissionId);
 			const consumer = state.nodes.find((item) => item.nodeId === submission.nodeId);
 			if (consumer) consumer.status = "waiting_rework";
 			changed = true;
 		}
-	}
-	const staleReviewIds = new Set<string>();
-	for (const approval of state.approvals) {
-		if (affected.has(approval.submissionId)) approval.status = "stale";
-	}
-	for (const review of state.reviews) {
-		if (!review.submissionIds.some((id) => affected.has(id))) continue;
-		review.status = "stale";
-		staleReviewIds.add(review.reviewId);
-		const reviewer = state.nodes.find((item) => item.nodeId === review.reviewNodeId);
-		if (reviewer) reviewer.status = "waiting";
-	}
-	const additionalAffectedSubmissions = new Set<string>();
-	for (const approval of state.approvals) {
-		if (!staleReviewIds.has(approval.reviewId)) continue;
-		approval.status = "stale";
-		additionalAffectedSubmissions.add(approval.submissionId);
-	}
-	for (const submissionId of additionalAffectedSubmissions) refreshSubmissionStatus(state, submissionId);
-	const invalidated: InvalidatedRound[] = [];
-	for (const round of state.rounds) {
-		if (
-			round.status !== "active" ||
-			round.roundId === excludeRoundId ||
-			!round.inputSubmissionIds.some((id) => affected.has(id))
-		)
-			continue;
-		round.status = "invalidated";
-		round.finishedAt = Date.now();
-		const consumer = state.nodes.find((item) => item.nodeId === round.nodeId);
-		if (consumer?.activeRoundId === round.roundId) {
-			consumer.activeRoundId = undefined;
-			consumer.status = consumer.kind === "execution" ? "waiting_rework" : "waiting";
+		for (const round of state.rounds) {
+			const node = nodes.get(round.nodeId);
+			if (
+				round.status !== "active" ||
+				round.roundId === excludeRoundId ||
+				(!round.inputSubmissionIds.some((id) => affected.has(id)) &&
+					!(node && !roundInputsAreValid(node, round, state)))
+			)
+				continue;
+			round.status = "invalidated";
+			round.finishedAt = Date.now();
+			const consumer = state.nodes.find((item) => item.nodeId === round.nodeId);
+			if (consumer?.activeRoundId === round.roundId) {
+				consumer.activeRoundId = undefined;
+				consumer.status = consumer.kind === "execution" ? "waiting_rework" : "waiting";
+			}
+			invalidated.push({ nodeId: round.nodeId, roundId: round.roundId });
 		}
-		invalidated.push({ nodeId: round.nodeId, roundId: round.roundId });
 	}
 	const target = state.nodes.find((item) => item.nodeId === nodeId);
 	if (target) target.status = "waiting_rework";

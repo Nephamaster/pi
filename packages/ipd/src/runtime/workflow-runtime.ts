@@ -48,6 +48,13 @@ export interface WorkflowRuntimeOptions {
 	onMetric?: (metric: WorkflowRuntimeMetric) => void;
 }
 
+interface RoundExecution {
+	work: NodeRoundWork;
+	controller: AbortController;
+	phase: "prepare" | "model" | "export" | "check" | "review";
+	operation: Promise<void>;
+}
+
 export class WorkflowRuntime {
 	private readonly store: RunStore;
 	private readonly directory: RunDirectory;
@@ -61,7 +68,7 @@ export class WorkflowRuntime {
 	private abortController = new AbortController();
 	private readonly stopTimeoutMs: number;
 	private readonly softRoundTimeoutMs?: number;
-	private readonly inFlight = new Set<Promise<void>>();
+	private readonly inFlight = new Map<string, RoundExecution>();
 	private readonly unregisteredSubmissions = new Set<string>();
 	private runPromise?: Promise<RunState>;
 	private baselineHash?: string;
@@ -195,7 +202,11 @@ export class WorkflowRuntime {
 			for (const node of readyNodes(state)) {
 				if (this.running.size >= this.maxConcurrentNodes) break;
 				const nodeId = node.definition.node_id;
-				if (this.running.has(nodeId)) continue;
+				if (
+					this.running.has(nodeId) ||
+					[...this.inFlight.values()].some((round) => round.work.node.definition.node_id === nodeId)
+				)
+					continue;
 				const operation = this.runNode(state.runId, node).finally(() => this.running.delete(nodeId));
 				this.running.set(nodeId, operation);
 			}
@@ -261,7 +272,7 @@ export class WorkflowRuntime {
 								);
 							}),
 					);
-				await Promise.allSettled([...this.inFlight]);
+				await Promise.allSettled([...this.inFlight.values()].map((round) => round.operation));
 				await this.cleanupUnregistered();
 				await this.store.mutate(
 					state.runId,
@@ -365,7 +376,7 @@ export class WorkflowRuntime {
 		if (!this.stopping) {
 			const operation = (async () => {
 				await this.worker.releaseRun?.(this.directory.runId);
-				await Promise.allSettled([...this.inFlight]);
+				await Promise.allSettled([...this.inFlight.values()].map((round) => round.operation));
 				await this.cleanupUnregistered();
 			})();
 			this.stopping = operation;
@@ -550,6 +561,10 @@ export class WorkflowRuntime {
 	}
 
 	private async runRoundWithTimeout(work: NodeRoundWork, node: ExecutionNode | ReviewNode): Promise<void> {
+		const controller = new AbortController();
+		work = { ...work, signal: AbortSignal.any([controller.signal, this.abortController.signal]) };
+		const execution: RoundExecution = { work, controller, phase: "prepare", operation: Promise.resolve() };
+		this.inFlight.set(work.roundId, execution);
 		let timeout: NodeJS.Timeout | undefined;
 		let soft: NodeJS.Timeout | undefined;
 		let abort: () => void = () => {};
@@ -557,10 +572,11 @@ export class WorkflowRuntime {
 			await this.assertCurrent(work);
 			await this.worker.prepareRound?.(work, work.signal);
 			await this.assertCurrent(work);
+			execution.phase = node.kind === "execution" ? "model" : "review";
 			await (node.kind === "execution" ? this.runExecution(work, node) : this.runReview(work));
 		})();
-		this.inFlight.add(operation);
-		void operation.finally(() => this.inFlight.delete(operation)).catch(() => {});
+		execution.operation = operation;
+		void operation.finally(() => this.inFlight.delete(work.roundId)).catch(() => {});
 		try {
 			if (this.softRoundTimeoutMs !== undefined)
 				soft = setTimeout(() => {
@@ -676,6 +692,7 @@ export class WorkflowRuntime {
 		for (let correction = 0; correction < 10; correction++) {
 			try {
 				await this.assertCurrent(work);
+				this.inFlight.get(work.roundId)!.phase = "model";
 				const submitted = await this.worker.runExecution(correctionWork);
 				await this.assertCurrent(work, "late_submission_ignored");
 				if ("report" in submitted) {
@@ -684,6 +701,7 @@ export class WorkflowRuntime {
 				}
 				let sourceWorkspace: string | undefined;
 				try {
+					this.inFlight.get(work.roundId)!.phase = "export";
 					sourceWorkspace = await this.worker.exportSubmission?.(work, submitted, work.signal);
 					await this.assertCurrent(work);
 					record = await this.submissions.seal({
@@ -731,7 +749,9 @@ export class WorkflowRuntime {
 		const mechanicalChecks: MechanicalCheckRecord[] = [];
 		const state = await this.store.read(work.runId);
 		const workflowCriteria = requireBaseline(state).workflow.criteria;
+		this.inFlight.get(work.roundId)!.phase = "check";
 		for (const output of record.outputs) {
+			await this.assertCurrent(work);
 			const definition = node.outputs.find((item) => item.output_id === output.outputId)!;
 			const mechanicalCriteria = workflowCriteria.filter(
 				(item): item is Extract<(typeof workflowCriteria)[number], { kind: "mechanical" }> =>
@@ -828,24 +848,38 @@ export class WorkflowRuntime {
 			try {
 				await bounded(
 					Promise.all(
-						invalidatedRounds.map((invalidated) => {
+						invalidatedRounds.map(async (invalidated) => {
+							const execution = this.inFlight.get(invalidated.roundId);
+							execution?.controller.abort("Input submission or approval invalidated");
 							const affected = baselineIndex(baseline).nodes.get(invalidated.nodeId);
 							const participant = affected?.agents[0];
-							return participant
-								? (this.worker.stopRound?.(
+							try {
+								if (participant)
+									await this.worker.stopRound?.(
 										work.runId,
 										invalidated.nodeId,
 										participant.participantId,
 										invalidated.roundId,
-									) ?? Promise.resolve())
-								: Promise.resolve();
+									);
+							} catch (error) {
+								throw new Error(
+									`Stopping ${invalidated.roundId} during ${execution?.phase ?? "settled"} failed`,
+									{ cause: error },
+								);
+							}
+							await execution?.operation.catch(() => {});
 						}),
 					),
 					this.stopTimeoutMs,
 					"Invalidated round cleanup",
 				);
 			} catch (error) {
-				throw new NodeWorkerError("timeout", "Invalidated round cleanup did not finish", false, { cause: error });
+				await this.recordCleanupFailure(error);
+				await this.suspend(
+					"paused",
+					`Invalidated round cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+					"cleanup_failed",
+				);
 			}
 		}
 	}

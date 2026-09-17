@@ -141,10 +141,15 @@ also belong to a frozen output contract can be exported and sealed; writable fil
 
 The container has no host root, Home, Run root, credential directory, or Docker socket mount. It runs as the
 non-privileged invoking host UID/GID, with a read-only image root, dropped capabilities, `no-new-privileges`,
-`network=none`, and enforced memory/CPU/PID/log
+default `network=none` (or explicitly authorized proxy-only egress), and enforced memory/CPU/PID/log
 limits. At preparation time the Provider uses the invoking host identity and verifies that the container process can
 traverse read-only roots and write every private runtime root; it fails before node execution instead of relaxing
 permissions. Container environment variables start from the Profile allowlist instead of inheriting the Pi process.
+
+See [environment configuration](environments/README.md) for `PI_IPD_ALLOWED_ENDPOINTS` and
+`PI_IPD_EXTERNAL_READ_TOOLS`: container egress and registered Pi service tools are authorized separately. IPD does not
+implement its own web search. Project npm/Python dependencies can be installed privately; base software remains image-owned.
+Docker reviewers may use authorized file/Shell tools in their own inspection workspace without modifying sealed inputs.
 
 For temporary migration only, explicitly select the old sandbox-runtime backend before launching Pi:
 
@@ -183,13 +188,14 @@ model data. Both generate and type-check the dashboard; bridge consistency is ch
 `npm run check:ipd-install` consumes the real npm-packed file set in a temporary directory using current workspace
 dependencies; it does not publish or claim a fresh registry installation. PPTX/React/icon/sharp runtime dependencies
 belong to the Office image, not the host root package. Legacy users must provision their own task dependencies.
+`node scripts/check-ipd-install.mjs --clean` additionally installs workspace tarballs and external npm dependencies in a clean
+temporary directory without workspace dependency links. Private packages are not assumed to be published to npm.
 
 ## Current boundaries
 
 - No node-internal multi-Agent collaboration, budget governance, HITL, asset self-evolution, or complete replan flow.
-- Docker mode has no external network access. Restricted egress and arbitrary custom tools that capture host file or
-  Shell closures are rejected until they have explicit broker metadata. Review nodes still cannot receive mutation or
-  general-purpose Shell tools unless a future permission model explicitly allows them.
+- Docker egress is optional and public HTTP/HTTPS only, enforced through per-lease proxy networking. Arbitrary host-bound
+  extensions are not sandboxed by rebinding native Pi tools and must not be admitted as external read services.
 - State mutation has cross-process conflict detection, but active Runs cannot resume their original
   AgentSessions after process loss.
 - The visualization server is process-local and intentionally read-only; it does not provide remote control, approval,

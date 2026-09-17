@@ -155,7 +155,8 @@ export class PiNodeWorker implements NodeWorker {
 				inputs,
 				allowedOperations: [
 					"read",
-					...(work.node.definition.kind === "execution" ? (["write", "export"] as const) : []),
+					"write",
+					...(work.node.definition.kind === "execution" ? (["export"] as const) : []),
 					...(work.node.agents[0].lockedTools.some((tool) => tool.id === "bash") ? (["exec"] as const) : []),
 					...(work.node.agents[0].lockedTools.some((tool) => tool.id === "environment_process_start")
 						? (["process"] as const)
@@ -212,6 +213,29 @@ export class PiNodeWorker implements NodeWorker {
 		if (!binding?.environment) return undefined;
 		if (work.node.definition.kind !== "execution")
 			throw new NodeSubmissionProtocolError("Only execution nodes can export Artifact submissions");
+		const projectProbes = work.node.agents[0].lockedSkills.flatMap((skill) =>
+			(skill.environmentRequirements?.projectProbes ?? []).map((probe) => ({
+				...probe,
+				id: `${skill.id}:${probe.id}`,
+				command: probe.command.map((arg) =>
+					arg.replaceAll("$SKILL_DIR", `${binding.environment!.binding.paths.skills}/${skill.id}/${skill.hash}`),
+				),
+			})),
+		);
+		try {
+			await verifyEnvironmentProbes(
+				{ hostWorkspace: this.options.workspace, getContext: () => binding.environment! },
+				projectProbes,
+				signal,
+			);
+		} catch (error) {
+			if (signal?.aborted) throw classifyWorkerError(error);
+			if (error instanceof EnvironmentError && error.code !== "profile_incompatible")
+				throw classifyWorkerError(error);
+			throw new NodeSubmissionProtocolError(
+				`Project dependencies are not ready for submission: ${error instanceof Error ? error.message : String(error)}. Repair them inside the private workspace and resubmit.`,
+			);
+		}
 		const outputRoots = new Map(work.node.definition.outputs.map((output) => [output.output_id, output.path_prefix]));
 		const destination = await mkdtemp(join(tmpdir(), "pi-ipd-export-"));
 		try {

@@ -237,7 +237,9 @@ export function compileWorkflow(input: CompileWorkflowInput): CompileWorkflowRes
 						policy: environmentPolicy,
 						explicitRef: node.definition.environment_ref,
 						requirements: mergeSkillEnvironmentRequirements(participant.lockedSkills),
-						requiredTools: participant.lockedTools.map((tool) => tool.id),
+						requiredTools: participant.lockedTools
+							.filter((tool) => tool.execution !== "control_read")
+							.map((tool) => tool.id),
 					});
 					environmentBindings.push(
 						createEnvironmentBinding({

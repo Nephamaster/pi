@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, open } from "node:fs/promises";
 import { dirname } from "node:path";
-async function launchCommand(launch, emit) {
+async function launchCommand(launch, emit, detached = false) {
   if (launch.logPath) await mkdir(dirname(launch.logPath), { recursive: true });
   const log = launch.logPath ? await open(launch.logPath, "w", 384) : void 0;
   const marker = Buffer.from("\n[Output truncated at the environment log limit]\n").subarray(0, launch.maxLogBytes);
@@ -13,7 +13,8 @@ async function launchCommand(launch, emit) {
   const child = spawn(launch.argv[0], launch.argv.slice(1), {
     cwd: launch.cwd,
     env: launch.environment,
-    stdio: ["inherit", "pipe", "pipe"]
+    stdio: ["inherit", "pipe", "pipe"],
+    detached
   });
   let writes = Promise.resolve();
   const collect = (data, stream) => {
@@ -69,11 +70,13 @@ function decodeBridgeRequest(raw) {
   if (!request || typeof request !== "object") throw new Error("Invalid bridge request");
   const value = request;
   if (value.version !== BRIDGE_VERSION) throw new Error("Unsupported bridge protocol version");
-  if (["start", "run", "status", "stop"].includes(String(value.operation))) {
+  if (["start", "run", "status", "stop", "cancel_command"].includes(String(value.operation)) || value.operation === "exec" && value.processId !== void 0) {
     if (!absolute(value.scratch) || typeof value.processId !== "string" || !/^[a-f0-9-]{36}$/.test(value.processId))
       throw new Error("Invalid managed process identity");
-  } else if (["read", "write", "list", "stat", "mkdir"].includes(String(value.operation))) {
+  } else if (["read", "write", "list", "stat", "mkdir", "search", "find"].includes(String(value.operation))) {
     if (!absolute(value.path)) throw new Error("Invalid bridge file path");
+    if (["search", "find"].includes(String(value.operation)) && (typeof value.pattern !== "string" || value.maxResults !== void 0 && (!Number.isInteger(value.maxResults) || Number(value.maxResults) < 1 || Number(value.maxResults) > 1e4)))
+      throw new Error("Invalid search request");
     if (value.offset !== void 0 && (!Number.isSafeInteger(value.offset) || Number(value.offset) < 0))
       throw new Error("Invalid file offset");
     if (value.length !== void 0 && (!Number.isSafeInteger(value.length) || Number(value.length) < 1 || Number(value.length) > 1048576))
@@ -92,11 +95,110 @@ function decodeBridgeRequest(raw) {
   return value;
 }
 
+// packages/ipd/src/environment/bridge/command-control.ts
+import { mkdir as mkdir2, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
+async function groupAlive(pid) {
+  for (const entry of await readdir("/proc")) {
+    if (!/^\d+$/.test(entry)) continue;
+    try {
+      const stat = await readFile(`/proc/${entry}/stat`, "utf8");
+      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      if (Number(fields[2]) === pid && fields[0] !== "Z" && fields[0] !== "X") return true;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  return false;
+}
+async function stopGroup(pid) {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
+  }
+  const deadline = Date.now() + 3e3;
+  while (await groupAlive(pid)) {
+    if (Date.now() > deadline) throw new Error("Command process group did not stop");
+    await delay(20);
+  }
+}
+async function controlledCommand(scratch, id, launch) {
+  const root = `${scratch}/.ipd-commands`;
+  await mkdir2(root, { recursive: true });
+  const prefix = `${root}/${id}`;
+  const complete = async (value) => {
+    await writeFile(`${prefix}.done.tmp`, JSON.stringify(value));
+    await rename(`${prefix}.done.tmp`, `${prefix}.done`);
+  };
+  if (!launch) {
+    await writeFile(`${prefix}.cancel`, "cancelled", { flag: "wx" }).catch((error) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+    const deadline = Date.now() + 5e3;
+    while (Date.now() < deadline) {
+      try {
+        const completed = JSON.parse(await readFile(`${prefix}.done`, "utf8"));
+        if (completed.pid && !completed.stopped) await stopGroup(completed.pid);
+        return 0;
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+      await delay(20);
+    }
+    throw new Error("Command cancellation was not acknowledged");
+  }
+  let stopping;
+  const cancelled = async () => {
+    try {
+      await readFile(`${prefix}.cancel`);
+      return true;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      return false;
+    }
+  };
+  if (await cancelled()) {
+    await complete({ stopped: true });
+    return 130;
+  }
+  const launched = await launchCommand(launch, true, true);
+  const pid = launched.child.pid;
+  const timer = setInterval(() => {
+    void cancelled().then((value) => {
+      if (value) stopping ??= stopGroup(pid);
+    }).catch(() => {
+      stopping ??= stopGroup(pid);
+    });
+    void stopping?.catch(() => {
+    });
+  }, 25);
+  try {
+    const exitCode = await launched.exited;
+    const requested = await cancelled();
+    if (stopping) await stopping;
+    else if (requested) await stopGroup(pid);
+    await complete({ pid, stopped: Boolean(stopping) || requested });
+    return exitCode;
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 // packages/ipd/src/environment/bridge/command.ts
+process.stdout.on("error", () => {
+});
+process.stderr.on("error", () => {
+});
 try {
   const request = decodeBridgeRequest(process.argv[2] ?? "");
-  if (request.operation === "hello") process.stdout.write(JSON.stringify({ version: BRIDGE_VERSION }));
-  else if (request.operation === "exec") process.exitCode = await (await launchCommand(request.launch, true)).exited;
+  if (request.operation === "hello")
+    process.stdout.write(JSON.stringify({ version: BRIDGE_VERSION, commandCancellation: true }));
+  else if (request.operation === "cancel_command") {
+    await controlledCommand(request.scratch, request.processId);
+    process.stdout.write(JSON.stringify({ stopped: true }));
+  } else if (request.operation === "exec")
+    process.exitCode = request.processId && request.scratch ? await controlledCommand(request.scratch, request.processId, request.launch) : await (await launchCommand(request.launch, true)).exited;
   else throw new Error("Command bridge only accepts exec or hello");
 } catch (error) {
   process.stderr.write(

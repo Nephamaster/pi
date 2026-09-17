@@ -405,9 +405,10 @@ export async function verifyEnvironmentProbes(
 		} catch (error) {
 			if (signal?.aborted)
 				throw new EnvironmentError("cancelled", "Environment preflight was cancelled", { cause: error });
+			if (error instanceof EnvironmentError) throw error;
 			throw new EnvironmentError(
 				"profile_incompatible",
-				`Environment probe failed through the Bash tool: ${probe.id}`,
+				`Environment probe failed through the Bash tool: ${probe.id}: ${error instanceof Error ? error.message : String(error)}`,
 				{ cause: error },
 			);
 		}

@@ -133,6 +133,17 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 			...(input.controlTools ?? []).map((tool) => tool.name),
 		]);
 		for (const id of allowedToolNames) {
+			if (
+				input.environmentTools &&
+				!BUILTIN_IO_TOOLS.has(id) &&
+				!backendTools.some((tool) => tool.name === id) &&
+				!input.controlTools?.some((tool) => tool.name === id) &&
+				input.participant.lockedTools.find((tool) => tool.id === id)?.execution !== "control_read"
+			)
+				throw new NodeWorkerError(
+					"configuration",
+					`Tool ${id} has no environment backend or trusted external-service authorization`,
+				);
 			if (!BUILTIN_IO_TOOLS.has(id)) continue;
 			if (legacy?.nativeFileTools && id !== "bash" && id !== "powershell") continue;
 			if (!backendTools.some((tool) => tool.name === id))

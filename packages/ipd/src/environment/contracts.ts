@@ -12,6 +12,7 @@ export const ENVIRONMENT_ERROR_CODES = [
 	"path_not_found",
 	"cancelled",
 	"external_outcome_unknown",
+	"output_limit",
 ] as const;
 
 export type EnvironmentErrorCode = (typeof ENVIRONMENT_ERROR_CODES)[number];
@@ -44,6 +45,8 @@ export interface SkillEnvironmentRequirements {
 	commands: string[];
 	network?: "none" | "restricted";
 	probes?: EnvironmentProbe[];
+	/** Project dependencies may be prepared by the Agent; checked before artifact export. */
+	projectProbes?: EnvironmentProbe[];
 }
 
 export interface EnvironmentProbe {
@@ -247,6 +250,20 @@ export type EnvironmentStaticAsset =
 export interface PreparedEnvironment {
 	providerHandle: string;
 	image?: DockerImageIdentity;
+}
+
+/** Preparation failed, but cleanup still owns a possibly live external resource. */
+export class EnvironmentPreparationError extends EnvironmentError {
+	readonly prepared: PreparedEnvironment;
+	constructor(prepared: PreparedEnvironment, cause: unknown) {
+		const errors = cause instanceof AggregateError ? cause.errors : [cause];
+		super(
+			"external_outcome_unknown",
+			`Environment preparation failed and cleanup remains pending: ${errors.map((error) => (error instanceof Error ? error.message : String(error))).join("; ")}`,
+			{ cause },
+		);
+		this.prepared = prepared;
+	}
 }
 
 export interface EnvironmentProgressReference {

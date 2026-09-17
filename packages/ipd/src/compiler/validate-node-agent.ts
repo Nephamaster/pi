@@ -156,7 +156,11 @@ export function validateNodeAgent(
 			"External actions exceed AgentCard permissions",
 			node.node_id,
 		);
-	if (node.kind === "review" && (agent.permissions.write_paths.length > 0 || agent.permissions.external_actions))
+	const privateReview = node.kind === "review" && usesPrivateNodeWorkspaces(catalog);
+	if (
+		node.kind === "review" &&
+		((agent.permissions.write_paths.length > 0 && !privateReview) || agent.permissions.external_actions)
+	)
 		addDiagnostic(
 			diagnostics,
 			"review_not_read_only",
@@ -164,7 +168,11 @@ export function validateNodeAgent(
 			"Review participants must be read-only and cannot perform external actions",
 			node.node_id,
 		);
-	if (node.kind === "review" && agent.tools.some((tool) => ["write", "edit", "bash", "powershell"].includes(tool.id)))
+	if (
+		node.kind === "review" &&
+		!privateReview &&
+		agent.tools.some((tool) => ["write", "edit", "bash", "powershell"].includes(tool.id))
+	)
 		addDiagnostic(
 			diagnostics,
 			"review_mutation_tool_forbidden",

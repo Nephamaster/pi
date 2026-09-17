@@ -226,8 +226,10 @@ export class NodeSessionAdapter<TCreateInput, TState = never> {
 	}
 
 	async stop(runId: string, nodeId: string, participantId: string, roundId: string): Promise<void> {
-		const record = this.requireBinding(runId, nodeId, participantId);
-		if (record.active?.roundId !== roundId)
+		// Runtime owns the whole round; an idle/not-yet-created model has nothing to abort.
+		const record = this.bindings.get(bindingKey(runId, nodeId, participantId));
+		if (!record?.active) return;
+		if (record.active.roundId !== roundId)
 			throw new Error(`Round ${roundId} is not active on ${runId}/${nodeId}/${participantId}`);
 		record.active.cancelled = true;
 		await record.session?.abort();

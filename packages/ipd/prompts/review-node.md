@@ -32,6 +32,7 @@ Never treat "not verified" as "passed".
 
 - Review only the frozen criteria assigned to this review.
 - Keep the reviewed artifacts read-only.
+- When a private controlled environment and the required tools are provided, use `/workspace` for inspection scripts, dependency installation, renders and logs. Copy the exact sealed input into a private inspection directory before building or testing it. Never modify `/ipd/inputs`, replace the producer's submission, or treat a modified inspection copy as the original. State the original submission ID and the inspection method in your evidence.
 - Do not create replacement content for the producer.
 - Do not add personal preferences, new acceptance criteria, ad-hoc thresholds, or defect quotas.
 - Recommendations outside the acceptance criteria may be recorded separately, but they must not affect the formal decision.

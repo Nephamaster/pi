@@ -335,4 +335,97 @@ describe("runtime input and approval semantics", () => {
 		});
 		expect(runIsComplete(state)).toBe(false);
 	});
+
+	it("closes joint approval revocation over completed and active consumers, preserving independent approvals", () => {
+		const { state, submission: a } = fixtureState();
+		const baseline = structuredClone(state.baseline!);
+		state.baseline = baseline;
+		const b = {
+			...structuredClone(a),
+			submissionId: "B1",
+			nodeId: "B",
+			outputs: [a.outputs[0]],
+			status: "approved" as const,
+		};
+		state.submissions.push(b);
+		const producer = structuredClone(baseline.nodes[0]);
+		producer.definition.node_id = "B";
+		baseline.nodes.push(producer);
+		baseline.workflow.nodes.push(producer.definition);
+		baseline.graph.reviewsByOutput["B/content-output"] = ["joint", "independent"];
+		state.nodes.push({ nodeId: "B", kind: "execution", status: "succeeded", nextRound: 2 });
+		for (const reviewer of ["joint", "independent"]) {
+			state.reviews.push(
+				activeReview(
+					reviewer,
+					reviewer,
+					reviewer === "joint" ? [a.submissionId, b.submissionId] : [b.submissionId],
+				),
+			);
+			state.approvals.push({
+				approvalId: reviewer,
+				reviewId: reviewer,
+				reviewNodeId: reviewer,
+				submissionId: b.submissionId,
+				outputId: "content-output",
+				criterionIds: ["quality"],
+				status: "active",
+				createdAt: 1,
+			});
+		}
+		for (const id of ["C", "active", "independent-consumer"]) {
+			const consumer = consumerNode("B", [id === "independent-consumer" ? "independent" : "joint"]);
+			consumer.definition.node_id = id;
+			baseline.nodes.push(consumer);
+			baseline.workflow.nodes.push(consumer.definition);
+			state.nodes.push({
+				nodeId: id,
+				kind: "execution",
+				status: id === "C" ? "succeeded" : "active",
+				nextRound: 2,
+				...(id !== "C" ? { activeRoundId: `${id}:1` } : {}),
+			});
+			state.rounds.push({
+				roundId: `${id}:1`,
+				nodeId: id,
+				index: 1,
+				status: id === "C" ? "submitted" : "active",
+				inputSubmissionIds: [b.submissionId],
+				inputBindings: resolveInputBindings(consumer, state).map(
+					({ submission: _submission, ...binding }) => binding,
+				),
+				startedAt: 1,
+			});
+		}
+		const c = {
+			...structuredClone(b),
+			nodeId: "C",
+			submissionId: "C1",
+			roundId: "C:1",
+			inputSubmissionIds: [b.submissionId],
+		};
+		state.submissions.push(c);
+		baseline.graph.reviewsByOutput["C/content-output"] = ["review-C"];
+		state.reviews.push(activeReview("review-C", "review-C", [c.submissionId]));
+		state.approvals.push({
+			approvalId: "C-approval",
+			reviewId: "review-C",
+			reviewNodeId: "review-C",
+			submissionId: c.submissionId,
+			outputId: "content-output",
+			criterionIds: ["quality"],
+			status: "active",
+			createdAt: 1,
+		});
+		const d = consumerNode("C", ["review-C"]);
+		d.definition.node_id = "D";
+		state.nodes.push({ nodeId: "D", kind: "execution", status: "waiting", nextRound: 1 });
+		expect(nodeIsReady(d, state)).toBe(true);
+		expect(invalidateFromNode(state, "produce")).toEqual([{ nodeId: "active", roundId: "active:1" }]);
+		expect(c.status).toBe("stale");
+		expect(state.reviews.find((review) => review.reviewId === "review-C")?.status).toBe("stale");
+		expect(nodeIsReady(d, state)).toBe(false);
+		expect(state.rounds.find((round) => round.nodeId === "independent-consumer")?.status).toBe("active");
+		expect(b.status).toBe("candidate");
+	});
 });

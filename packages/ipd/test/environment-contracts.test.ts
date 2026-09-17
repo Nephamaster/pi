@@ -35,6 +35,54 @@ function profile(id: string, commands: string[] = []) {
 }
 
 describe("environment contracts", () => {
+	it("permits private Docker review checks and explicitly registered external read tools, but not a host fallback", () => {
+		const fixture = createCompilerFixture();
+		const reviewer = fixture.workflow.nodes[1].agents[0];
+		reviewer.tools = [{ id: "bash" }, { id: "web_search" }];
+		fixture.assets.agentCards = fixture.assets.agentCards.map((card) =>
+			card.id === "reviewer" ? { ...card, tools: ["bash", "web_search"] } : card,
+		);
+		const docker = {
+			...profile("private"),
+			provider: "docker",
+			supportedTools: ["bash"],
+			image: { reference: "example", contentId: `sha256:${"a".repeat(64)}`, platform: "linux/amd64" },
+		};
+		const tools = [
+			{ id: "bash", hash: "a".repeat(64), source: "native" },
+			{ id: "web_search", hash: "b".repeat(64), source: "pi-registry", execution: "control_read" as const },
+		];
+		const assets = {
+			...fixture.assets,
+			tools,
+			environmentProfiles: registerExecutionProfiles([docker]),
+			environmentPolicy: { allowedProfiles: [{ id: "private", version: "1.0.0" }] },
+		};
+		expect(compileWorkflow({ ...fixture, assets }).ok).toBe(true);
+		expect(
+			compileWorkflow({
+				...fixture,
+				assets: { ...assets, tools: tools.map(({ execution: _execution, ...tool }) => tool) },
+			}).ok,
+		).toBe(false);
+		expect(
+			compileWorkflow({
+				...fixture,
+				assets: {
+					...assets,
+					environmentProfiles: registerExecutionProfiles([{ ...profile("private"), supportedTools: ["bash"] }]),
+				},
+			}).ok,
+		).toBe(false);
+	});
+	it("declares project probes separately from base-image preflight", () => {
+		const requirements = parseSkillEnvironmentRequirements(
+			"---\nenvironment-requirements:\n  schema-version: 1\n  project-probes:\n    - id: project-library\n      version: 1.0.0\n      command: [node, -e, \"require('is-number')\"]\n      timeoutSeconds: 10\n---\n",
+			"project",
+		);
+		expect(requirements?.probes).toBeUndefined();
+		expect(requirements?.projectProbes?.[0].id).toBe("project-library");
+	});
 	it("parses and validates structured Skill environment requirements", () => {
 		const parsed = parseSkillEnvironmentRequirements(
 			`---

@@ -41,7 +41,12 @@ function permissions(node: EffectiveNode, environment?: EnvironmentBinding): str
 		.join("\n\n");
 	if (!environment) return declared;
 	const layout = resolveEnvironmentLayout(environment.paths);
-	return `${declared}\n\n### Controlled Environment Layout\n\n- Default working directory: \`${layout.defaultCwd}\`\n- Node-private writable workspace: \`${environment.paths.workspace}\`\n- Read-only task data: \`${environment.paths.context}\`, \`${environment.paths.skills}\`, \`${environment.paths.inputs}\`\n- Export root: \`${layout.exportRoot}\`; only files declared by an output contract can be sealed\n- Runtime-private support paths: \`${environment.paths.scratch}\`, \`${environment.paths.cache}\`, \`${environment.paths.home}\`, \`${environment.paths.temporary}\` (never exported by default)`;
+	return `${declared}\n\n### Controlled Environment Layout\n\n- Default working directory: \`${layout.defaultCwd}\`\n- Node-private writable workspace: \`${environment.paths.workspace}\`\n- Read-only task data: \`${environment.paths.context}\`, \`${environment.paths.skills}\`, \`${environment.paths.inputs}\`\n- Export root: \`${layout.exportRoot}\`; only files declared by an output contract can be sealed\n- Runtime-private support paths: \`${environment.paths.scratch}\`, \`${environment.paths.cache}\`, \`${environment.paths.home}\`, \`${environment.paths.temporary}\` (never exported by default)
+- Network: ${environment.network.mode === "restricted" ? `HTTP/HTTPS through the enforced proxy; allowed hosts: ${environment.network.allowedEndpoints.join(", ")}` : "container egress disabled; separately authorized Pi service tools may still be available"}.
+- Project dependencies may be installed in /workspace using npm or a private Python virtual environment (python3 -m venv --system-site-packages /workspace/.venv). Use the chosen interpreter explicitly in later commands. Keep dependency lockfiles or installed version records. Preserve the configured proxy variables; never modify host or global system packages.
+- Intermediate files need no Artifact declaration. Reviews may build/test an inspection copy under /workspace when the required tools are authorized; sealed inputs remain read-only.
+- Command failures are feedback to repair locally. Use managed process tools for persistent services. Pause stops processes but retains files and the original Session; restart services after resume.
+- Project dependency checks required before submission: ${node.agents.flatMap((agent) => agent.lockedSkills.flatMap((skill) => (skill.environmentRequirements?.projectProbes ?? []).map((probe) => `${skill.id}:${probe.id}`))).join(", ") || "none declared"}.`;
 }
 
 function inputs(node: EffectiveNode): string {

@@ -8,6 +8,8 @@
 
 ### Added
 
+- Added explicit proxy-only public egress, authorized reuse of registered Pi read-service tools, private Docker review checks, and deferred project-dependency probes.
+
 - Added content-addressed static Run snapshots, revision-aware dashboard caching, typed esbuild dashboard assets, and packed-entry verification in the root build workflow.
 - Added template evidence prerequisites and metadata-only Pi telemetry spans with native Session timing.
 
@@ -45,7 +47,7 @@
   diagnostics.
 - Changed Process Selector startup to bind and explicitly load the packaged `process-selection` Skill.
 - Changed default Tool asset discovery to use only ToolDefinitions exposed by the active Pi registry.
-- Changed review-node permissions to reject write, edit, Bash, and PowerShell tools.
+- Changed shared-workspace review permissions to reject mutation/Shell tools; Docker reviews may use authorized tools in their private inspection workspace.
 - Reduced IPD Run creation input to request ID, Skill name, the verbatim user task, and optional user-supplied task
   materials; derived objectives, requirements, and unresolved facts now start empty instead of being authored by the outer Agent.
 - Changed Review submissions to bind evidence and criterion-level rework to exact Submission node/output identities.
@@ -55,6 +57,9 @@
 - Changed the Dashboard task panel to use 12px text and expand its scroll viewport to the full card height.
 
 ### Fixed
+
+- Closed joint-approval invalidation over downstream work, cancelled entire business rounds during export/check, isolated command timeouts from other services, and retained provisional environment ownership after failed cleanup.
+- Separated file transport limits from management responses, bounded search inside containers, aligned CI to Node 24, and added clean tarball installation verification.
 
 - Unified command, log, managed-process and probe environments; preserved Profile interpreter selection without login shell overrides.
 - Retained ownership of blocked Runs, bounded cancellation and cleanup, and fenced late submissions by execution generation without consuming quality rework rounds.

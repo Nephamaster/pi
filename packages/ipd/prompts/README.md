@@ -11,6 +11,11 @@
 
 外层 Pi 不是内部员工，只负责通过 `ipd` 创建 Run，并可用只读工具查询状态、事件和结果。
 
+2026-09-17 执行环境补充：Docker 节点 cwd 为 `/workspace`，四个冻结上下文文件位于 `/ipd/context`，输入位于 `/ipd/inputs/<input-id>`，Skill 位于 `/ipd/skills/<id>/<hash>`。下文旧 `/virtual/ipd/...` 和 Run 宿主路径示例仅表示装配结构，不是当前容器访问路径；旧 schema 示例不能直接作为当前工具参数。
+节点契约中的 `Controlled Environment Layout` 还包含冻结的网络策略、项目内 npm/venv 安装指引、提交前 project-probes、评审副本权限和暂停后重启服务的说明。它们不改变标准或交付范围。
+
+例如，Docker 评审 Session 绑定 `read/bash/write/submit_review` 时，模型可在 `/workspace/check` 复制和构建 `/ipd/inputs/candidate` 的内容，并把检查日志保存在私有工作区；原输入仍只读，结论必须引用其原 Submission ID。只有明确绑定的工具会出现。经可信配置授权的 `web_search` 等外部只读服务沿用 Pi 注册的完整 Schema/实现，不由 IPD 生成或替换搜索服务，也不受容器断网策略等同约束。
+
 ---
 
 ## 1. 先理解一条总公式
@@ -234,7 +239,7 @@ references 仍由角色按需 `read`。
 | Process Selector | common + ST role + selector protocol | TaskInput | `search_process_specs`, `get_process_spec`, `submit_process_selection` | 当前选择过程内复用 |
 | Workflow Designer | common + Project Shepherd role + designer protocol | TaskInput + ProcessSelection + ProcessSpec + asset summary | draft tools + AgentCard catalog | 是，Compiler 修订继续原 Session |
 | Execution Node | common + Task Scope + Node Contract + role + execution protocol | `node_round_dispatch` + `ipd_current_round` | 业务 tools + `submit_artifact` + `report_node_blocked` | 是，补正/返工/技术重试复用 |
-| Review Node | common + Task Scope + Review Contract + role + review protocol | `node_round_dispatch` + `ipd_current_round` | 只读 tools + `submit_review` | 是，新 Submission 复审继续原 Session |
+| Review Node | common + Task Scope + Review Contract + role + review protocol | `node_round_dispatch` + `ipd_current_round` | 授权检查 tools + `submit_review` | 是，新 Submission 复审继续原 Session |
 
 下面逐类展开。
 
@@ -514,7 +519,7 @@ Runtime 将该 round 和 node 正式记录为 blocked。
 - malformed submission → 同 round `submission_correction`；
 - mechanical FAIL → 新 round `mechanical_failure`；
 - Review REWORK → 新 round `quality_rework`；
-- transient technical failure → 同 round `technical_retry`。
+- 模型请求重试由原生 Pi 管理；耗尽后的技术故障暂停 Run，显式恢复原 Session/round，不注入第二套 `technical_retry`。
 
 这四者不要混用。
 
@@ -547,9 +552,9 @@ cwd
 - semantic criteria；
 - allowed rework execution nodes；
 - review requirements / constraints；
-- 只读权限。
+- 被评输入只读、私有检查目录可写的环境权限，以及实际绑定的检查工具。
 
-Review 节点不获得 write/edit/bash/powershell。
+Docker Review 可以获得 AgentCard 和 Workflow 共同授权且后端支持的 write/edit/bash 工具，用于私有检查副本；不允许修改被评提交或执行外部写操作。Legacy 共享工作区仍禁止上述工具。
 
 ### 10.2 当前 round
 
@@ -581,7 +586,7 @@ Reviewer 检查 sealed Submission，而不是生产节点 workspace 中仍可变
 正式工具只有：
 
 ```text
-<Baseline 锁定的只读业务工具>
+<Baseline 锁定的检查工具；Docker 可含私有工作区文件和 Bash 工具>
 submit_review
 ```
 
@@ -601,7 +606,7 @@ submit_review
 |---|---|---|---|---|
 | 首次 execution/review | 新建 | 新建 | 创建并固定 | 当前输入 + 空 feedback |
 | 提交协议补正 | 复用 | 不变 | 不变 | 追加 `submission_correction` |
-| transient 技术重试 | 复用 | 不变 | 不变 | 追加 `technical_retry` |
+| 原生 Pi 模型重试 | 复用 | 不变 | 不变 | 不额外追加 IPD 重试反馈 |
 | Mechanical FAIL | 复用 | 新 round | 不变 | `mechanical_failure` |
 | Review REWORK 后返工 | 复用 execution Session | 新 round | 不变 | `quality_rework` |
 | 新 Submission 复审 | 复用 reviewer Session | 新 round | 不变 | 指向新 Submission |
@@ -630,15 +635,7 @@ IPD 不自己重写 Pi 的 Session History，也不建立第二套 memory 系统
 
 正式输入和 evidence 保存在 sealed Submission 中；即便对话历史被压缩，模型仍可通过 `submission_record` 回到正式源。
 
-旧 toolResult 中已经被后续成功 assistant response 消费过的图片，会在后续 Provider 请求副本里替换为：
-
-```text
-<omitted_historical_image>
-Image content already consumed by a later assistant response; omitted from this model request.
-</omitted_historical_image>
-```
-
-这只优化 Provider 请求体，不修改 Session 磁盘记录，也不删除 Artifact/Submission/evidence。
+历史图片、重试和上下文压缩由原生 Pi 管理。IPD 不再根据后续 assistant 回复推断图片已被消费或自行删除图片；当前 round 投影仅追加到本次请求副本。
 
 ---
 
@@ -1107,7 +1104,7 @@ Begin IPD work round review-brief:round:1.
 Provider tools：
 
 ```text
-<Baseline 锁定的只读业务工具>
+<Baseline 锁定的检查工具；Docker 可含私有工作区文件和 Bash 工具>
 submit_review
 ```
 
@@ -1158,7 +1155,7 @@ IPD Tool 的返回文本也使用稳定标签：
 - Process Selector / Workflow Designer 没有 `ipd_current_round`；它们用自己的持续 Session 和控制消息。
 - Execution 已有正式 `report_node_blocked` 业务阻塞接口；Review 仍使用 `submit_review` 的 `BLOCKED` 表达评审阻塞。
 - 当前进程退出后无法恢复原存活 AgentSession；磁盘状态不等于 Session 连续性。
-- Bash 系统级隔离依赖外部 sandbox；Review 已禁止通用 Shell。
+- 默认 Bash 使用 Docker 私有环境；Review 可运行授权检查，原提交保持只读。Legacy 需要显式启用，不作为 Docker 失败的降级路径。
 - 生产环境当前不永久保存完整 Provider PromptTrace；测试通过 faux Provider 检查最终 `systemPrompt/messages/tools`。
 
 ---

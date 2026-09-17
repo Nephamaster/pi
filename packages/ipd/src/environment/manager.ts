@@ -7,6 +7,7 @@ import {
 	type EnvironmentInputBinding,
 	type EnvironmentLease,
 	type EnvironmentOperation,
+	EnvironmentPreparationError,
 	type EnvironmentProgressReference,
 	type EnvironmentProvider,
 	type EnvironmentStaticAsset,
@@ -103,6 +104,11 @@ export class EnvironmentManager {
 				lease.state = "ready";
 				return lease;
 			} catch (error) {
+				if (error instanceof EnvironmentPreparationError) {
+					lease.providerHandle = error.prepared.providerHandle;
+					lease.state = "disposing";
+					throw error;
+				}
 				if (prepared) {
 					lease.state = "disposing";
 					// Keep the known handle registered if cleanup fails; releaseRun can retry it.

@@ -126,7 +126,7 @@ Each output includes:
 - `evidence_requirements`;
 - `criterion_refs`.
 
-`path_prefix` is a relative path under the shared Run workspace, not the sealed Submission directory.
+`path_prefix` is relative to the node's business workspace (`/workspace` in Docker), not the sealed Submission directory.
 
 Use normalized relative paths:
 
@@ -141,14 +141,23 @@ outputs/<node_id>
 
 Different execution-node write roots must not be equal or parent/child of one another.
 
-Review nodes must use:
+Review nodes always require `external_actions = false`. In legacy shared-workspace mode they must use:
 
 ```text
 write_paths = []
 external_actions = false
 ```
 
-If tests, renders, caches, or review-support derivatives require writing files, assign that work to a writable execution node instead of widening Reviewer permissions.
+Docker reviews have a private inspection workspace and read-only sealed inputs. Bind available AgentCard-authorized
+write/edit/Bash or managed-process tools when independent tests or renders require them. The Reviewer may copy the exact
+input into `/workspace/check` and inspect that copy, but must not change the original submission or replace the producer's
+delivery. Record which submission and checking method the conclusion covers. Do not create a separate production node
+solely because an independent check needs temporary files.
+
+Use the resource catalog's environment capabilities and network policy. Registered external read services are explicitly
+identified separately from container tools; bind their real names and do not invent a search/fetch implementation. A missing
+project npm/Python dependency can be installed privately when its software source is authorized. Missing promised base-image
+software is a platform configuration issue, not a reason to change task acceptance criteria.
 
 ## 4. Criteria, Review, and Rework
 

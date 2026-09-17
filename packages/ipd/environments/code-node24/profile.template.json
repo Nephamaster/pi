@@ -29,6 +29,7 @@
     { "id": "node", "version": "1.0.0", "command": ["node", "--version"], "timeoutSeconds": 10 },
     { "id": "git", "version": "1.0.0", "command": ["git", "--version"], "timeoutSeconds": 10 },
     { "id": "python", "version": "1.0.0", "command": ["python3", "--version"], "timeoutSeconds": 10 },
+    { "id": "python-venv", "version": "1.0.0", "command": ["python3", "-c", "import venv, ensurepip"], "timeoutSeconds": 10 },
     { "id": "ripgrep", "version": "1.0.0", "command": ["rg", "--version"], "timeoutSeconds": 10 }
   ],
   "paths": {

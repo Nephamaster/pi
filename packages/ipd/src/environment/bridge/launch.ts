@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import type { CommandLaunch } from "./protocol.ts";
 
 /** One argv/cwd/environment contract for Bash, full logs, managed commands and probes. */
-export async function launchCommand(launch: CommandLaunch, emit: boolean) {
+export async function launchCommand(launch: CommandLaunch, emit: boolean, detached = false) {
 	if (launch.logPath) await mkdir(dirname(launch.logPath), { recursive: true });
 	const log = launch.logPath ? await open(launch.logPath, "w", 0o600) : undefined;
 	const marker = Buffer.from("\n[Output truncated at the environment log limit]\n").subarray(0, launch.maxLogBytes);
@@ -14,6 +14,7 @@ export async function launchCommand(launch: CommandLaunch, emit: boolean) {
 		cwd: launch.cwd,
 		env: launch.environment,
 		stdio: ["inherit", "pipe", "pipe"],
+		detached,
 	});
 	let writes = Promise.resolve();
 	const collect = (data: Buffer, stream: NodeJS.WriteStream) => {

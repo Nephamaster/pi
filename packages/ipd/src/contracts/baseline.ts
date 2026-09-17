@@ -47,6 +47,8 @@ export interface LockedSkill {
 }
 
 export interface LockedTool {
+	/** Trusted registration of a read-only external service; not a container filesystem tool. */
+	execution?: "control_read";
 	id: string;
 	hash: string;
 	source: string;

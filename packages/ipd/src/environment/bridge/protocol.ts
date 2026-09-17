@@ -11,10 +11,20 @@ export interface CommandLaunch {
 
 export type BridgeRequest = { version: 1 } & (
 	| { operation: "hello" }
-	| { operation: "exec"; launch: CommandLaunch }
+	| { operation: "exec"; launch: CommandLaunch; scratch?: string; processId?: string }
+	| { operation: "cancel_command"; scratch: string; processId: string }
 	| { operation: "start" | "run"; scratch: string; processId: string; launch: CommandLaunch }
 	| { operation: "status" | "stop"; scratch: string; processId: string }
 	| { operation: "read" | "write" | "list" | "stat" | "mkdir"; path: string; offset?: number; length?: number }
+	| {
+			operation: "search" | "find";
+			path: string;
+			pattern: string;
+			glob?: string;
+			maxResults?: number;
+			ignoreCase?: boolean;
+			literal?: boolean;
+	  }
 );
 
 function absolute(value: unknown): value is string {
@@ -28,11 +38,23 @@ export function decodeBridgeRequest(raw: string): BridgeRequest {
 	if (!request || typeof request !== "object") throw new Error("Invalid bridge request");
 	const value = request as Record<string, unknown>;
 	if (value.version !== BRIDGE_VERSION) throw new Error("Unsupported bridge protocol version");
-	if (["start", "run", "status", "stop"].includes(String(value.operation))) {
+	if (
+		["start", "run", "status", "stop", "cancel_command"].includes(String(value.operation)) ||
+		(value.operation === "exec" && value.processId !== undefined)
+	) {
 		if (!absolute(value.scratch) || typeof value.processId !== "string" || !/^[a-f0-9-]{36}$/.test(value.processId))
 			throw new Error("Invalid managed process identity");
-	} else if (["read", "write", "list", "stat", "mkdir"].includes(String(value.operation))) {
+	} else if (["read", "write", "list", "stat", "mkdir", "search", "find"].includes(String(value.operation))) {
 		if (!absolute(value.path)) throw new Error("Invalid bridge file path");
+		if (
+			["search", "find"].includes(String(value.operation)) &&
+			(typeof value.pattern !== "string" ||
+				(value.maxResults !== undefined &&
+					(!Number.isInteger(value.maxResults) ||
+						Number(value.maxResults) < 1 ||
+						Number(value.maxResults) > 10000)))
+		)
+			throw new Error("Invalid search request");
 		if (value.offset !== undefined && (!Number.isSafeInteger(value.offset) || Number(value.offset) < 0))
 			throw new Error("Invalid file offset");
 		if (

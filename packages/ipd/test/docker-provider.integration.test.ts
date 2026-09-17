@@ -13,11 +13,14 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PiNodeWorker } from "../src/adapter/pi-node-worker.ts";
+import { compileWorkflow, type NodeRoundWork } from "../src/index.ts";
 import {
 	createEnvironmentBinding,
 	createEnvironmentToolDefinitions,
 	DockerCli,
 	DockerEnvironmentProvider,
+	EnvironmentError,
 	EnvironmentManager,
 	hashEnvironmentSource,
 	hashSkillPackage,
@@ -25,6 +28,7 @@ import {
 	parseSkillEnvironmentRequirements,
 	verifyEnvironmentProbes,
 } from "../src/workspace.ts";
+import { createCompilerFixture } from "./fixtures.ts";
 
 const integrationEnabled = process.env.PI_IPD_DOCKER_INTEGRATION === "1";
 const environmentsRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "environments");
@@ -94,8 +98,133 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			inputs: [],
 			allowedOperations: ["read", "write", "exec", "process", "export"],
 		});
-		return { manager, provider, lease, round, skillRoot, skillPath: `/ipd/skills/smoke/${skillHash}` };
+		return { manager, provider, lease, round, registered, skillRoot, skillPath: `/ipd/skills/smoke/${skillHash}` };
 	}
+
+	it("lets the real node Session repair a project dependency before export without failing preparation", async () => {
+		const current = await environment("code-node24");
+		const faux = registerFauxProvider();
+		let worker: PiNodeWorker | undefined;
+		try {
+			const model = faux.getModel();
+			const modelRuntime = await ModelRuntime.create({
+				authPath: join(root, "project-auth.json"),
+				modelsPath: null,
+				refreshOnCreate: false,
+			});
+			modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: model.api, models: [model] });
+			await modelRuntime.setRuntimeApiKey(model.provider, "faux-key");
+			const fixture = createCompilerFixture();
+			fixture.assets.agentCards = fixture.assets.agentCards.map((card) =>
+				card.id === "producer" ? { ...card, tools: ["read", "bash"] } : card,
+			);
+			fixture.assets.tools = ["read", "bash"].map((id) => ({ id, hash: "a".repeat(64), source: "pi-native" }));
+			fixture.assets.skills = [
+				{
+					id: "smoke",
+					hash: await hashSkillPackage(current.skillRoot),
+					source: "test",
+					filePath: join(current.skillRoot, "SKILL.md"),
+					baseDir: current.skillRoot,
+					description: "Project setup test",
+					allowedTools: ["bash"],
+					environmentRequirements: {
+						schemaVersion: 1,
+						capabilities: [],
+						commands: [],
+						projectProbes: [
+							{
+								id: "dependency-ready",
+								version: "1.0.0",
+								command: ["/usr/bin/test", "-f", "/workspace/dependency-ready"],
+								timeoutSeconds: 10,
+							},
+						],
+					},
+				},
+			];
+			fixture.workflow.nodes[0].agents[0].tools = [{ id: "read" }, { id: "bash" }];
+			fixture.workflow.nodes[0].agents[0].skills = [{ id: "smoke" }];
+			const compiled = compileWorkflow({
+				...fixture,
+				assets: {
+					...fixture.assets,
+					environmentProfiles: [current.registered],
+					environmentPolicy: { allowedProfiles: [current.registered.ref] },
+				},
+			});
+			if (!compiled.ok) throw new Error(JSON.stringify(compiled.report.diagnostics));
+			worker = new PiNodeWorker({
+				agentDir: root,
+				workspace: root,
+				sessionDirectory: join(root, "project-sessions"),
+				modelRuntime,
+				model,
+				thinkingLevel: "off",
+				environmentManager: current.manager,
+			});
+			const work: NodeRoundWork = {
+				runId: "run-code-node24",
+				roundId: "project-round",
+				node: compiled.baseline.nodes[0],
+				inputSubmissions: [],
+				inputBindings: [],
+				taskContext: { materials: [], unresolvedFacts: [] },
+				forbiddenMutableReadPaths: [],
+				feedback: [],
+				environmentBinding: compiled.baseline.environmentBindings[0],
+			};
+			await worker.prepareRound(work);
+			const submitted = {
+				summary: "candidate",
+				outputs: [
+					{
+						output_id: "content-output",
+						files: [{ path: "outputs/produce/result.txt", media_type: "text/plain" }],
+					},
+				],
+				evidence: [],
+				metadata: {},
+			};
+			faux.setResponses([
+				fauxAssistantMessage(
+					fauxToolCall("bash", {
+						command: "mkdir -p outputs/produce; printf result > outputs/produce/result.txt",
+					}),
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage(fauxToolCall("submit_artifact", submitted), { stopReason: "toolUse" }),
+				fauxAssistantMessage(fauxToolCall("bash", { command: "touch dependency-ready" }), {
+					stopReason: "toolUse",
+				}),
+				fauxAssistantMessage(fauxToolCall("submit_artifact", submitted), { stopReason: "toolUse" }),
+			]);
+			await worker.runExecution(work);
+			const original = worker.inspectRun(work.runId).find((reference) => reference.sessionId)?.sessionId;
+			await expect(worker.exportSubmission(work, submitted)).rejects.toThrow("Project dependencies are not ready");
+			await worker.runExecution({
+				...work,
+				feedback: [{ type: "submission_correction", issue: "Prepare the project dependency" }],
+			});
+			const exported = await worker.exportSubmission(work, submitted);
+			expect(await readFile(join(exported!, "outputs/produce/result.txt"), "utf8")).toBe("result");
+			expect(worker.inspectRun(work.runId).find((reference) => reference.sessionId)?.sessionId).toBe(original);
+			await rm(exported!, { recursive: true, force: true });
+			const exec = current.provider.exec;
+			current.provider.exec = async () => {
+				throw new EnvironmentError("environment_lost", "synthetic lost environment");
+			};
+			try {
+				await expect(worker.exportSubmission(work, submitted)).rejects.toMatchObject({ kind: "environment_lost" });
+			} finally {
+				current.provider.exec = exec;
+			}
+		} finally {
+			await worker?.releaseRun("run-code-node24");
+			await current.manager.releaseRun("run-code-node24");
+			faux.unregister();
+		}
+	}, 120_000);
 
 	it.each(["code-node24", "office-pptx"] as const)(
 		"ships the generated bridges unchanged in %s",
@@ -172,7 +301,22 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 					{ timeout: 10_000, interval: 100 },
 				)
 				.toMatchObject({ exitCode: 0 });
-			expect((await current.provider.stopProcess(current.lease, service)).state).toBe("stopped");
+			await expect(
+				current.provider.exec(current.lease, current.round, {
+					command: "sleep 60",
+					cwd: "/workspace",
+					timeoutSeconds: 0.2,
+				}),
+			).rejects.toMatchObject({ code: "process_timeout" });
+			expect((await current.provider.processStatus(current.lease, service)).state).toBe("running");
+			expect(
+				(
+					await current.provider.exec(current.lease, current.round, {
+						command: "node -e 'fetch(\"http://127.0.0.1:3010\").then(r=>{if(!r.ok)process.exit(1)})'",
+						cwd: "/workspace",
+					})
+				).exitCode,
+			).toBe(0);
 
 			process.env.IPD_SYNTHETIC_API_KEY = "must-not-reach-container";
 			const environmentOutput: Buffer[] = [];
@@ -193,6 +337,8 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			);
 			setTimeout(() => controller.abort(), 100);
 			await expect(longCommand).rejects.toMatchObject({ code: "cancelled" });
+			expect((await current.provider.processStatus(current.lease, service)).state).toBe("running");
+			expect((await current.provider.stopProcess(current.lease, service)).state).toBe("stopped");
 			expect(
 				(
 					await current.provider.readFile(current.lease, current.round, "/workspace/outputs/smoke/build.txt")
@@ -434,6 +580,32 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 				"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
 				"base64",
 			);
+			await current.provider.writeFile(
+				current.lease,
+				current.round,
+				"/workspace/large.txt",
+				Buffer.alloc(9 * 1024 * 1024, "x"),
+			);
+			expect((await current.provider.readFile(current.lease, current.round, "/workspace/large.txt")).length).toBe(
+				9 * 1024 * 1024,
+			);
+			await execute("bash", { command: "truncate -s 67108865 too-large.dat" });
+			await expect(
+				current.provider.readFile(current.lease, current.round, "/workspace/too-large.dat"),
+			).rejects.toMatchObject({ code: "output_limit" });
+			await current.provider.writeFile(
+				current.lease,
+				current.round,
+				"/workspace/many.txt",
+				Buffer.from("needle\n".repeat(100_000)),
+			);
+			expect(
+				await current.provider.search(current.lease, current.round, {
+					path: "/workspace/many.txt",
+					pattern: "needle",
+					maxResults: 5,
+				}),
+			).toHaveLength(5);
 			await current.provider.writeFile(current.lease, current.round, "/workspace/pixel.png", png);
 			const image = await execute("read", { path: "pixel.png" });
 			expect(image.content.some((item) => item.type === "image")).toBe(true);

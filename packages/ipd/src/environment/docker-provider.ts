@@ -17,6 +17,7 @@ import {
 	type EnvironmentExportResult,
 	type EnvironmentFileStat,
 	type EnvironmentLease,
+	EnvironmentPreparationError,
 	type EnvironmentProvider,
 	type EnvironmentSearchMatch,
 	type EnvironmentStaticAsset,
@@ -26,6 +27,7 @@ import {
 	throwIfAborted,
 } from "./contracts.ts";
 import type { DockerCommandRunner, DockerRunOptions, DockerRunResult } from "./docker-adapter.ts";
+import { DockerEgress } from "./docker-egress.ts";
 import {
 	assertVirtualExportAllowed,
 	assertVirtualPathAllowed,
@@ -42,6 +44,9 @@ const LEASE_ID = /^[a-f0-9-]{36}$/;
 const PROCESS_ID = /^[a-f0-9-]{36}$/;
 
 interface DockerLeaseState {
+	ready: boolean;
+	lost?: boolean;
+	egress?: DockerEgress;
 	containerName: string;
 	root: string;
 	contextRoot: string;
@@ -114,13 +119,12 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		requireLeaseId(request.leaseId);
 		if (request.binding.provider !== "docker" || !request.binding.image)
 			throw new EnvironmentError("profile_incompatible", "Docker Provider requires a locked Docker image identity");
-		if (request.binding.network.mode !== "none")
-			throw new EnvironmentError(
-				"profile_incompatible",
-				"Restricted egress is not implemented; this Provider only accepts network mode none",
-			);
 		const existing = this.leases.get(request.leaseId);
-		if (existing) return { providerHandle: existing.containerName, image: { ...request.binding.image } };
+		if (existing) {
+			if (!existing.ready)
+				throw new EnvironmentError("environment_lost", "Environment preparation or cleanup is incomplete");
+			return { providerHandle: existing.containerName, image: { ...request.binding.image } };
+		}
 
 		const inspection = await this.docker.run(
 			["image", "inspect", request.binding.image.reference, "--format", "{{.Id}}|{{.Os}}/{{.Architecture}}"],
@@ -142,6 +146,11 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 
 		const root = join(this.storageRoot, request.leaseId);
 		const state: DockerLeaseState = {
+			ready: false,
+			egress:
+				request.binding.network.mode === "restricted"
+					? new DockerEgress(this.docker, request.leaseId, this.controllerId)
+					: undefined,
 			containerName: `pi-ipd-${request.leaseId}`,
 			root,
 			contextRoot: join(root, "context"),
@@ -165,7 +174,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 				state.homeRoot,
 			].map((directory) => mkdir(directory, { recursive: true, mode: 0o700 })),
 		);
-		const environment = commandEnvironment(request.binding);
+		const environment = { ...commandEnvironment(request.binding), ...state.egress?.environment };
 		const runtimeUser = `${runtimeUid}:${runtimeGid}`;
 		const mount = (source: string, destination: string, readonly = false) =>
 			`type=bind,src=${source},dst=${destination}${readonly ? ",readonly" : ""}`;
@@ -184,7 +193,8 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			"--user",
 			runtimeUser,
 			"--network",
-			"none",
+			state.egress?.network ?? "none",
+			...(state.egress ? ["--dns", "127.0.0.1"] : []),
 			"--read-only",
 			"--cap-drop",
 			"ALL",
@@ -224,11 +234,11 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			"-c",
 			"trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done",
 		];
-		let created = false;
+		this.leases.set(request.leaseId, state);
 		try {
+			await state.egress?.prepare(request.binding, signal);
 			try {
 				await this.docker.run(createArgs, { signal });
-				created = true;
 			} catch (error) {
 				const recovery = await this.docker
 					.run(
@@ -254,7 +264,6 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 					recovery.exitCode === 0 &&
 					recovery.stdout.toString("utf8").trim() === `${this.controllerId}|${request.leaseId}`
 				) {
-					created = true;
 					if (signal?.aborted) throw error;
 				} else if (recovery.exitCode === 1) throw error;
 				else
@@ -285,7 +294,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			if (
 				hostConfig.ReadonlyRootfs !== true ||
 				hostConfig.Privileged !== false ||
-				hostConfig.NetworkMode !== "none" ||
+				hostConfig.NetworkMode !== (state.egress?.network ?? "none") ||
 				!hostConfig.CapDrop?.includes("ALL") ||
 				!hostConfig.SecurityOpt?.some((option) => option.startsWith("no-new-privileges")) ||
 				hostConfig.Memory !== request.binding.resources.memoryBytes ||
@@ -336,7 +345,11 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 				],
 				{ signal },
 			);
-			if (parseJson<{ version: number }>(hello.stdout, "bridge handshake").version !== BRIDGE_VERSION)
+			const handshake = parseJson<{ version: number; commandCancellation?: boolean }>(
+				hello.stdout,
+				"bridge handshake",
+			);
+			if (handshake.version !== BRIDGE_VERSION || !handshake.commandCancellation)
 				throw new EnvironmentError(
 					"profile_incompatible",
 					"Container bridge version does not match the host; rebuild the execution image",
@@ -353,14 +366,17 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 						`Environment probe failed: ${probe.id}@${probe.version} (exit ${result.exitCode})`,
 					);
 			}
-			this.leases.set(request.leaseId, state);
+			state.ready = true;
 			return { providerHandle: state.containerName, image: { ...request.binding.image } };
 		} catch (error) {
-			if (created)
-				await this.docker
-					.run(["rm", "--force", state.containerName], { acceptedExitCodes: [0, 1] })
-					.catch(() => {});
-			await rm(root, { recursive: true, force: true });
+			try {
+				await this.disposeLease(request.leaseId);
+			} catch (cleanupError) {
+				throw new EnvironmentPreparationError(
+					{ providerHandle: state.containerName, image: request.binding.image },
+					new AggregateError([error, cleanupError], "Preparation and cleanup failed"),
+				);
+			}
 			throw error;
 		}
 	}
@@ -370,6 +386,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		throwIfAborted(signal);
 		if (state.suspendedIdentity) {
 			await this.verifyResume(lease, state.suspendedIdentity, state.suspendedWorkspaceHash!, signal);
+			await state.egress?.resume(signal);
 			await this.docker.run(["start", state.containerName], { signal });
 			state.suspendedIdentity = undefined;
 		}
@@ -458,8 +475,10 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			if (!(name in state.binding.environment))
 				throw new EnvironmentError("policy_denied", `Command environment variable is not authorized: ${name}`);
 		}
+		const commandId = randomUUID();
 		try {
 			const result = await this.runCommand(state, shellArgv(request.command), {
+				commandId,
 				cwd,
 				environment: request.environment,
 				logPath: request.fullOutputPath
@@ -475,9 +494,43 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			return { exitCode: result.exitCode };
 		} catch (error) {
 			if (error instanceof EnvironmentError && ["cancelled", "process_timeout"].includes(error.code)) {
-				await this.docker.run(["kill", state.containerName], { acceptedExitCodes: [0, 1] }).catch(() => {});
-				await this.docker.run(["start", state.containerName], { acceptedExitCodes: [0, 1] }).catch(() => {});
-				for (const process of state.processes.values()) process.state = "lost";
+				try {
+					const stopped = await this.docker.run(
+						[
+							"exec",
+							state.containerName,
+							"/usr/local/bin/node",
+							"/usr/local/lib/pi-ipd/command-bridge.mjs",
+							encodeBridgeRequest({
+								version: BRIDGE_VERSION,
+								operation: "cancel_command",
+								scratch: state.binding.paths.scratch,
+								processId: commandId,
+							}),
+						],
+						{ timeoutMs: 10_000 },
+					);
+					if (parseJson<{ stopped?: boolean }>(stopped.stdout, "command stop acknowledgement").stopped !== true)
+						throw new Error("Command stop was not confirmed");
+				} catch (stopError) {
+					state.lost = true;
+					state.currentRound = undefined;
+					for (const process of state.processes.values()) process.state = "lost";
+					try {
+						await this.docker.run(["kill", state.containerName]);
+					} catch (killError) {
+						throw new EnvironmentError(
+							"external_outcome_unknown",
+							"Command and lease termination could not be confirmed",
+							{ cause: new AggregateError([stopError, killError]) },
+						);
+					}
+					throw new EnvironmentError(
+						"environment_lost",
+						"Command cancellation failed; the entire lease was terminated",
+						{ cause: stopError },
+					);
+				}
 			}
 			throw error;
 		}
@@ -564,30 +617,12 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 	): Promise<EnvironmentSearchMatch[]> {
 		const state = this.requiredActiveState(lease, binding, "read");
 		const target = assertVirtualPathAllowed(request.path, state.binding, "read");
-		const args = [
-			"rg",
-			"--json",
-			"--line-number",
-			...(request.ignoreCase ? ["--ignore-case"] : []),
-			...(request.literal ? ["--fixed-strings"] : []),
-			...(request.glob ? ["--glob", request.glob] : []),
-			"--",
-			request.pattern,
-			target,
-		];
-		const result = await this.runCommand(state, args, { signal, acceptedExitCodes: [0, 1] });
-		const matches: EnvironmentSearchMatch[] = [];
-		for (const line of result.stdout.toString("utf8").split("\n")) {
-			if (!line) continue;
-			const event = JSON.parse(line) as {
-				type: string;
-				data?: { path?: { text?: string }; line_number?: number; lines?: { text?: string } };
-			};
-			if (event.type !== "match" || !event.data?.path?.text) continue;
-			matches.push({ path: event.data.path.text, line: event.data.line_number, text: event.data.lines?.text });
-			if (matches.length >= (request.maxResults ?? 1000)) break;
-		}
-		return matches;
+		const result = await this.fileOperation(
+			state,
+			{ ...request, version: BRIDGE_VERSION, operation: "search", path: target },
+			signal,
+		);
+		return parseJson<EnvironmentSearchMatch[]>(result.stdout, "search results");
 	}
 
 	async findFiles(
@@ -598,28 +633,18 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 	): Promise<string[]> {
 		const state = this.requiredActiveState(lease, binding, "read");
 		const target = assertVirtualPathAllowed(request.path, state.binding, "read");
-		const result = await this.runCommand(
+		const result = await this.fileOperation(
 			state,
-			[
-				"rg",
-				"--files",
-				"--hidden",
-				"--glob",
-				request.glob,
-				"--glob",
-				"!**/node_modules/**",
-				"--glob",
-				"!**/.git/**",
-				"--",
-				target,
-			],
-			{ signal, acceptedExitCodes: [0, 1] },
+			{
+				version: BRIDGE_VERSION,
+				operation: "find",
+				path: target,
+				pattern: request.glob,
+				maxResults: request.maxResults,
+			},
+			signal,
 		);
-		return result.stdout
-			.toString("utf8")
-			.split("\n")
-			.filter(Boolean)
-			.slice(0, request.maxResults ?? 1000);
+		return parseJson<string[]>(result.stdout, "file search results");
 	}
 
 	async startProcess(
@@ -646,7 +671,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 					launch: {
 						argv: shellArgv(request.command),
 						cwd,
-						environment: commandEnvironment(state.binding),
+						environment: { ...commandEnvironment(state.binding), ...state.egress?.environment },
 						maxLogBytes: state.binding.resources.logBytes,
 					},
 				}),
@@ -848,6 +873,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			const identity = await this.inspectIdentity(lease, signal);
 			// Stop the container, including untracked descendants; keep its private bind mounts and identity.
 			await this.docker.run(["stop", "--time", "1", state.containerName], { signal });
+			await state.egress?.suspend();
 			state.suspendedIdentity = identity;
 			state.currentRound = undefined;
 			for (const process of state.processes.values()) process.state = "stopped";
@@ -905,20 +931,45 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		return identity;
 	}
 
-	async dispose(lease: EnvironmentLease, signal?: AbortSignal): Promise<void> {
-		const state = this.leases.get(lease.leaseId);
+	dispose(lease: EnvironmentLease, signal?: AbortSignal): Promise<void> {
+		return this.disposeLease(lease.leaseId, signal);
+	}
+
+	private async disposeLease(leaseId: string, signal?: AbortSignal): Promise<void> {
+		const state = this.leases.get(leaseId);
 		if (!state) return;
-		for (const process of state.processes.values()) await this.stopProcess(lease, process).catch(() => {});
-		await this.docker.run(["rm", "--force", state.containerName], { signal });
-		this.leases.delete(lease.leaseId);
+		const inspection = await this.docker.run(
+			[
+				"container",
+				"inspect",
+				state.containerName,
+				"--format",
+				'{{index .Config.Labels "pi.ipd.controller"}}|{{index .Config.Labels "pi.ipd.lease"}}',
+			],
+			{ signal, acceptedExitCodes: [0, 1] },
+		);
+		if (inspection.exitCode === 0) {
+			if (inspection.stdout.toString("utf8").trim() !== `${this.controllerId}|${leaseId}`)
+				throw new EnvironmentError("external_outcome_unknown", "Cannot confirm container ownership for cleanup");
+			await this.docker.run(["rm", "--force", state.containerName], { signal });
+		} else if (!/No such (object|container)/i.test(inspection.stderr.toString("utf8"))) {
+			throw new EnvironmentError("external_outcome_unknown", "Cannot confirm container absence for cleanup");
+		}
+		await state.egress?.dispose(signal);
 		await rm(state.root, { recursive: true, force: true });
+		this.leases.delete(leaseId);
 		throwIfAborted(signal);
 	}
 
 	private runCommand(
 		state: DockerLeaseState,
 		argv: string[],
-		options: DockerRunOptions & { cwd?: string; environment?: Record<string, string>; logPath?: string } = {},
+		options: DockerRunOptions & {
+			cwd?: string;
+			environment?: Record<string, string>;
+			logPath?: string;
+			commandId?: string;
+		} = {},
 	): Promise<DockerRunResult> {
 		return this.docker.run(
 			[
@@ -930,10 +981,14 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 				encodeBridgeRequest({
 					version: BRIDGE_VERSION,
 					operation: "exec",
+					...(options.commandId ? { scratch: state.binding.paths.scratch, processId: options.commandId } : {}),
 					launch: {
 						argv,
 						cwd: options.cwd ?? state.binding.paths.workspace,
-						environment: commandEnvironment(state.binding, options.environment),
+						environment: {
+							...commandEnvironment(state.binding, options.environment),
+							...state.egress?.environment,
+						},
 						maxLogBytes: state.binding.resources.logBytes,
 						logPath: options.logPath,
 					},
@@ -952,7 +1007,13 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		const result = await this.runCommand(
 			state,
 			["/usr/local/bin/node", "/usr/local/lib/pi-ipd/fs-bridge.mjs", encodeBridgeRequest(request)],
-			{ signal, input, acceptedExitCodes: [0, 1] },
+			{
+				signal,
+				input,
+				acceptedExitCodes: [0, 1],
+				maxOutputBytes: 64 * 1024 * 1024,
+				outputLimitCode: "output_limit",
+			},
 		);
 		if (result.exitCode !== 0) {
 			const error = parseJson<{ bridgeError: { code: string; message: string } }>(
@@ -960,7 +1021,11 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 				"file error",
 			).bridgeError;
 			throw new EnvironmentError(
-				["ENOENT", "ENOTDIR"].includes(error.code) ? "path_not_found" : "environment_unavailable",
+				error.code === "OUTPUT_LIMIT"
+					? "output_limit"
+					: ["ENOENT", "ENOTDIR"].includes(error.code)
+						? "path_not_found"
+						: "environment_unavailable",
 				error.message,
 			);
 		}
@@ -969,7 +1034,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 
 	private requiredState(lease: EnvironmentLease): DockerLeaseState {
 		const state = this.leases.get(lease.leaseId);
-		if (!state || state.containerName !== lease.providerHandle)
+		if (!state || state.lost || state.containerName !== lease.providerHandle)
 			throw new EnvironmentError("environment_lost", `Docker environment lease is unavailable: ${lease.leaseId}`);
 		return state;
 	}

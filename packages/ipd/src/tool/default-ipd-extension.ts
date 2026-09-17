@@ -22,6 +22,7 @@ import { DockerCli } from "../environment/docker-adapter.ts";
 import { DockerEnvironmentProvider } from "../environment/docker-provider.ts";
 import { EnvironmentManager } from "../environment/manager.ts";
 import { loadRegisteredDockerProfile, MissingDockerProfileError } from "../environment/profile-loader.ts";
+import { registerExecutionProfiles } from "../environment/profiles.ts";
 import { createEnvironmentToolDescriptors } from "../environment/tool-backend.ts";
 import {
 	createArtifactFileSetCheckExecutor,
@@ -118,6 +119,9 @@ async function modelRuntime(context: ExtensionContext): Promise<ModelRuntime> {
 }
 
 export interface DefaultIpdExtensionOptions {
+	/** Explicitly audited, registered Pi service tools. They retain their original definitions. */
+	externalReadTools?: readonly string[];
+	allowedEndpoints?: readonly string[];
 	environmentMode?: "docker" | "legacy-srt";
 	legacyToolAdapter?: LegacyNodeToolAdapter;
 }
@@ -164,6 +168,8 @@ export function registerDefaultIpdExtension(pi: ExtensionAPI, options: DefaultIp
 			projectTrusted: context.isProjectTrusted(),
 			sessionSettings,
 			environmentMode: options.environmentMode ?? environmentMode(),
+			externalReadTools: options.externalReadTools ?? process.env.PI_IPD_EXTERNAL_READ_TOOLS,
+			allowedEndpoints: options.allowedEndpoints ?? process.env.PI_IPD_ALLOWED_ENDPOINTS,
 			skills: skillHashes.sort((left, right) => left.path.localeCompare(right.path)),
 			tools: toolDefinitions
 				.map((tool) => ({
@@ -198,12 +204,35 @@ async function createDefaultService(
 ): Promise<IpdService> {
 	const agentDir = getAgentDir();
 	const selectedEnvironmentMode = options.environmentMode ?? environmentMode();
+	const externalReadTools =
+		options.externalReadTools ??
+		(process.env.PI_IPD_EXTERNAL_READ_TOOLS ?? "")
+			.split(",")
+			.map((name) => name.trim())
+			.filter(Boolean);
+	const allowedEndpoints =
+		options.allowedEndpoints ??
+		(process.env.PI_IPD_ALLOWED_ENDPOINTS ?? "")
+			.split(",")
+			.map((name) => name.trim().toLowerCase())
+			.filter(Boolean);
+	for (const host of allowedEndpoints)
+		if (host !== "*" && !/^(\*\.)?[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host))
+			throw new Error(`Invalid IPD egress hostname: ${host}`);
+	const environmentTools = selectedEnvironmentMode === "docker" ? createEnvironmentToolDescriptors() : [];
+	for (const name of externalReadTools)
+		if (
+			BUILTIN_IO_TOOLS.has(name) ||
+			environmentTools.some((tool) => tool.name === name) ||
+			!toolDefinitions.some((tool) => tool.name === name)
+		)
+			throw new Error(`External read tool must be an existing non-environment Pi service tool: ${name}`);
+	for (const tool of environmentTools)
+		if (toolDefinitions.some((existing) => existing.name === tool.name))
+			throw new Error(`Reserved IPD environment tool name conflicts with a registered Pi tool: ${tool.name}`);
 	if (selectedEnvironmentMode === "legacy-srt" && !options.legacyToolAdapter)
 		throw new Error("legacy-srt requires the explicit @earendil-works/pi-ipd/legacy entry");
-	const runtimeToolDefinitions = [
-		...toolDefinitions,
-		...(selectedEnvironmentMode === "docker" ? createEnvironmentToolDescriptors() : []),
-	];
+	const runtimeToolDefinitions = [...toolDefinitions, ...environmentTools];
 	const runtimeModels = await modelRuntime(context);
 	const assembled = await new AssetAssembler().assembleDefault({
 		agentDir,
@@ -220,6 +249,11 @@ async function createDefaultService(
 			const baseDir = await snapshotSkillPackage(skill.baseDir, skillSnapshotRoot, skill.hash);
 			return { ...skill, baseDir, filePath: join(baseDir, relative(skill.baseDir, skill.filePath)) };
 		}),
+	);
+	assembled.tools = assembled.tools.map((tool) =>
+		externalReadTools.includes(tool.id)
+			? { ...tool, execution: "control_read", hash: hashJson({ definition: tool.hash, execution: "control_read" }) }
+			: tool,
 	);
 	const checks = new CheckExecutorRegistry();
 	for (const executor of [createArtifactIntegrityCheckExecutor(), createArtifactFileSetCheckExecutor()]) {
@@ -253,6 +287,13 @@ async function createDefaultService(
 			}),
 		);
 		environmentProfiles = loadedProfiles.filter((profile) => profile !== undefined);
+		if (allowedEndpoints.length)
+			environmentProfiles = registerExecutionProfiles(
+				environmentProfiles.map(({ profile }) => ({
+					...profile,
+					network: { mode: "restricted", allowedEndpoints: [...allowedEndpoints] },
+				})),
+			);
 		const environmentPolicy = {
 			allowedProfiles: environmentProfiles.map(({ profile }) => ({ id: profile.id, version: profile.version })),
 			defaultProfile: { id: "code-node24", version: "1.0.0" },
@@ -318,6 +359,7 @@ async function createDefaultService(
 			requiredCommands: skill.requiredCommands,
 		})),
 		tools: assembled.tools.map((tool) => tool.id),
+		externalReadTools: assembled.tools.filter((tool) => tool.execution === "control_read").map((tool) => tool.id),
 		unavailableAgentCards: assembled.unavailableAgentCards,
 		mechanicalChecks: checks.list().map((check) => ({ id: check.id, parameters: check.parameters })),
 		environmentProfiles: environmentProfiles.map(({ ref, profile }) => ({
@@ -325,6 +367,8 @@ async function createDefaultService(
 			provider: profile.provider,
 			capabilities: profile.capabilities,
 			commands: profile.commands,
+			network: profile.network,
+			supportedEnvironmentTools: profile.supportedTools,
 		})),
 	});
 	const executionIdentity = toJsonValue({

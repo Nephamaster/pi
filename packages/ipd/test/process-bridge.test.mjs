@@ -203,3 +203,36 @@ test("rejects incompatible bridge versions before executing a command", async (t
 		assert.match(error.stderr,/Unsupported bridge protocol version/); return true;
 	});
 });
+
+test("cancels a foreground command tree without stopping an unrelated managed service", async (t) => {
+	const f = await fixture(t);
+	const service = randomUUID();
+	await f.call("start", service, [f.cwd, command('setInterval(()=>{},1000)')]);
+	const executable = fileURLToPath(new URL("../environments/common/command-bridge.mjs", import.meta.url));
+	const scratch = join(f.root, "command scratch");
+	const processId = randomUUID();
+	const identity = { version: 1, scratch, processId };
+	const launch = { argv: ["/bin/bash", "--noprofile", "--norc", "-c", "echo started > command-ready; sleep 120 & wait"], cwd: f.cwd, environment: { PATH: process.env.PATH }, maxLogBytes: 1024 };
+	const running = exec(process.execPath, [executable, JSON.stringify({ ...identity, operation: "exec", launch })]);
+	const outcome = running.catch(error => error);
+	await eventually(async () => {
+		await readFile(join(f.cwd, "command-ready"));
+		assert.equal((await f.state(service)).state, "running");
+	});
+	assert.deepEqual(JSON.parse((await exec(process.execPath, [executable, JSON.stringify({ ...identity, operation: "cancel_command" })])).stdout), { stopped: true });
+	await outcome;
+	assert.equal((await f.state(service)).state, "running");
+	assert.equal(JSON.parse((await f.call("stop", service)).stdout).state, "stopped");
+});
+
+test("normal command completion preserves background work; an explicit cancellation still stops its group", async (t) => {
+	const f = await fixture(t);
+	const executable = fileURLToPath(new URL("../environments/common/command-bridge.mjs", import.meta.url));
+	const identity = { version: 1, scratch: join(f.root, "commands"), processId: randomUUID() };
+	const launch = { argv: ["/bin/bash", "--noprofile", "--norc", "-c", "sleep 60 >/dev/null 2>&1 & echo $! > background.pid"], cwd: f.cwd, environment: { PATH: process.env.PATH }, maxLogBytes: 1024 };
+	await exec(process.execPath, [executable, JSON.stringify({ ...identity, operation: "exec", launch })]);
+	const pid = Number(await readFile(join(f.cwd, "background.pid"), "utf8"));
+	t.after(() => { try { process.kill(pid, "SIGKILL"); } catch(error) { if(error.code !== "ESRCH") throw error; } });
+	assert.doesNotThrow(() => process.kill(pid, 0));
+	assert.deepEqual(JSON.parse((await exec(process.execPath, [executable, JSON.stringify({ ...identity, operation: "cancel_command" })])).stdout), { stopped: true });
+});

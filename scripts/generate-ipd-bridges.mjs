@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-for (const name of ["command", "process", "fs"]) {
+for (const name of ["command", "process", "fs", "egress"]) {
 	const output = `${root}packages/ipd/environments/common/${name}-bridge.mjs`;
 	const result = await build({
 		absWorkingDir: root, entryPoints: [`packages/ipd/src/environment/bridge/${name}.ts`],

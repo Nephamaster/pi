@@ -33,7 +33,7 @@ remain explicit; these test/build variables do not silently change a Run's froze
 
 `src/environment/bridge` is the sole implementation of the versioned request protocol and command launcher.
 `common/*-bridge.mjs` files are generated artifacts; `npm run check:ipd-bridges` detects stale copies. Rebuild both
-images after bridge changes. Startup checks the bridge version and never falls back to host execution.
+images after bridge changes. Startup checks the bridge version and command-cancellation capability and never falls back to host execution.
 
 Normal Bash, full-output Bash, managed processes and probes use explicit argv, cwd and the same Profile environment.
 Bash uses `--noprofile --norc`; host shell startup files and variables are not inherited. Logs are bounded by the Profile
@@ -41,9 +41,22 @@ limit and include a truncation marker; managed logs are paginated. Process ackno
 An omitted Bash timeout does not inherit Docker management-command timeouts; explicit tool deadlines and cancellation
 still apply. Management calls and capability probes retain their own bounded deadlines.
 
+A foreground command owns a separate process group. Cancellation/timeout waits for its stop acknowledgement and leaves
+unrelated managed services running. If acknowledgement fails, the Provider terminates and marks the lease unusable;
+it never silently restarts the container. Pause deliberately stops all lease processes, retaining files and Session history,
+not live process memory. Preparation and cleanup failures retain provisional resource ownership for retry.
+File reads have a separate 64 MiB transport limit (`output_limit`), independent of Pi display truncation and Docker management
+responses. Search results are limited inside the environment before transport.
+
 Skills may declare `environment-requirements.probes`, with `id`, `version`, `command` (argv) and `timeoutSeconds`.
 `$SKILL_DIR` in an argument resolves to the locked Skill path. These probes execute through the actual Pi Bash tool
 before model work begins. The PPTX Skill checks its validator, thumbnail, Office wrapper and JavaScript dependencies.
+
+Use `environment-requirements.project-probes` for dependencies the Agent can prepare inside its project. These run before
+artifact export; failures request correction in the same Session rather than rejecting the environment before work starts.
+Keep base-image capability probes under `probes`. Unknown task-specific npm/pip packages need not be listed in the Profile.
+Code images include Python venv support; use `python3 -m venv --system-site-packages /workspace/.venv` and that interpreter
+explicitly. Install npm dependencies locally and retain lockfiles/version records. System packages remain image-owned.
 
 ## Locked inputs
 
@@ -61,12 +74,40 @@ but this version does not claim bit-for-bit reproducible builds across different
 
 ## Runtime boundary
 
-Containers run as the non-root host UID/GID with `network=none`, a read-only root, no added capabilities, no-new-privileges, and
+Containers run as the non-root host UID/GID with a read-only root, no added capabilities, no-new-privileges, and
 memory/CPU/PID/log limits. Only Provider-private context, Skill, input, workspace, scratch, cache, Home and tmp paths
 are mounted. Docker socket, host Home, project root, Run root and credentials are never mounted.
 
-Restricted internet egress is not implemented. A Profile or Skill requiring it fails static/runtime admission instead
-of receiving the default Docker bridge network.
+Networking defaults to `none`. To explicitly authorize public destinations before starting Pi, set for example:
+
+```bash
+export PI_IPD_ALLOWED_ENDPOINTS='example.com,registry.npmjs.org,pypi.org,files.pythonhosted.org'
+```
+
+This freezes a restricted policy into each Profile/Binding. Requires Docker Engine 28+ on Linux. Each lease has an internal
+`isolated` bridge and a separate proxy sidecar, with no published ports or task mounts. Only the sidecar has external routing.
+HTTP/HTTPS proxy variables are supplied to commands and managed processes. Removing them does not grant direct egress.
+The proxy authenticates the lease, checks exact/wildcard hostnames, rejects private/loopback/link-local/host addresses and
+nonstandard ports, and pins DNS answers. IPv6, arbitrary TCP and SSH are not supported. Add required redirect/CDN hosts explicitly.
+`*` permits all public IPv4 hosts: use only for tasks whose data is authorized to leave the environment. Domain filtering cannot
+prevent exfiltration to an allowed host. Network access, malicious web content and dependency supply chains remain trust decisions.
+
+Internet tools provided by Pi extensions are a separate path, not container commands. Register the extension normally, then
+authorize audited read-only service tools with `PI_IPD_EXTERNAL_READ_TOOLS=web_search,fetch_content` (actual registered names).
+IPD retains their original schema/implementation and never provides a search engine or same-name substitute. Such tools run
+in the control process: do not authorize extensions that capture host filesystem/Shell access or perform external writes.
+AgentCards and Workflow bindings must still permit each tool. SDK users can provide the same trusted options to
+`registerDefaultIpdExtension`. A service tool can work while container networking remains disabled.
+
+Docker review nodes may bind authorized write/edit/Bash tools for their own private `/workspace`. Copy sealed inputs there
+for build/test/render activities; `/ipd/inputs` remains read-only. Reviews cannot export replacement submissions or perform
+external actions. Legacy shared-workspace reviews remain read-only.
+
+Opt-in real network verification (public example page and pinned test dependencies, no model API):
+
+```bash
+PI_IPD_NETWORK_INTEGRATION=1 node node_modules/vitest/dist/cli.js --run packages/ipd/test/network-environment.integration.test.ts
+```
 
 The default entry requires an execution backend for built-in I/O tools. Control roles have a separate read-only tool
 for their locked Skill assets. Generic consumers can import `@earendil-works/pi-ipd/workspace` without workflow governance.
