@@ -38,7 +38,7 @@ import { IpdService } from "../runtime/ipd-service.ts";
 import { FileRunStore } from "../runtime/run-store.ts";
 import { SubmissionStore } from "../runtime/submission-store.ts";
 import { FileIpdTelemetry } from "../runtime/telemetry.ts";
-import { WorkflowRuntime } from "../runtime/workflow-runtime.ts";
+import { DEFAULT_ROUND_TIMEOUT_MS, WorkflowRuntime } from "../runtime/workflow-runtime.ts";
 import { IpdDashboardServer } from "../visualization/dashboard-server.ts";
 import { registerIpdCreateRunTool } from "./ipd-extension.ts";
 
@@ -482,7 +482,7 @@ async function createDefaultService(
 				{
 					maxConcurrentNodes: runtimeInteger("PI_IPD_MAX_CONCURRENT_NODES", 4, 1),
 					maxQualityReworkRounds: runtimeInteger("PI_IPD_MAX_QUALITY_REWORK_ROUNDS", 10, 0),
-					roundTimeoutMs: runtimeInteger("PI_IPD_ROUND_TIMEOUT_MS", 30 * 60 * 1000, 1),
+					roundTimeoutMs: runtimeInteger("PI_IPD_ROUND_TIMEOUT_MS", DEFAULT_ROUND_TIMEOUT_MS, 0),
 					stopTimeoutMs: runtimeInteger("PI_IPD_STOP_TIMEOUT_MS", 5000, 1),
 					softRoundTimeoutMs: runtimeInteger("PI_IPD_SOFT_ROUND_TIMEOUT_MS", 0, 0) || undefined,
 					onMetric: (metric) => telemetry.record({ source: "workflow_runtime", ...metric }),

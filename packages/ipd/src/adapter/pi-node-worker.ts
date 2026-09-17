@@ -477,6 +477,7 @@ export class PiNodeWorker implements NodeWorker {
 					environmentTools,
 					environmentCwd: binding.environment?.binding.paths.workspace,
 					environmentPaths: binding.environment?.binding.paths,
+					getEnvironmentContext: binding.environment ? () => binding.environment! : undefined,
 				},
 			});
 			work.signal?.throwIfAborted();

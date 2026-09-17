@@ -169,8 +169,21 @@ The default Runtime uses these safety limits:
 ```text
 PI_IPD_MAX_CONCURRENT_NODES=4
 PI_IPD_MAX_QUALITY_REWORK_ROUNDS=10
-PI_IPD_ROUND_TIMEOUT_MS=1800000
+PI_IPD_ROUND_TIMEOUT_MS=0
 ```
+
+Whole-round deadlines are disabled by default: an omitted value or `0` permits long-running work without an elapsed-time
+cutoff. Only an explicitly configured positive value enables a round deadline. Optional `PI_IPD_SOFT_ROUND_TIMEOUT_MS`
+requests a checkpoint but does not stop the node, and can be used without a hard deadline. Individual command, network,
+preflight and cleanup deadlines remain separate. Running Pi processes retain the configuration they already loaded.
+
+For registered `pi-web-access` tools, the controlled-session adapter copies returned PDF Markdown files from the specific
+extraction cache into `/workspace/.external-content/<content-hash>.md` before presenting the path to the node. It validates
+the extraction directory, regular-file status, size, source URL and reported character count; it does not mount host `/tmp`
+or grant arbitrary host reads. The registered tool schema and fetch implementation are unchanged. HTML/search paging still
+requires `get_search_content` to be explicitly authorized and bound when the tool returns a `responseId`; authorization
+alone does not add a tool to a frozen Workflow. This adapter targets the default pi-web-access tool names and PDF response
+format, not arbitrary file paths in other external tools' prose.
 
 Low-frequency state-write and round-duration metrics are appended outside authoritative Run state at
 `<project>/.pi/ipd/telemetry.ndjson`. Run state writes use a per-file writer lock and fail closed when another process

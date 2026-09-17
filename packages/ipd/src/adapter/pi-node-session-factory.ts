@@ -15,9 +15,11 @@ import type { Static } from "typebox";
 import type { EffectiveParticipant } from "../contracts/baseline.ts";
 import type { NodePermissionsSchema } from "../contracts/workflow.ts";
 import type { EnvironmentPaths } from "../environment/contracts.ts";
+import type { EnvironmentToolContext } from "../environment/tool-backend.ts";
 import { hashSkillPackage } from "../registry/skill-package.ts";
 import { NodeWorkerError } from "../runtime/node-worker.ts";
 import { createControlReadTool } from "./control-read.ts";
+import { createExternalReadResultAdapter } from "./external-read-results.ts";
 import { createCurrentRoundContextExtension, type VirtualContextFile } from "./node-context.ts";
 import type { NodeSessionFactory } from "./node-session-adapter.ts";
 import { type IpdSessionSettings, projectIpdSessionSettings } from "./session-policy.ts";
@@ -53,6 +55,7 @@ export interface PiNodeSessionCreateInput {
 	environmentTools?: readonly ToolDefinition[];
 	environmentCwd?: string;
 	environmentPaths?: EnvironmentPaths;
+	getEnvironmentContext?: () => EnvironmentToolContext;
 }
 
 export type LegacyNodeToolAdapter = (
@@ -199,9 +202,19 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 		});
 		const serviceError = services.diagnostics.find((diagnostic) => diagnostic.type === "error");
 		if (serviceError) throw new NodeWorkerError("configuration", serviceError.message);
-		const customTools = [...this.customTools, ...(input.controlTools ?? [])].filter((tool) =>
-			allowedToolNames.has(tool.name),
-		);
+		const adaptExternal = input.getEnvironmentContext
+			? createExternalReadResultAdapter(input.getEnvironmentContext)
+			: undefined;
+		const customTools = [...this.customTools, ...(input.controlTools ?? [])]
+			.filter((tool) => allowedToolNames.has(tool.name))
+			.map((tool) =>
+				adaptExternal &&
+				input.participant.lockedTools.some(
+					(locked) => locked.id === tool.name && locked.execution === "control_read",
+				)
+					? adaptExternal(tool)
+					: tool,
+			);
 		for (const tool of backendTools) {
 			if (!allowedToolNames.has(tool.name)) continue;
 			const existing = customTools.findIndex((candidate) => candidate.name === tool.name);

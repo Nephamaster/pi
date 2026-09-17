@@ -1,6 +1,11 @@
 # syntax=docker/dockerfile:1
 FROM node:24.19.0-bookworm-slim@sha256:a9f5f7c91a432850b2a8a7797adf5eadb6c733ceed61167806cee7ea7fbc29df
 
+RUN sed -i \
+    -e 's|http://deb.debian.org/debian-security|http://mirrors.tuna.tsinghua.edu.cn/debian-security|g' \
+    -e 's|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/debian|g' \
+    /etc/apt/sources.list.d/debian.sources
+    
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        bash=5.2.15-2+b13 build-essential=12.9 ca-certificates=20250419~deb12u1 \

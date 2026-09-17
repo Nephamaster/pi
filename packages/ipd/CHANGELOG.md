@@ -58,6 +58,8 @@
 
 ### Fixed
 
+- Disabled implicit whole-round deadlines and materialized pi-web-access PDF results in the node workspace without host I/O fallback.
+
 - Closed joint-approval invalidation over downstream work, cancelled entire business rounds during export/check, isolated command timeouts from other services, and retained provisional environment ownership after failed cleanup.
 - Separated file transport limits from management responses, bounded search inside containers, aligned CI to Node 24, and added clean tarball installation verification.
 

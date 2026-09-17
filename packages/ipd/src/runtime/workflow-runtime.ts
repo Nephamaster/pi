@@ -31,6 +31,8 @@ import {
 } from "./runtime-state.ts";
 import { type SubmissionStore, SubmissionValidationError } from "./submission-store.ts";
 
+export const DEFAULT_ROUND_TIMEOUT_MS = 0;
+
 export interface WorkflowRuntimeMetric {
 	type: "round_duration";
 	runId: string;
@@ -42,6 +44,7 @@ export interface WorkflowRuntimeMetric {
 export interface WorkflowRuntimeOptions {
 	maxConcurrentNodes?: number;
 	maxQualityReworkRounds?: number;
+	/** Disabled by default (0); a positive value explicitly opts into a whole-round deadline. */
 	roundTimeoutMs?: number;
 	softRoundTimeoutMs?: number;
 	stopTimeoutMs?: number;
@@ -92,7 +95,7 @@ export class WorkflowRuntime {
 		this.mechanical = mechanical;
 		this.maxConcurrentNodes = options.maxConcurrentNodes ?? 4;
 		this.maxQualityReworkRounds = options.maxQualityReworkRounds ?? 10;
-		this.roundTimeoutMs = options.roundTimeoutMs ?? 30 * 60 * 1000;
+		this.roundTimeoutMs = options.roundTimeoutMs ?? DEFAULT_ROUND_TIMEOUT_MS;
 		this.stopTimeoutMs = options.stopTimeoutMs ?? 5000;
 		this.softRoundTimeoutMs = options.softRoundTimeoutMs;
 		if (!Number.isFinite(this.stopTimeoutMs) || this.stopTimeoutMs <= 0)
@@ -101,7 +104,7 @@ export class WorkflowRuntime {
 			this.softRoundTimeoutMs !== undefined &&
 			(!Number.isFinite(this.softRoundTimeoutMs) ||
 				this.softRoundTimeoutMs <= 0 ||
-				this.softRoundTimeoutMs >= this.roundTimeoutMs)
+				(this.roundTimeoutMs > 0 && this.softRoundTimeoutMs >= this.roundTimeoutMs))
 		)
 			throw new Error("softRoundTimeoutMs must be positive and less than roundTimeoutMs");
 		this.onMetric = options.onMetric ?? (() => {});
@@ -109,8 +112,8 @@ export class WorkflowRuntime {
 			throw new Error("maxConcurrentNodes must be a positive integer");
 		if (!Number.isInteger(this.maxQualityReworkRounds) || this.maxQualityReworkRounds < 0)
 			throw new Error("maxQualityReworkRounds must be a non-negative integer");
-		if (!Number.isFinite(this.roundTimeoutMs) || this.roundTimeoutMs <= 0)
-			throw new Error("roundTimeoutMs must be positive");
+		if (!Number.isSafeInteger(this.roundTimeoutMs) || this.roundTimeoutMs < 0 || this.roundTimeoutMs > 2_147_483_647)
+			throw new Error("roundTimeoutMs must be 0 (disabled) or a positive timer-safe integer");
 	}
 
 	async activate(baseline: ExecutionBaseline, taskInput?: TaskInput): Promise<void> {
@@ -588,10 +591,11 @@ export class WorkflowRuntime {
 					abort = () => reject(new NodeWorkerError("cancelled", "Run execution interrupted"));
 					if (work.signal?.aborted) abort();
 					else work.signal?.addEventListener("abort", abort, { once: true });
-					timeout = setTimeout(
-						() => reject(new NodeWorkerError("timeout", `Round timed out: ${work.roundId}`)),
-						this.roundTimeoutMs,
-					);
+					if (this.roundTimeoutMs > 0)
+						timeout = setTimeout(
+							() => reject(new NodeWorkerError("timeout", `Round timed out: ${work.roundId}`)),
+							this.roundTimeoutMs,
+						);
 				}),
 			]);
 		} catch (error) {

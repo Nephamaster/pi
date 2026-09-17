@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PiNodeWorker } from "../src/adapter/pi-node-worker.ts";
 import {
 	compileWorkflow,
@@ -150,6 +150,57 @@ describe("managed Run lifecycle", () => {
 			attempt: 2,
 			generation: 2,
 		});
+	});
+
+	it.each([undefined, 0])(
+		"does not impose a whole-round deadline when roundTimeoutMs is %s",
+		async (roundTimeoutMs) => {
+			const started = deferred<void>();
+			const gate = deferred<void>();
+			const f = await fixture(
+				(directory) => ({
+					async runExecution() {
+						started.resolve();
+						await gate.promise;
+						return candidate(directory);
+					},
+					runReview: review,
+				}),
+				{ roundTimeoutMs },
+			);
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			const running = f.runtime.run();
+			try {
+				await started.promise;
+				expect(vi.getTimerCount()).toBe(0);
+				await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000);
+				expect((await f.store.read("run-1")).status).toBe("running");
+			} finally {
+				vi.useRealTimers();
+				gate.resolve();
+			}
+			expect((await running).status).toBe("succeeded");
+			await f.runtime.release();
+		},
+	);
+
+	it("allows a checkpoint reminder without imposing a hard deadline", async () => {
+		const gate = deferred<void>();
+		const f = await fixture(
+			(directory) => ({
+				async runExecution() {
+					await gate.promise;
+					return candidate(directory);
+				},
+				runReview: review,
+				async requestCheckpoint() {
+					gate.resolve();
+				},
+			}),
+			{ softRoundTimeoutMs: 10 },
+		);
+		expect((await f.runtime.run()).status).toBe("succeeded");
+		await f.runtime.release();
 	});
 
 	it.each(["prepare", "model", "export", "mechanical", "review"] as const)(

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,11 +8,14 @@ import {
 	type AgentToolResult,
 	createAgentSessionFromServices,
 	createAgentSessionServices,
+	defineTool,
 	ModelRuntime,
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import Type from "typebox";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PiNodeSessionFactory } from "../src/adapter/pi-node-session-factory.ts";
 import { PiNodeWorker } from "../src/adapter/pi-node-worker.ts";
 import { compileWorkflow, type NodeRoundWork } from "../src/index.ts";
 import {
@@ -223,6 +226,96 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			await worker?.releaseRun("run-code-node24");
 			await current.manager.releaseRun("run-code-node24");
 			faux.unregister();
+		}
+	}, 120_000);
+
+	it("materializes an external PDF result before native Pi read, grep and Bash consume it", async () => {
+		const current = await environment("code-node24");
+		const faux = registerFauxProvider();
+		const pdfRoot = join(tmpdir(), "pi-web-pdf");
+		const pdfPath = join(pdfRoot, `ipd-test-${randomUUID()}.md`);
+		let session: Awaited<ReturnType<PiNodeSessionFactory["create"]>> | undefined;
+		try {
+			const body = "# PDF\n\n> Source: https://example.com/report.pdf\n> Pages: 1\n\n---\n\nverified-pdf-body\n";
+			let fetches = 0;
+			const fetch = defineTool({
+				name: "fetch_content",
+				label: "Fetch",
+				description: "Registered external fetch fixture",
+				parameters: Type.Object({ url: Type.String() }),
+				async execute() {
+					fetches++;
+					await mkdir(pdfRoot, { recursive: true });
+					await writeFile(pdfPath, body);
+					return {
+						content: [
+							{
+								type: "text",
+								text: `PDF extracted and saved to: ${pdfPath}\n\nPages: 1\nCharacters: ${body.length}`,
+							},
+						],
+						details: { urls: ["https://example.com/report.pdf"], responseId: "pdf-response" },
+					};
+				},
+			});
+			const model = faux.getModel();
+			const modelRuntime = await ModelRuntime.create({
+				authPath: join(root, "pdf-auth.json"),
+				modelsPath: null,
+				refreshOnCreate: false,
+			});
+			modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: model.api, models: [model] });
+			await modelRuntime.setRuntimeApiKey(model.provider, "faux-key");
+			const compiled = compileWorkflow(createCompilerFixture());
+			if (!compiled.ok) throw new Error("Invalid fixture");
+			const participant = structuredClone(compiled.baseline.nodes[0].agents[0]);
+			participant.lockedTools = ["read", "grep", "bash", "fetch_content"].map((id) => ({
+				id,
+				hash: "a".repeat(64),
+				source: "test",
+				...(id === "fetch_content" ? { execution: "control_read" as const } : {}),
+			}));
+			const getContext = () => current.manager.context(current.lease.leaseId, current.round.roundId);
+			session = await new PiNodeSessionFactory({ agentDir: root, modelRuntime, customTools: [fetch] }).create({
+				nodeId: "pdf-reader",
+				workspace: root,
+				sessionDirectory: join(root, "pdf-sessions"),
+				systemPrompt: "Read the fetched document",
+				participant,
+				runDefaultModel: model,
+				runDefaultThinkingLevel: "off",
+				environmentCwd: "/workspace",
+				environmentTools: createEnvironmentToolDefinitions({ hostWorkspace: root, getContext }),
+				getEnvironmentContext: getContext,
+			});
+			const destination = `/workspace/.external-content/${createHash("sha256").update(body).digest("hex")}.md`;
+			faux.setResponses([
+				fauxAssistantMessage(fauxToolCall("fetch_content", { url: "https://example.com/report.pdf" }), {
+					stopReason: "toolUse",
+				}),
+				(context) => {
+					expect(JSON.stringify(context.messages)).toContain(destination);
+					expect(JSON.stringify(context.messages)).not.toContain(pdfPath);
+					return fauxAssistantMessage(fauxToolCall("read", { path: destination }), { stopReason: "toolUse" });
+				},
+				fauxAssistantMessage(fauxToolCall("grep", { path: destination, pattern: "verified-pdf-body" }), {
+					stopReason: "toolUse",
+				}),
+				fauxAssistantMessage(fauxToolCall("bash", { command: `cat ${destination}` }), { stopReason: "toolUse" }),
+				fauxAssistantMessage("Done"),
+			]);
+			await session.prompt("Fetch and inspect the PDF");
+			const results = session.messages.filter((message) => message.role === "toolResult");
+			expect(results).toHaveLength(4);
+			expect(results.every((result) => !result.isError)).toBe(true);
+			for (const result of results.slice(1)) expect(JSON.stringify(result.content)).toContain("verified-pdf-body");
+			expect(fetches).toBe(1);
+		} finally {
+			await session?.abort();
+			session?.dispose();
+			faux.unregister();
+			await current.manager.releaseRun("run-code-node24");
+			await rm(pdfPath, { force: true });
 		}
 	}, 120_000);
 

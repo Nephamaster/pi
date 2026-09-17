@@ -14,8 +14,11 @@ COPY office-pptx/package.json office-pptx/package-lock.json /opt/pi-ipd/node/
 COPY office-pptx/requirements.lock /opt/pi-ipd/requirements.lock
 
 RUN npm ci --prefix /opt/pi-ipd/node --ignore-scripts \
+        --registry=https://registry.npmmirror.com \
     && python3 -m venv /opt/pi-ipd/venv \
-    && /opt/pi-ipd/venv/bin/pip install --no-cache-dir -r /opt/pi-ipd/requirements.lock
+    && /opt/pi-ipd/venv/bin/pip install --no-cache-dir \
+        --index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+        -r /opt/pi-ipd/requirements.lock
 
 ENV PATH="/opt/pi-ipd/venv/bin:/usr/local/bin:/usr/bin:/bin"
 ENV NODE_PATH="/opt/pi-ipd/node/node_modules"
