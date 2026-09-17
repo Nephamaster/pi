@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "code-node24-internet",
+  "version": "1.0.0",
+  "provider": "docker",
+  "image": {
+    "reference": "pi-ipd/code-node24:1.0.0",
+    "contentId": "RESOLVED_BY_TRUSTED_INITIALIZATION",
+    "platform": "linux/amd64"
+  },
+  "capabilities": [
+    { "id": "node", "version": "24.19.0" },
+    { "id": "python", "version": "3.11.2" }
+  ],
+  "commands": ["bash", "git", "node", "npm", "npx", "pip3", "python3", "rg"],
+  "supportedTools": ["bash", "edit", "environment_describe", "environment_process_logs", "environment_process_start", "environment_process_status", "environment_process_stop", "find", "grep", "ls", "read", "write"],
+  "environment": {
+    "PATH": "/usr/local/bin:/usr/bin:/bin",
+    "LANG": "C.UTF-8"
+  },
+  "network": { "mode": "internet" },
+  "resources": {
+    "memoryBytes": 2147483648,
+    "cpus": 2,
+    "pids": 512,
+    "logBytes": 8388608
+  },
+  "probes": [
+    { "id": "node", "version": "1.0.0", "command": ["node", "--version"], "timeoutSeconds": 10 },
+    { "id": "git", "version": "1.0.0", "command": ["git", "--version"], "timeoutSeconds": 10 },
+    { "id": "python", "version": "1.0.0", "command": ["python3", "--version"], "timeoutSeconds": 10 },
+    { "id": "pip", "version": "1.0.0", "command": ["pip3", "--version"], "timeoutSeconds": 10 },
+    { "id": "ripgrep", "version": "1.0.0", "command": ["rg", "--version"], "timeoutSeconds": 10 }
+  ],
+  "paths": {
+    "context": "/ipd/context",
+    "skills": "/ipd/skills",
+    "inputs": "/ipd/inputs",
+    "workspace": "/workspace",
+    "scratch": "/scratch",
+    "cache": "/cache",
+    "home": "/home/agent",
+    "temporary": "/tmp"
+  }
+}
