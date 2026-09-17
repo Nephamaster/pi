@@ -28,6 +28,7 @@ export * from "./control/workflow-draft.ts";
 export * from "./control/workflow-draft-tools.ts";
 export * from "./environment/contracts.ts";
 export * from "./environment/docker-adapter.ts";
+export * from "./environment/docker-network-provider.ts";
 export * from "./environment/docker-provider.ts";
 export * from "./environment/manager.ts";
 export * from "./environment/paths.ts";
