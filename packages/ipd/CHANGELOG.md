@@ -8,6 +8,8 @@
 
 ### Added
 
+- Added PPT workflow template 1.0.3 with parallel storyline and visual design, a joint design Gate, and explicit visual production and review criteria.
+
 - Added explicit proxy-only public egress, authorized reuse of registered Pi read-service tools, private Docker review checks, and deferred project-dependency probes.
 
 - Added content-addressed static Run snapshots, revision-aware dashboard caching, typed esbuild dashboard assets, and packed-entry verification in the root build workflow.

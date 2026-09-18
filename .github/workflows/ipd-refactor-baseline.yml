@@ -145,6 +145,7 @@ jobs:
           test/native-session-contract.test.ts
           test/external-read-results.test.ts
           test/tool-dependencies.test.ts
+          test/presentation-template.test.ts
           test/session-policy.test.ts
           test/node-context.test.ts
           test/structured-submissions.test.ts
