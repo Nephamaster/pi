@@ -31,6 +31,7 @@ import type { IpdSessionSettings } from "./session-policy.ts";
 import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "./structured-submissions.ts";
 import {
 	createSubmissionTool,
+	normalizeArtifactPaths,
 	ReportNodeBlockedSchema,
 	SubmissionCapture,
 	SubmitArtifactSchema,
@@ -274,7 +275,11 @@ export class PiNodeWorker implements NodeWorker {
 			throw new NodeSubmissionProtocolError("Execution node submitted both an Artifact and a block");
 		if (blocked) return { kind: "blocked", report: blocked };
 		if (!value) throw new NodeSubmissionProtocolError("Execution node did not call submit_artifact");
-		return value as SubmitArtifact;
+		// Export and sealing must consume the same workspace-relative file identities.
+		return normalizeArtifactPaths(
+			value as SubmitArtifact,
+			binding.environment?.binding.paths.workspace ?? this.options.workspace,
+		);
 	}
 
 	async runReview(work: NodeRoundWork): Promise<SubmitReview> {

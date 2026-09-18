@@ -25,7 +25,15 @@ describe("PiNodeWorker", () => {
 					outputs: [
 						{
 							output_id: "content-output",
-							files: [{ path: "outputs/produce/result.txt", media_type: "text/plain" }],
+							files: [
+								{
+									path:
+										summary === "first"
+											? join(root, "outputs/produce/result.txt")
+											: "outputs/produce/result.txt",
+									media_type: "text/plain",
+								},
+							],
 						},
 					],
 					evidence: [],
@@ -114,6 +122,8 @@ describe("PiNodeWorker", () => {
 			});
 			if ("report" in first || "report" in second) throw new Error("Expected Artifact submissions");
 			expect([first.summary, second.summary]).toEqual(["first", "revised"]);
+			expect(first.outputs[0].files[0].path).toBe("outputs/produce/result.txt");
+			expect(second.outputs[0].files[0].path).toBe("outputs/produce/result.txt");
 			expect(blocked).toMatchObject({
 				kind: "blocked",
 				report: {

@@ -1,14 +1,20 @@
 // 定义并捕获执行、评审和控制角色的结构化提交。
+import { posix } from "node:path";
 import { defineTool, type ExtensionFactory, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import Type, { type Static, type TSchema } from "typebox";
 import { IdentifierSchema, JsonValueSchema, NonEmptyStringSchema } from "../contracts/primitives.ts";
 import { NodeOutputRefSchema } from "../contracts/workflow.ts";
 import { hashJson } from "../ir/hash.ts";
 import { wrapPromptBlock } from "../prompt/block.ts";
+import { NodeSubmissionProtocolError, NodeWorkerError } from "../runtime/node-worker.ts";
 
 const SubmittedFileSchema = Type.Object(
 	{
-		path: NonEmptyStringSchema,
+		path: Type.String({
+			minLength: 1,
+			description:
+				"File path relative to the workspace, or an absolute path inside the current workspace. Must remain within the declared output root.",
+		}),
 		media_type: NonEmptyStringSchema,
 	},
 	{ additionalProperties: false },
@@ -43,6 +49,28 @@ export const SubmitArtifactSchema = Type.Object(
 );
 
 export type SubmitArtifact = Static<typeof SubmitArtifactSchema>;
+
+export function normalizeArtifactPaths(submission: SubmitArtifact, workspace: string): SubmitArtifact {
+	return {
+		...submission,
+		outputs: submission.outputs.map((output) => ({
+			...output,
+			files: output.files.map((file) => {
+				const path = file.path.replaceAll("\\", "/");
+				if (path.split("/").includes("..") || /^[a-z]:/i.test(path) || path.includes("\0"))
+					throw new NodeWorkerError("policy_denied", `Invalid submitted output path: ${file.path}`);
+				const relative = posix.isAbsolute(path) ? posix.relative(workspace, path) : posix.normalize(path);
+				if (relative === ".." || relative.startsWith("../"))
+					throw new NodeWorkerError("policy_denied", `Submitted output escapes the workspace: ${file.path}`);
+				if (!relative || relative === ".")
+					throw new NodeSubmissionProtocolError(
+						"Submit a file inside the declared output root, not the workspace directory.",
+					);
+				return { ...file, path: relative };
+			}),
+		})),
+	};
+}
 
 export const ReportNodeBlockedSchema = Type.Object(
 	{

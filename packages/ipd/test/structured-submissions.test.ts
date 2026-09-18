@@ -1,6 +1,45 @@
 import Type from "typebox";
 import { describe, expect, it } from "vitest";
+import { normalizeArtifactPaths, type SubmitArtifact } from "../src/adapter/structured-submissions.ts";
 import { createSubmissionTool, SubmissionCapture } from "../src/index.ts";
+
+describe("artifact path normalization", () => {
+	const submission = (path: string): SubmitArtifact => ({
+		summary: "brief",
+		outputs: [{ output_id: "brief", files: [{ path, media_type: "text/markdown" }] }],
+		evidence: [],
+		metadata: {},
+	});
+	it.each(["outputs/brief.md", "/workspace/outputs/brief.md", "./outputs/brief.md"])(
+		"normalizes %s before export and sealing",
+		(path) => {
+			const original = submission(path);
+			expect(normalizeArtifactPaths(original, "/workspace").outputs[0].files[0].path).toBe("outputs/brief.md");
+			expect(original.outputs[0].files[0].path).toBe(path);
+		},
+	);
+	it("uses the actual bound workspace, not a hardcoded prefix", () => {
+		expect(
+			normalizeArtifactPaths(submission("/custom/work/outputs/brief.md"), "/custom/work").outputs[0].files[0].path,
+		).toBe("outputs/brief.md");
+	});
+	it.each([
+		"/etc/passwd",
+		"/workspace-other/brief.md",
+		"../brief.md",
+		"/workspace/outputs/../brief.md",
+		"C:\\workspace\\brief.md",
+	])("does not weaken policy for %s", (path) => {
+		expect(() => normalizeArtifactPaths(submission(path), "/workspace")).toThrow(
+			expect.objectContaining({ kind: "policy_denied" }),
+		);
+	});
+	it("returns correctable protocol feedback for a directory-only submission", () => {
+		expect(() => normalizeArtifactPaths(submission("/workspace"), "/workspace")).toThrow(
+			expect.objectContaining({ name: "NodeSubmissionProtocolError" }),
+		);
+	});
+});
 
 describe("SubmissionCapture", () => {
 	it("returns the original receipt for an identical operation replay", () => {
