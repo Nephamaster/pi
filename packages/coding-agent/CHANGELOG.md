@@ -10,6 +10,10 @@
 
 - Added `ProviderRequestRejection` so trusted request-admission extensions can stop an oversized provider payload before network I/O while ordinary extension errors remain isolated.
 
+### Fixed
+
+- Fixed missing or invalid `--mode` values being silently ignored instead of reporting an error and exiting with a nonzero status ([#9045](https://github.com/earendil-works/pi/issues/9045)).
+
 ## [0.87.0] - 2026-09-21
 
 ### New Features
