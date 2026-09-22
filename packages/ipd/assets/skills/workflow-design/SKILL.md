@@ -86,11 +86,15 @@ Runtime owns coordination. Avoid nodes whose only purpose is forwarding, status 
 
 ## 4. Design Dependencies, Parallelism, and Rework
 
-Forward dependencies are expressed through exact input bindings. Execution nodes should consume controlled upstream results through `approved` inputs when approval is required. Review nodes inspect the exact candidate through `submitted` inputs.
+Forward dependencies are expressed through exact input bindings. For every dependency, identify the result, decision, or approval the consumer actually needs. Do not make a node wait for unrelated work because it appears later in a phase list; do not omit real dependencies just to make the graph parallel.
+
+Execution nodes should consume controlled upstream results through `approved` inputs when approval is required. Review nodes inspect the exact candidate through `submitted` inputs.
 
 Use explicit `stages` when internal work needs sealed candidates before the joint Gate. Declare member nodes, each permitted `internal_uses` input, and the controlled output `exits` with their required Gate IDs. Only declared internal consumers may use `submitted`; crossing the stage boundary requires every declared exit Gate. This avoids the A→B→R→A approval cycle.
 
-Let truly independent work run in parallel; use fan-in only when a downstream node genuinely needs several upstream outputs.
+Before fan-out, establish the shared scope, terminology, data/interface conventions, and output ownership that branches need. Fan-in must have the inputs and criteria needed to check the combination, not just collect files. Parallel test design can start from an interface contract; test execution still needs the actual implementation. See the reference for further examples.
+
+Place low-cost checks of route-changing uncertainties early in the responsible node's work, before expensive production. Do not create a separate feasibility node unless it has independent value or is required by the ProcessSpec.
 
 Normal quality rework is not a forward DAG edge:
 
@@ -102,37 +106,52 @@ execution → submission → review
 
 Declare legal correction owners in `allowed_rework_node_ids`. Do not create artificial fix nodes solely because rework may occur.
 
-## 5. Define Deliverables, Criteria, and Evidence
+## 5. Define Bounded Work, Consumable Outputs, and Verifiable Criteria
 
-Every controlled output needs an explicit output contract, evidence requirements, mechanical criteria where deterministic checks exist, and semantic criteria where professional judgment is required.
+A node employee has not attended the design discussion. Use the existing contract and output fields to make its assignment executable:
 
-Criteria may reflect the original user request and ProcessSpec quality expectations. This does not make user-task semantics part of formal Compiler coverage.
+| Existing field | What the Designer must make clear |
+|---|---|
+| `contract.objective` / `responsibilities` | The result and professional responsibility this node owns. |
+| `contract.non_responsibilities` | Adjacent work it must not silently take over. |
+| `contract.work_requirements` | Task-specific method guidance, required self-checks, and when the candidate is ready to submit. Keep reusable procedures in bound Skills. |
+| `contract.constraints` | Genuine scope, permission, factual, and delivery constraints. Do not promote role habits or examples into hard requirements. |
+| Output `description` / `business_purpose` | The consumer and required substance. Put essential production instructions in `contract.work_requirements` as well; output metadata alone is not a work instruction. |
+| Output / criterion `evidence_requirements` | What inspectable evidence must accompany the result and how to locate it. |
 
-Mechanical checks may claim only what they actually verify. Semantic criteria should state what is judged, what acceptable state means, what verification method is expected, and what evidence supports the judgment.
+Describe submission readiness through sufficient work and evidence, not "be exhaustive" or "keep improving." Once the assigned work and required self-checks are complete, the employee should submit instead of expanding scope for polish or volume. Missing required work remains a defect or a genuine block, never permission to lower the bar. A producer need not wait for its later Gate to declare its own candidate ready.
 
-Do not invent arbitrary numerical thresholds that neither the user nor ProcessSpec requires.
+Design a concise entry point to each handoff, backed by complete usable content and locatable original evidence. Do not demand overlapping research, summary, design, and reporting files without distinct consumers or process obligations. A compact handoff must not shift missing core work to the next node or substitute a producer summary for evidence.
+
+Every controlled output needs mechanical criteria backed by real checks and semantic criteria backed by professional judgment. Define the assessed object, acceptable condition, verification method, and evidence; link standards through the existing `criterion_refs`. A command exit code, file existence, or a producer's "checked" statement proves only what it actually establishes.
+
+Keep user/ProcessSpec requirements, source-linked design decisions, and advisory methods distinct using the existing authority fields. Do not invent arbitrary source counts, tool-call quotas, visual scores, or layout thresholds. Specify implementation details only when needed for a real requirement, interface, or justified design decision.
+
+These are authoring rules for existing fields, not new Workflow or submission fields. See [Design Concepts and Judgment Principles](references/design-concepts.md) for bounded-work and handoff examples.
 
 ## 6. Select Employees and Bind Resources After Work Is Clear
 
-Select employees for defined work packages, not work packages for available employees.
+Select employees for defined work packages, not work packages for available employees. Inspect resource availability early enough to avoid designing work around nonexistent capabilities.
 
-Use `search_agent_cards` to find candidates by professional responsibility and capability, then inspect serious candidates with `get_agent_card`. The current implementation binds exactly one employee per execution or review node.
+Use `search_agent_cards` to find candidates by professional responsibility and capability, then inspect serious candidates with `get_agent_card`. The current implementation binds exactly one employee per execution or review node; do not design unsupported teams or recursive IPD calls.
 
-Bind only the Skills, tools, knowledge bases, and permissions actually needed by the node. AgentCard authorization is a ceiling, not a command to grant every allowed resource.
+Bind only the Skills, tools, knowledge bases, and permissions actually needed by the node. AgentCard authorization is a ceiling, not a command to grant every allowed resource. Prefer an available, suitable Skill or tool over requiring each employee to invent its own production and validation framework. Tool development is justified when the task genuinely needs it, not as routine preparation for every deliverable.
 
-A Skill's `required-tools` must be explicitly bound and remain inside AgentCard authorization. If no legal employee/resource combination can perform required work, choose another valid combination or report a genuine resource gap.
+A Skill's `required-tools` must be explicitly bound and remain inside AgentCard authorization. Check that the producer can create the artifact and the Reviewer can actually inspect it in their respective environments. If no legal employee/resource combination can perform required work, choose another valid combination or report a genuine resource gap.
 
-## 7. Design Reviews for Real Quality Control
+## 7. Design Reviews and Local Repair Together
 
-A review node exists because a controlled artifact must be independently judged against frozen standards before downstream work or final delivery relies on it.
+Every ProcessSpec-required review must be realized with its required object, timing, capability, and independence. Merge review work only when those obligations remain intact; efficiency does not authorize deleting a required Gate.
 
-Every ProcessSpec-required review must be realized. Do not add ceremonial reviews merely to make the graph look more process-heavy.
+Place meaningful judgment where a shared basis will affect many consumers, independently produced outputs must work together, or an irreversible action or final delivery depends on acceptance. The required evidence must exist and be accessible at that point: a test plan cannot prove tests passed, and a design cannot prove the finished artifact renders correctly.
 
-Review targets must reference exact node/output pairs and semantic criteria. `allowed_rework_node_ids` must contain only execution nodes genuinely responsible for correction.
+Use execution nodes to produce genuinely needed integrated results and composite reviews to judge integrated properties. Do not duplicate production in the Reviewer or add an integration node solely to forward files. Distinguish blocking defects from advisory improvements; prohibit preference-based redesign, extra thresholds, and defect quotas.
 
-Add an integration node or composite review only when it verifies a new integrated property rather than repeating checks already performed.
+Review targets reference exact node/output pairs and semantic criteria. Composite criteria require exact `criterion_subjects`; add `required_relations` when a target must derive from the precise upstream version in the bundle. Use bounded `remediation_mappings` for directly dependent upstream owners, not as blanket authority to return work to any ancestor.
 
-Composite criteria require exact `criterion_subjects`; add `required_relations` when a target must derive from the precise upstream version in the bundle. Use bounded `remediation_mappings` for directly dependent upstream owners. Findings persist across reviews; a new submission, a stale review or an unrelated PASS does not close them.
+For each plausible defect, distinguish **who repairs**, **which results or approvals lose a valid basis**, and **what must be rechecked**. Restrict `allowed_rework_node_ids` to legal owners and make the review work requirements call for criterion-local evidence, repair targets, and re-review conditions. If A is wrong, B uses A, and D is independent, repair A and affected B and re-evaluate the relevant judgment; do not require D to produce its valid work again. If only integrator J misuses correct inputs, target J rather than all upstream producers.
+
+Runtime owns actual invalidation, scheduling, and retention. The Designer provides truthful input purposes, output boundaries, review subjects, and correction ownership; never hide a real dependency to make rework look local. Findings persist across reviews; a new submission, a stale review or an unrelated PASS does not close them.
 
 ## 8. Maintain ProcessSpec Coverage, Not User-Requirement Coverage
 
@@ -173,18 +192,18 @@ A design block is a normal preparation-blocked outcome, not a Runtime failure. O
 
 ## 11. Final Design-Quality Review
 
-Before submission, verify:
+Before submission, inspect the design against these questions. They are Designer reasoning aids, not additional output files or mandatory Agent nodes.
 
-- the Workflow as a whole faithfully interprets the original user task;
-- user-facing delivery outputs contain only what the user should receive;
-- internal process artifacts are not accidentally exposed as delivery;
-- unresolved facts are not silently treated as known;
-- every ProcessSpec activity, deliverable, review, and rule is operationally realized;
-- process coverage is substantive, not cosmetic;
-- nodes represent real professional responsibilities;
-- parallelism and dependencies are justified;
-- employees and permissions fit their work;
-- semantic review and rework boundaries are meaningful;
-- completion conditions correspond to actual terminal delivery.
+| Check | Question |
+|---|---|
+| Task and process fidelity | Does the design preserve the raw task, unresolved facts, and every mandatory ProcessSpec responsibility, deliverable, review, and rule? Is coverage substantive rather than cosmetic? |
+| Delivery boundary | Are user-facing outputs exactly what the user should receive, with internal process artifacts kept separate? Do completion conditions require the actual terminal delivery and mandatory reviews? |
+| Node deletion | If a node were removed, what necessary work, independent judgment, or governance obligation would disappear? If none, merge or remove it. |
+| Dependency deletion | Could the consumer legally and correctly begin without waiting? Remove unnecessary waits, never actual data or approval prerequisites. |
+| Consumer blind read | Could an employee with only its real inputs, contract, and bound methods start without guessing hidden decisions or redoing upstream work? |
+| Bounded execution | Can each producer recognize a ready candidate, distinguish a real block from a fixable defect, and avoid open-ended expansion? Are capabilities and permissions sufficient? |
+| Bad-artifact test | Would a plausible incomplete or inconsistent artifact fail an applicable criterion with locatable evidence, rather than pass on file presence or self-report? |
+| Fault walkthrough | Would an upstream defect, an integration-only defect, and missing evidence reach the correct repair or blocking path while preserving unrelated work? |
+| Workload and critical path | What must each node read, produce, and recheck? Where are duplicated work and the longest required dependency chain? Use actual records when available; do not invent precise timing or enforce arbitrary quotas. |
 
-The Compiler can validate formal structure and ProcessSpec governance relationships. It cannot decide whether the final business result satisfies the user. The Workflow must therefore be designed so the execution/review system has a strong chance of producing the right result, while final semantic satisfaction remains an end-to-end outcome rather than a compiler theorem.
+The Compiler can validate formal structure and ProcessSpec governance relationships. It cannot decide whether the final business result satisfies the user. Repair real design gaps found above, validate the resulting draft, and submit once the latest revision is both formally valid and semantically fit; do not turn design review itself into unlimited refinement.
