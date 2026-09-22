@@ -1,0 +1,1906 @@
+{
+  "schema_version": 3,
+  "workflow_id": "important-meeting-ppt",
+  "workflow_version": "1.1.0",
+  "name": "Important Meeting PPT - Bounded Work and Precise Repair",
+  "task_input_ref": {
+    "id": "template-task-rebound-at-launch",
+    "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "process_selection_ref": {
+    "id": "template-selection-rebound-at-launch",
+    "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "prerequisites": {
+    "minimum_materials": 1,
+    "retrieval_tools": [
+      "web_search"
+    ]
+  },
+  "stages": [
+    {
+      "stage_id": "pre-production",
+      "member_node_ids": [
+        "meeting-brief",
+        "research-and-evidence",
+        "storyline-design",
+        "visual-design"
+      ],
+      "internal_uses": [
+        {
+          "consumer_node_id": "research-and-evidence",
+          "input_id": "meeting-brief-presentation-brief"
+        },
+        {
+          "consumer_node_id": "visual-design",
+          "input_id": "meeting-brief-presentation-brief"
+        }
+      ],
+      "exits": [
+        {
+          "output": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          },
+          "gate_node_ids": [
+            "baseline-gate"
+          ]
+        },
+        {
+          "output": {
+            "node_id": "research-and-evidence",
+            "output_id": "content-baseline"
+          },
+          "gate_node_ids": [
+            "baseline-gate"
+          ]
+        },
+        {
+          "output": {
+            "node_id": "storyline-design",
+            "output_id": "presentation-storyboard"
+          },
+          "gate_node_ids": [
+            "design-gate"
+          ]
+        },
+        {
+          "output": {
+            "node_id": "visual-design",
+            "output_id": "presentation-visual-system"
+          },
+          "gate_node_ids": [
+            "design-gate"
+          ]
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "kind": "execution",
+      "node_id": "meeting-brief",
+      "name": "Meeting Brief and Research Scope",
+      "agents": [
+        {
+          "participant_id": "meeting-brief-owner",
+          "agent_ref": {
+            "id": "agency-product-manager",
+            "version": "1.0.0"
+          },
+          "required_capabilities": [
+            "requirements-analysis"
+          ],
+          "skills": [],
+          "tools": [
+            {
+              "id": "read"
+            },
+            {
+              "id": "grep"
+            },
+            {
+              "id": "find"
+            },
+            {
+              "id": "ls"
+            },
+            {
+              "id": "write"
+            },
+            {
+              "id": "edit"
+            }
+          ],
+          "knowledge_bases": [],
+          "permissions": {
+            "read_paths": [],
+            "write_paths": [
+              "outputs/meeting-brief"
+            ],
+            "external_actions": false
+          }
+        }
+      ],
+      "contract": {
+        "objective": "Provide a concise, faithful brief that bounds research and supplies stable presentation constraints.",
+        "responsibilities": [
+          "Own the task interpretation, key questions, delivery constraints and consequential unknowns.",
+          "Give research and visual preparation usable shared input without adding an extra planning report."
+        ],
+        "non_responsibilities": [
+          "Do not perform the research, choose its conclusions, design individual slides or approve the brief."
+        ],
+        "work_requirements": [
+          "Read the raw request directly. Record the intended audience and decision or understanding, required questions, supplied facts, exclusions, language, duration, slide and file constraints only to the extent specified.",
+          "Separate facts, explicit user requirements, noncritical planning choices and unresolved matters. Do not turn absence of private company data into a prerequisite for public research unless that data is genuinely essential.",
+          "Organize the research agenda around the requested questions and the decisions they support; do not create adjacent research topics just to make the report comprehensive. Research consumes this exact submitted brief, not an imagined conversation with you.",
+          "Give visual preparation the actual medium and style constraints. A neutral design default is a proposal, not a company brand rule or a new acceptance threshold.",
+          "Submit when research can start with a bounded agenda and visual preparation can identify the known presentation constraints. Keep the brief concise, with original-request locators and unresolved conditions; do not wait for the later joint baseline review.",
+          "If a genuine ambiguity prevents identifying the task, report the specific missing condition. Incompatibility with the single-PPTX public-research template needs explicit workflow adaptation, not silent task rewriting."
+        ],
+        "constraints": [
+          "The original task, not this template or an upstream summary, defines the requested topic, audience, language, duration and slide count. Do not invent missing business facts.",
+          "Use only the exact bound inputs and authorized resources. Keep professional choices and recommendations distinct from user requirements; do not add numerical quality quotas."
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "output_id": "presentation-brief",
+          "artifact_type": "presentation-brief",
+          "description": "Shared scope and source-linked constraints for research, visual preparation and later reviews.",
+          "business_purpose": "Shared scope and source-linked constraints for research, visual preparation and later reviews.",
+          "path_prefix": "outputs/meeting-brief",
+          "evidence_requirements": [
+            "The concise brief links its important requirements and questions to the raw request; missing information and noncritical choices are identified."
+          ],
+          "process_evidence_requirement_refs": [
+            "presentation-brief.evidence.1",
+            "presentation-brief.evidence.2"
+          ],
+          "criterion_refs": [
+            "artifact-integrity",
+            "brief.faithful",
+            "brief.actionable"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "execution",
+      "node_id": "research-and-evidence",
+      "name": "Bounded Research and Content Baseline",
+      "agents": [
+        {
+          "participant_id": "research-and-evidence-owner",
+          "agent_ref": {
+            "id": "agency-research-synthesist",
+            "version": "1.0.0"
+          },
+          "required_capabilities": [
+            "evidence-synthesis"
+          ],
+          "skills": [],
+          "tools": [
+            {
+              "id": "read"
+            },
+            {
+              "id": "grep"
+            },
+            {
+              "id": "find"
+            },
+            {
+              "id": "ls"
+            },
+            {
+              "id": "write"
+            },
+            {
+              "id": "edit"
+            },
+            {
+              "id": "web_search"
+            },
+            {
+              "id": "fetch_content"
+            },
+            {
+              "id": "get_search_content"
+            }
+          ],
+          "knowledge_bases": [],
+          "permissions": {
+            "read_paths": [],
+            "write_paths": [
+              "outputs/research-and-evidence"
+            ],
+            "external_actions": false
+          }
+        }
+      ],
+      "contract": {
+        "objective": "Answer the requested presentation questions with substantive, source-grounded content and inspectable evidence.",
+        "responsibilities": [
+          "Own research, synthesis, material calculations and calibrated conclusions within the assigned agenda.",
+          "Retain enough source content and provenance for downstream use and independent review without repeating the full research process."
+        ],
+        "non_responsibilities": [
+          "Do not produce the slide plan, a second brief, a general industry encyclopedia or the finished deck.",
+          "Do not treat a research plan or evidence-gap inventory as the requested analysis."
+        ],
+        "work_requirements": [
+          "Start from the exact submitted brief and the raw task. The brief is an explicitly permitted stage-internal candidate, not a prior approval or authority to change the raw task. Surface material discrepancies in the baseline.",
+          "Use the bound search and retrieval tools to open material sources; use get_search_content when a relevant returned portion is incomplete. Prioritize decision-critical questions, primary evidence and meaningful counterevidence, not a source-count target.",
+          "Deliver actual answers, key facts and the reasoning needed for the requested understanding or decision. Provide alternatives and a recommendation when the task calls for them; do not force a recommendation onto an informational presentation.",
+          "Use one navigable content baseline plus the evidence files it references. Organize it by the requested questions, with claim/source locators, units and calculation method where relevant. Do not maintain duplicate long-form summaries, storyboards and research diaries unless they serve a distinct requirement.",
+          "Save sufficient source excerpts or source files with URL, title, publisher, available publication date and the retrieval time from real tool receipts. Follow returned workspace paths for imports; disclose inaccessible content and do not present snippets as inspected full text.",
+          "Submit when required questions have adequate substantive answers and material claims have inspectable support, with contradictions handled as the task permits. Stop duplicate searches that add no decision-relevant evidence. A remaining required gap must be repaired or reported as a concrete block, not silently marked complete.",
+          "Before submitting structured data, check its syntax with an available authorized facility; use Markdown rather than hand-maintaining unnecessary JSON. Provide a short per-output summary and limitations in the existing submission fields; these guide navigation, not approval."
+        ],
+        "constraints": [
+          "The original task, not this template or an upstream summary, defines the requested topic, audience, language, duration and slide count. Do not invent missing business facts.",
+          "Use only the exact bound inputs and authorized resources. Keep professional choices and recommendations distinct from user requirements; do not add numerical quality quotas."
+        ]
+      },
+      "inputs": [
+        {
+          "kind": "node_output",
+          "input_id": "meeting-brief-presentation-brief",
+          "source": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          },
+          "required": true,
+          "availability": "submitted",
+          "approval_review_node_ids": [],
+          "purpose": "content_basis"
+        }
+      ],
+      "outputs": [
+        {
+          "output_id": "content-baseline",
+          "artifact_type": "presentation-content-baseline",
+          "description": "Question-oriented substantive content and saved evidence for storyline, production and evidence review.",
+          "business_purpose": "Question-oriented substantive content and saved evidence for storyline, production and evidence review.",
+          "path_prefix": "outputs/research-and-evidence",
+          "evidence_requirements": [
+            "Readable substantive answers with locators to supporting source excerpts or files; calculations include inputs, units and method.",
+            "Evidence distinguishes inspected sources, source claims, derivations, proposals, conflicts and unresolved limitations."
+          ],
+          "process_evidence_requirement_refs": [
+            "content-baseline.evidence.1",
+            "content-baseline.evidence.2"
+          ],
+          "criterion_refs": [
+            "artifact-integrity",
+            "evidence.verified",
+            "evidence.sufficient",
+            "evidence.calibrated"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "review",
+      "node_id": "baseline-gate",
+      "name": "Gate 1 - Scope and Evidence Readiness",
+      "agents": [
+        {
+          "participant_id": "baseline-gate-owner",
+          "agent_ref": {
+            "id": "agency-product-trend-researcher",
+            "version": "1.0.0"
+          },
+          "required_capabilities": [
+            "evidence-review"
+          ],
+          "skills": [],
+          "tools": [
+            {
+              "id": "read"
+            },
+            {
+              "id": "grep"
+            },
+            {
+              "id": "find"
+            },
+            {
+              "id": "ls"
+            }
+          ],
+          "knowledge_bases": [],
+          "permissions": {
+            "read_paths": [],
+            "write_paths": [],
+            "external_actions": false
+          }
+        }
+      ],
+      "contract": {
+        "objective": "Judge whether the brief and content baseline provide a faithful, sufficiently supported basis for the presentation.",
+        "responsibilities": [
+          "Independently assess scope and substantive evidence against the original task and assigned criteria.",
+          "Locate observed defects and their actual output owner."
+        ],
+        "non_responsibilities": [
+          "Do not redo the whole research, write missing content, invent source quotas or approve Runtime state."
+        ],
+        "work_requirements": [
+          "Inspect the exact brief, baseline and saved support for decision-critical claims. Start from their navigation and expand to necessary original evidence; a producer summary or unopened URL is not proof.",
+          "Check that research addresses the original task, not merely a narrowed agenda. A brief-only defect belongs to meeting-brief; a research-only defect belongs to research-and-evidence. Identify both only when the evidence shows both need correction.",
+          "Required missing content or missing evidence the producer owed is FAIL. Existing evidence that cannot be accessed or an unavailable verification prerequisite may be BLOCKED. Record each assigned criterion with exact locations and what must hold on re-review.",
+          "Finish once all assigned criteria and current Findings have evidence-backed judgments. Do not request new reports, stylistic changes or further searches that cannot change a material judgment."
+        ],
+        "constraints": [
+          "The original task, not this template or an upstream summary, defines the requested topic, audience, language, duration and slide count. Do not invent missing business facts.",
+          "Use only the exact bound inputs and authorized resources. Keep professional choices and recommendations distinct from user requirements; do not add numerical quality quotas."
+        ]
+      },
+      "inputs": [
+        {
+          "kind": "node_output",
+          "input_id": "meeting-brief-presentation-brief",
+          "source": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          },
+          "required": true,
+          "availability": "submitted",
+          "approval_review_node_ids": [],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "research-and-evidence-content-baseline",
+          "source": {
+            "node_id": "research-and-evidence",
+            "output_id": "content-baseline"
+          },
+          "required": true,
+          "availability": "submitted",
+          "approval_review_node_ids": [],
+          "purpose": "content_basis"
+        }
+      ],
+      "targets": [
+        {
+          "node_id": "meeting-brief",
+          "output_id": "presentation-brief",
+          "criterion_refs": [
+            "brief.faithful",
+            "brief.actionable"
+          ]
+        },
+        {
+          "node_id": "research-and-evidence",
+          "output_id": "content-baseline",
+          "criterion_refs": [
+            "evidence.verified",
+            "evidence.sufficient",
+            "evidence.calibrated"
+          ]
+        }
+      ],
+      "allowed_rework_node_ids": [
+        "meeting-brief",
+        "research-and-evidence"
+      ],
+      "required_relations": [
+        {
+          "consumer": {
+            "node_id": "research-and-evidence",
+            "output_id": "content-baseline"
+          },
+          "basis": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          }
+        }
+      ],
+      "decision_policy": {
+        "aggregation": "all_required",
+        "independent_production": true
+      }
+    },
+    {
+      "kind": "execution",
+      "node_id": "storyline-design",
+      "name": "Storyline and Production-Ready Messages",
+      "agents": [
+        {
+          "participant_id": "storyline-design-owner",
+          "agent_ref": {
+            "id": "agency-design-visual-storyteller",
+            "version": "1.0.1"
+          },
+          "required_capabilities": [
+            "narrative-design"
+          ],
+          "skills": [],
+          "tools": [
+            {
+              "id": "read"
+            },
+            {
+              "id": "grep"
+            },
+            {
+              "id": "find"
+            },
+            {
+              "id": "ls"
+            },
+            {
+              "id": "write"
+            },
+            {
+              "id": "edit"
+            }
+          ],
+          "knowledge_bases": [],
+          "permissions": {
+            "read_paths": [],
+            "write_paths": [
+              "outputs/storyline-design"
+            ],
+            "external_actions": false
+          }
+        }
+      ],
+      "contract": {
+        "objective": "Turn the approved content into a clear, meeting-appropriate storyline that production can implement without inventing the core argument.",
+        "responsibilities": [
+          "Own section order, key slide messages, evidence placement, pacing and decision or action emphasis.",
+          "Preserve substantive answers and important limitations while selecting what belongs on slides or in notes."
+        ],
+        "non_responsibilities": [
+          "Do not repeat research, rewrite the evidence baseline, invent new facts or prescribe every visual element.",
+          "Do not read visual-design live files or assume its output already exists."
+        ],
+        "work_requirements": [
+          "Read the approved brief and question-oriented content baseline first; retrieve source detail where needed to support an actual slide claim. Do not copy the entire research archive into a new document.",
+          "Produce one usable storyboard or equivalent slide plan with section logic, communication purpose, substantive main messages, source locators and intended chart/diagram roles. Do not leave core answers as placeholders for the producer.",
+          "Respect explicit slide, language and speaking-time constraints. When unspecified, propose reasonable pacing without inventing a fixed slides-per-minute rule or an additional user requirement.",
+          "Own task-specific chart messages and factual relationships; the parallel visual foundation supplies reusable presentation conventions, not a competing narrative. The producer selects concrete layouts, and the design Gate checks material compatibility.",
+          "Submit when the producer can implement the key messages, their support and sequence without choosing missing core conclusions. Additional aesthetic polish or a per-element design schema is not a reason to keep expanding this artifact."
+        ],
+        "constraints": [
+          "The original task, not this template or an upstream summary, defines the requested topic, audience, language, duration and slide count. Do not invent missing business facts.",
+          "Use only the exact bound inputs and authorized resources. Keep professional choices and recommendations distinct from user requirements; do not add numerical quality quotas."
+        ]
+      },
+      "inputs": [
+        {
+          "kind": "node_output",
+          "input_id": "meeting-brief-presentation-brief",
+          "source": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "baseline-gate"
+          ],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "research-and-evidence-content-baseline",
+          "source": {
+            "node_id": "research-and-evidence",
+            "output_id": "content-baseline"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "baseline-gate"
+          ],
+          "purpose": "content_basis"
+        }
+      ],
+      "outputs": [
+        {
+          "output_id": "presentation-storyboard",
+          "artifact_type": "presentation-storyboard",
+          "description": "Implementation-ready narrative and source-linked messages for production; reviewed jointly with the independently prepared visual foundation.",
+          "business_purpose": "Implementation-ready narrative and source-linked messages for production; reviewed jointly with the independently prepared visual foundation.",
+          "path_prefix": "outputs/storyline-design",
+          "evidence_requirements": [
+            "A concise navigation entry and substantive slide plan locate message coverage, evidence, pacing and permitted layout choices."
+          ],
+          "process_evidence_requirement_refs": [
+            "presentation-storyboard.evidence.1",
+            "presentation-storyboard.evidence.2"
+          ],
+          "criterion_refs": [
+            "artifact-integrity",
+            "design.coverage",
+            "design.argument",
+            "design.usability",
+            "design.compatible"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "execution",
+      "node_id": "visual-design",
+      "name": "Independent Visual Foundation",
+      "agents": [
+        {
+          "participant_id": "visual-design-owner",
+          "agent_ref": {
+            "id": "agency-design-ui-designer",
+            "version": "1.0.0"
+          },
+          "required_capabilities": [
+            "design-systems",
+            "visual-hierarchy"
+          ],
+          "skills": [],
+          "tools": [
+            {
+              "id": "read"
+            },
+            {
+              "id": "grep"
+            },
+            {
+              "id": "find"
+            },
+            {
+              "id": "ls"
+            },
+            {
+              "id": "write"
+            },
+            {
+              "id": "edit"
+            }
+          ],
+          "knowledge_bases": [],
+          "permissions": {
+            "read_paths": [],
+            "write_paths": [
+              "outputs/visual-design"
+            ],
+            "external_actions": false
+          }
+        }
+      ],
+      "contract": {
+        "objective": "Prepare reusable, feasible visual conventions from the meeting constraints without waiting for or inventing research results.",
+        "responsibilities": [
+          "Own visual hierarchy, typographic and color choices, layout families and general chart/diagram conventions.",
+          "Leave actual factual messages, data values and final slide-by-slide composition to their assigned owners."
+        ],
+        "non_responsibilities": [
+          "Do not conduct research, choose business conclusions, design task-specific data charts or set a competing slide sequence.",
+          "Do not access research or storyline live drafts; they are not inputs to this work package."
+        ],
+        "work_requirements": [
+          "Use the raw request and exact stage-internal submitted brief for medium, audience and explicit style constraints. This input is not yet approved; do not elevate an assumption or your design preference into task authority.",
+          "Provide a compact visual foundation covering hierarchy, readable text and labels, useful layout families, and general rules for comparisons, trends and relationships when relevant. Illustrations may use clearly labeled dummy values, never alleged research results.",
+          "Select practical design defaults where necessary and explain their purpose. Palette, font and layout choices may guide production but must remain distinguishable from genuine user constraints. Do not invent pixel, element-count, source-count, ink-coverage or aesthetic-score gates.",
+          "Do not enumerate speculative layouts for every eventual slide or demand a token matrix. Keep content-specific chart selection and final page composition with storyline and production; use qualitative compatibility rules rather than a hidden dependency on unfinished content.",
+          "Submit when a producer can implement a coherent visual system and the later design review can judge its fit. A research or storyline revision alone is not a reason to recreate this independent foundation; only an actual change in its brief basis or a scoped Finding requires repair."
+        ],
+        "constraints": [
+          "The original task, not this template or an upstream summary, defines the requested topic, audience, language, duration and slide count. Do not invent missing business facts.",
+          "Use only the exact bound inputs and authorized resources. Keep professional choices and recommendations distinct from user requirements; do not add numerical quality quotas."
+        ]
+      },
+      "inputs": [
+        {
+          "kind": "node_output",
+          "input_id": "meeting-brief-presentation-brief",
+          "source": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          },
+          "required": true,
+          "availability": "submitted",
+          "approval_review_node_ids": [],
+          "purpose": "content_basis"
+        }
+      ],
+      "outputs": [
+        {
+          "output_id": "presentation-visual-system",
+          "artifact_type": "presentation-visual-system",
+          "description": "Reusable visual conventions and design defaults for production, deliberately independent of research facts and slide sequence.",
+          "business_purpose": "Reusable visual conventions and design defaults for production, deliberately independent of research facts and slide sequence.",
+          "path_prefix": "outputs/visual-design",
+          "evidence_requirements": [
+            "Concise, implementable visual guidance identifies binding user constraints, proposed defaults, examples and content-dependent decisions left to production."
+          ],
+          "process_evidence_requirement_refs": [],
+          "criterion_refs": [
+            "artifact-integrity",
+            "visual.usable",
+            "design.compatible"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "review",
+      "node_id": "design-gate",
+      "name": "Gate 2 - Storyline and Visual Compatibility",
+      "agents": [
+        {
+          "participant_id": "design-gate-owner",
+          "agent_ref": {
+            "id": "agency-sales-proposal-strategist",
+            "version": "1.0.0"
+          },
+          "required_capabilities": [
+            "proposal-review"
+          ],
+          "skills": [],
+          "tools": [
+            {
+              "id": "read"
+            },
+            {
+              "id": "grep"
+            },
+            {
+              "id": "find"
+            },
+            {
+              "id": "ls"
+            }
+          ],
+          "knowledge_bases": [],
+          "permissions": {
+            "read_paths": [],
+            "write_paths": [],
+            "external_actions": false
+          }
+        }
+      ],
+      "contract": {
+        "objective": "Judge the two design outputs together for substantive coverage, narrative coherence and practical compatibility before production.",
+        "responsibilities": [
+          "Review the storyboard and visual foundation against the exact approved brief and evidence.",
+          "Check the combined production interface and locate the smallest responsible repair scope."
+        ],
+        "non_responsibilities": [
+          "Do not produce a third replacement design, reopen completed research without evidence of a defect, or impose personal styling."
+        ],
+        "work_requirements": [
+          "Inspect the storyboard for complete key messages and their evidence links, then the visual foundation for practical hierarchy and the joint design.compatible criterion for material conflicts. No fixed document schema is required.",
+          "Judge what can be known from a design. Do not claim that final slides render correctly or require a finished PPT as proof at this Gate. Concrete layout choices can remain with production when the intended messages and constraints are clear.",
+          "Return narrative defects to storyline-design and foundation defects to visual-design. A joint judgment requires both outputs as evidence but does not require both producers to rework.",
+          "Use a frozen remediation mapping only when supported root-cause evidence identifies an actual error in the bound brief or content baseline. Otherwise keep correction with the observed designer. Do not ask a designer to overwrite an approved upstream source.",
+          "Record the criterion, affected message or guidance, evidence location, actual owner and re-review condition. Advisory style preferences must not block. Finish after assigned judgments and Findings are addressed; do not negotiate every design parameter."
+        ],
+        "constraints": [
+          "The original task, not this template or an upstream summary, defines the requested topic, audience, language, duration and slide count. Do not invent missing business facts.",
+          "Use only the exact bound inputs and authorized resources. Keep professional choices and recommendations distinct from user requirements; do not add numerical quality quotas."
+        ]
+      },
+      "inputs": [
+        {
+          "kind": "node_output",
+          "input_id": "meeting-brief-presentation-brief",
+          "source": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "baseline-gate"
+          ],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "research-and-evidence-content-baseline",
+          "source": {
+            "node_id": "research-and-evidence",
+            "output_id": "content-baseline"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "baseline-gate"
+          ],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "storyline-design-presentation-storyboard",
+          "source": {
+            "node_id": "storyline-design",
+            "output_id": "presentation-storyboard"
+          },
+          "required": true,
+          "availability": "submitted",
+          "approval_review_node_ids": [],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "visual-design-presentation-visual-system",
+          "source": {
+            "node_id": "visual-design",
+            "output_id": "presentation-visual-system"
+          },
+          "required": true,
+          "availability": "submitted",
+          "approval_review_node_ids": [],
+          "purpose": "content_basis"
+        }
+      ],
+      "targets": [
+        {
+          "node_id": "storyline-design",
+          "output_id": "presentation-storyboard",
+          "criterion_refs": [
+            "design.coverage",
+            "design.argument",
+            "design.usability",
+            "design.compatible"
+          ]
+        },
+        {
+          "node_id": "visual-design",
+          "output_id": "presentation-visual-system",
+          "criterion_refs": [
+            "visual.usable",
+            "design.compatible"
+          ]
+        }
+      ],
+      "allowed_rework_node_ids": [
+        "storyline-design",
+        "visual-design",
+        "research-and-evidence",
+        "meeting-brief"
+      ],
+      "criterion_subjects": [
+        {
+          "criterion_id": "design.compatible",
+          "targets": [
+            {
+              "node_id": "storyline-design",
+              "output_id": "presentation-storyboard"
+            },
+            {
+              "node_id": "visual-design",
+              "output_id": "presentation-visual-system"
+            }
+          ]
+        }
+      ],
+      "remediation_mappings": [
+        {
+          "criterion_id": "design.argument",
+          "observed": {
+            "node_id": "storyline-design",
+            "output_id": "presentation-storyboard"
+          },
+          "owner": {
+            "node_id": "research-and-evidence",
+            "output_id": "content-baseline"
+          }
+        },
+        {
+          "criterion_id": "design.coverage",
+          "observed": {
+            "node_id": "storyline-design",
+            "output_id": "presentation-storyboard"
+          },
+          "owner": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          }
+        },
+        {
+          "criterion_id": "visual.usable",
+          "observed": {
+            "node_id": "visual-design",
+            "output_id": "presentation-visual-system"
+          },
+          "owner": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          }
+        }
+      ],
+      "decision_policy": {
+        "aggregation": "all_required",
+        "independent_production": true
+      }
+    },
+    {
+      "kind": "execution",
+      "node_id": "produce-and-finalize",
+      "name": "Produce, Inspect and Finalize the PPTX",
+      "agents": [
+        {
+          "participant_id": "produce-and-finalize-owner",
+          "agent_ref": {
+            "id": "agency-design-visual-storyteller",
+            "version": "1.0.1"
+          },
+          "required_capabilities": [
+            "presentation-production"
+          ],
+          "skills": [
+            {
+              "id": "pptx"
+            }
+          ],
+          "tools": [
+            {
+              "id": "read"
+            },
+            {
+              "id": "grep"
+            },
+            {
+              "id": "find"
+            },
+            {
+              "id": "ls"
+            },
+            {
+              "id": "write"
+            },
+            {
+              "id": "edit"
+            },
+            {
+              "id": "bash"
+            }
+          ],
+          "knowledge_bases": [],
+          "permissions": {
+            "read_paths": [],
+            "write_paths": [
+              "outputs/produce-and-finalize"
+            ],
+            "external_actions": false
+          }
+        }
+      ],
+      "contract": {
+        "objective": "Build a complete editable deck from the approved inputs, correct observed defects and submit the exact release candidate with internal evidence.",
+        "responsibilities": [
+          "Own actual slide composition, generation, integration, producer-side validation and the final user-facing file.",
+          "Preserve the evidence, source and production assets needed for precise repair without delivering them as extra user files."
+        ],
+        "non_responsibilities": [
+          "Do not redo the research, replace core approved conclusions, invent acceptance thresholds or independently approve release.",
+          "Do not build a generic presentation framework or a new quality system when the bound Skill already supplies a suitable method."
+        ],
+        "work_requirements": [
+          "Read the bound PPTX Skill and use its actual tools and reusable scripts. Early in this same node, verify that the chosen method can create and render a representative difficult slide; then reuse that method instead of repeatedly rebuilding the toolchain.",
+          "Read handoff entry points and the substantive storyboard, visual foundation and necessary evidence. Translate them into real slides. Final composition may adapt design defaults to fit content, but must not alter facts, omit required answers or weaken explicit task constraints.",
+          "Build the complete content sequence before repeated cosmetic refinement. Correct observable content, layout or format defects; prefer local changes and targeted previews while iterating when the tool supports them. Run a complete final render/open check on the submitted version.",
+          "Inspect all slides through a compact overview and readable detail for key data, dense or suspicious regions. Save the full relevant render set internally, but read only the required views into each model request. Do not repeatedly load all full-resolution images into history.",
+          "Keep the editable working deck and necessary source/assets in presentation-deck. Put exactly one finalized .pptx in final-presentation-package, using the user-requested basename when given and meeting-report.pptx otherwise. Keep source, QA files and drafts out of that release output.",
+          "In validation-evidence, save locatable renders, extracted slide content, the actual check results and a concise record tying them to the final deck file hash. Record commands, relevant tool/version details, exit results, inspected scope and limitations. A successful shell pipeline or a hand-written PASS does not establish that every check ran.",
+          "Keep working and release deck bytes consistent. If the deck changes, refresh affected evidence and perform the final whole-deck sanity check; do not submit screenshots from an earlier candidate. Preserve the exit status of checking commands before truncating logs.",
+          "Submit when the complete editable candidate has passed the applicable producer checks and its required evidence is present. Stop unrelated polishing. On rework, repair only scoped findings and real consequences, revalidate the affected areas, and retain unaffected work through the existing preservation protocol."
+        ],
+        "constraints": [
+          "The original task, not this template or an upstream summary, defines the requested topic, audience, language, duration and slide count. Do not invent missing business facts.",
+          "Use only the exact bound inputs and authorized resources. Keep professional choices and recommendations distinct from user requirements; do not add numerical quality quotas."
+        ]
+      },
+      "inputs": [
+        {
+          "kind": "node_output",
+          "input_id": "meeting-brief-presentation-brief",
+          "source": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "baseline-gate"
+          ],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "research-and-evidence-content-baseline",
+          "source": {
+            "node_id": "research-and-evidence",
+            "output_id": "content-baseline"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "baseline-gate"
+          ],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "storyline-design-presentation-storyboard",
+          "source": {
+            "node_id": "storyline-design",
+            "output_id": "presentation-storyboard"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "design-gate"
+          ],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "visual-design-presentation-visual-system",
+          "source": {
+            "node_id": "visual-design",
+            "output_id": "presentation-visual-system"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "design-gate"
+          ],
+          "purpose": "content_basis"
+        }
+      ],
+      "outputs": [
+        {
+          "output_id": "presentation-deck",
+          "artifact_type": "presentation-deck",
+          "description": "Internal editable working deck and the minimal source/assets needed to revise the exact release candidate.",
+          "business_purpose": "Internal editable working deck and the minimal source/assets needed to revise the exact release candidate.",
+          "path_prefix": "outputs/produce-and-finalize/production",
+          "evidence_requirements": [
+            "Editable working deck, necessary source/assets and file identity linking the working deck to the release candidate."
+          ],
+          "process_evidence_requirement_refs": [
+            "presentation-deck.evidence.1",
+            "presentation-deck.evidence.2",
+            "presentation-deck.evidence.3"
+          ],
+          "criterion_refs": [
+            "artifact-integrity",
+            "production.reproducible",
+            "production.fidelity",
+            "release.package-consistent"
+          ]
+        },
+        {
+          "output_id": "final-presentation-package",
+          "artifact_type": "presentation-release-package",
+          "description": "Exactly one final editable PPTX for the user; no internal QA, source or duplicate wrapper files.",
+          "business_purpose": "Exactly one final editable PPTX for the user; no internal QA, source or duplicate wrapper files.",
+          "path_prefix": "outputs/produce-and-finalize/release",
+          "evidence_requirements": [
+            "The definitive PPTX is complete, usable and identical to the deck actually inspected; known usage limitations are disclosed in the deliverable where needed."
+          ],
+          "process_evidence_requirement_refs": [
+            "final-presentation-package.evidence.1",
+            "final-presentation-package.evidence.2",
+            "final-presentation-package.evidence.3"
+          ],
+          "criterion_refs": [
+            "artifact-integrity",
+            "release.one-pptx",
+            "release.content",
+            "release.visual",
+            "release.usable",
+            "release.ready",
+            "release.package-consistent"
+          ]
+        },
+        {
+          "output_id": "validation-evidence",
+          "artifact_type": "presentation-validation-evidence",
+          "description": "Internal evidence enabling independent review of the exact candidate without repeating its production.",
+          "business_purpose": "Internal evidence enabling independent review of the exact candidate without repeating its production.",
+          "path_prefix": "outputs/produce-and-finalize/qa",
+          "evidence_requirements": [
+            "Final-version rendered views, extracted slide content and check records with the deck hash, observed results, scope and unperformed conditions."
+          ],
+          "process_evidence_requirement_refs": [],
+          "criterion_refs": [
+            "artifact-integrity",
+            "qa.exact-version",
+            "qa.honest",
+            "release.package-consistent"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "review",
+      "node_id": "release-gate",
+      "name": "Gate 3 - Independent Final-Deck Acceptance",
+      "agents": [
+        {
+          "participant_id": "release-gate-owner",
+          "agent_ref": {
+            "id": "agency-testing-evidence-collector",
+            "version": "1.0.0"
+          },
+          "required_capabilities": [
+            "presentation-review"
+          ],
+          "skills": [],
+          "tools": [
+            {
+              "id": "read"
+            },
+            {
+              "id": "grep"
+            },
+            {
+              "id": "find"
+            },
+            {
+              "id": "ls"
+            }
+          ],
+          "knowledge_bases": [],
+          "permissions": {
+            "read_paths": [],
+            "write_paths": [],
+            "external_actions": false
+          }
+        }
+      ],
+      "contract": {
+        "objective": "Independently judge the exact final file, retained content and visual evidence against the task and required meeting-use conditions.",
+        "responsibilities": [
+          "Assess actual content fidelity, visual usability, release identity and honest verification.",
+          "Locate production-only failures separately from supported upstream content or design defects."
+        ],
+        "non_responsibilities": [
+          "Do not modify the deck, regenerate missing evidence, invent a preferred production method or independently change Runtime state.",
+          "Do not claim independent rendering or binary-format tests unavailable through the bound read-only tools."
+        ],
+        "work_requirements": [
+          "Start from the exact release manifest, extracted slide content and QA navigation. Inspect rendered coverage of the full deck and readable detail where needed; trace decision-critical claims to the bound baseline and saved sources. Do not approve from a filename, thumbnail sheet or producer summary alone.",
+          "Check release.package-consistent across production, release and QA: working/release file identities agree and rendered/text/check evidence identifies that final candidate. Inspect recorded open/render results and report their actual scope; do not pretend that viewing a PNG proves PPTX editability or that this read-only reviewer reran software.",
+          "Missing required producer evidence is a deliverable defect. Existing but inaccessible evidence or a genuinely unavailable checking condition is BLOCKED; unverified is never PASS. Request readable candidate evidence when needed rather than broadly rebuilding or expanding the workflow.",
+          "For an integration, copying, layout, file-set or stale-QA error introduced by production, target only the affected produce-and-finalize output. Correct upstream evidence and designs must not be returned merely because they were used.",
+          "For a supported root cause in the exact brief, research, storyboard or visual foundation, use only the criterion-specific frozen mapping, cite the owner version and explain the real dependency. Runtime handles resulting invalidation and fresh approvals; do not ask production to silently repair immutable upstream sources.",
+          "Record every assigned criterion and outstanding Finding with concrete evidence and re-review conditions. Keep advisory preferences separate. Do not demand extra reports, fixed visual scores or a defect quota, and do not hide a known failure because another criterion is BLOCKED."
+        ],
+        "constraints": [
+          "The original task, not this template or an upstream summary, defines the requested topic, audience, language, duration and slide count. Do not invent missing business facts.",
+          "Use only the exact bound inputs and authorized resources. Keep professional choices and recommendations distinct from user requirements; do not add numerical quality quotas."
+        ]
+      },
+      "inputs": [
+        {
+          "kind": "node_output",
+          "input_id": "meeting-brief-presentation-brief",
+          "source": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "baseline-gate"
+          ],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "research-and-evidence-content-baseline",
+          "source": {
+            "node_id": "research-and-evidence",
+            "output_id": "content-baseline"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "baseline-gate"
+          ],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "storyline-design-presentation-storyboard",
+          "source": {
+            "node_id": "storyline-design",
+            "output_id": "presentation-storyboard"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "design-gate"
+          ],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "visual-design-presentation-visual-system",
+          "source": {
+            "node_id": "visual-design",
+            "output_id": "presentation-visual-system"
+          },
+          "required": true,
+          "availability": "approved",
+          "approval_review_node_ids": [
+            "design-gate"
+          ],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "produce-and-finalize-presentation-deck",
+          "source": {
+            "node_id": "produce-and-finalize",
+            "output_id": "presentation-deck"
+          },
+          "required": true,
+          "availability": "submitted",
+          "approval_review_node_ids": [],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "produce-and-finalize-final-presentation-package",
+          "source": {
+            "node_id": "produce-and-finalize",
+            "output_id": "final-presentation-package"
+          },
+          "required": true,
+          "availability": "submitted",
+          "approval_review_node_ids": [],
+          "purpose": "content_basis"
+        },
+        {
+          "kind": "node_output",
+          "input_id": "produce-and-finalize-validation-evidence",
+          "source": {
+            "node_id": "produce-and-finalize",
+            "output_id": "validation-evidence"
+          },
+          "required": true,
+          "availability": "submitted",
+          "approval_review_node_ids": [],
+          "purpose": "content_basis"
+        }
+      ],
+      "targets": [
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "presentation-deck",
+          "criterion_refs": [
+            "production.reproducible",
+            "production.fidelity",
+            "release.package-consistent"
+          ]
+        },
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "final-presentation-package",
+          "criterion_refs": [
+            "release.content",
+            "release.visual",
+            "release.usable",
+            "release.ready",
+            "release.package-consistent"
+          ]
+        },
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "validation-evidence",
+          "criterion_refs": [
+            "qa.exact-version",
+            "qa.honest",
+            "release.package-consistent"
+          ]
+        }
+      ],
+      "allowed_rework_node_ids": [
+        "produce-and-finalize",
+        "meeting-brief",
+        "research-and-evidence",
+        "storyline-design",
+        "visual-design"
+      ],
+      "criterion_subjects": [
+        {
+          "criterion_id": "release.package-consistent",
+          "targets": [
+            {
+              "node_id": "produce-and-finalize",
+              "output_id": "presentation-deck"
+            },
+            {
+              "node_id": "produce-and-finalize",
+              "output_id": "final-presentation-package"
+            },
+            {
+              "node_id": "produce-and-finalize",
+              "output_id": "validation-evidence"
+            }
+          ]
+        }
+      ],
+      "remediation_mappings": [
+        {
+          "criterion_id": "release.content",
+          "observed": {
+            "node_id": "produce-and-finalize",
+            "output_id": "final-presentation-package"
+          },
+          "owner": {
+            "node_id": "meeting-brief",
+            "output_id": "presentation-brief"
+          }
+        },
+        {
+          "criterion_id": "release.content",
+          "observed": {
+            "node_id": "produce-and-finalize",
+            "output_id": "final-presentation-package"
+          },
+          "owner": {
+            "node_id": "research-and-evidence",
+            "output_id": "content-baseline"
+          }
+        },
+        {
+          "criterion_id": "release.content",
+          "observed": {
+            "node_id": "produce-and-finalize",
+            "output_id": "final-presentation-package"
+          },
+          "owner": {
+            "node_id": "storyline-design",
+            "output_id": "presentation-storyboard"
+          }
+        },
+        {
+          "criterion_id": "release.visual",
+          "observed": {
+            "node_id": "produce-and-finalize",
+            "output_id": "final-presentation-package"
+          },
+          "owner": {
+            "node_id": "visual-design",
+            "output_id": "presentation-visual-system"
+          }
+        }
+      ],
+      "decision_policy": {
+        "aggregation": "all_required",
+        "independent_production": true
+      }
+    }
+  ],
+  "criteria": [
+    {
+      "kind": "mechanical",
+      "criterion_id": "artifact-integrity",
+      "description": "Declared files match their sealed manifest. This check establishes integrity, not factual, visual or business correctness.",
+      "check_id": "artifact-integrity",
+      "parameters": {},
+      "evidence_requirements": [
+        "Runtime file inventory and content hashes."
+      ]
+    },
+    {
+      "kind": "mechanical",
+      "criterion_id": "release.one-pptx",
+      "description": "The user-facing output contains exactly one .pptx file and no extra sources, QA files or duplicate wrapper. Extension/count checks do not prove that the file opens or is editable.",
+      "check_id": "artifact-file-set",
+      "parameters": {
+        "exact_count": 1,
+        "extensions": [
+          ".pptx"
+        ]
+      },
+      "evidence_requirements": [
+        "Exact release-output manifest."
+      ]
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "brief.faithful",
+      "description": "The brief preserves the raw task purpose, audience, key questions, exclusions and explicit language, time, slide and file constraints; no proposed choice is mislabeled as a user requirement.",
+      "evidence_requirements": [
+        "Brief statements and their original-request locators."
+      ],
+      "process_criterion_refs": []
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "brief.actionable",
+      "description": "Research and visual preparation can identify their actual scope. Material unknowns remain explicit; noncritical design/planning choices do not invent facts, unnecessary private inputs or new delivery obligations.",
+      "evidence_requirements": [
+        "The bounded question agenda, known constraints and consequential unresolved conditions."
+      ],
+      "process_criterion_refs": []
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "evidence.verified",
+      "description": "Decision-critical facts, figures and quotations have reliable support in source content actually retrieved for this Run or reproducible derivations. Saved evidence is locatable; unopened links and search snippets alone do not prove a claim.",
+      "evidence_requirements": [
+        "Baseline claim locations, retained source content and provenance from actual retrieval, or recorded calculation inputs and method."
+      ],
+      "process_criterion_refs": [
+        "brief-and-content-review.criterion.1"
+      ]
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "evidence.sufficient",
+      "description": "The baseline substantively answers the requested questions for the actual audience and purpose, with decision analysis when requested. A plan, gap inventory or narrowed brief cannot substitute for missing core answers.",
+      "evidence_requirements": [
+        "Actual answers and their support compared with the original task, including alternatives or counterevidence where material."
+      ],
+      "process_criterion_refs": [
+        "brief-and-content-review.criterion.2"
+      ]
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "evidence.calibrated",
+      "description": "Claim strength matches evidence. Facts, source claims, calculations, proposals and uncertainty remain distinguishable; material units, denominators, time scope and limitations are preserved.",
+      "evidence_requirements": [
+        "Source-to-claim reasoning, reproducible material calculations and explicit uncertainty or contradictions."
+      ],
+      "process_criterion_refs": [
+        "brief-and-content-review.criterion.3"
+      ]
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "design.coverage",
+      "description": "The storyline is organized around the meeting purpose and covers the required substantive questions, not merely source order or empty section headings.",
+      "evidence_requirements": [
+        "Storyboard messages and source locators mapped to the actual task."
+      ],
+      "process_criterion_refs": [
+        "storyline-review.criterion.1"
+      ]
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "design.argument",
+      "description": "Key messages, evidence and requested conclusions/actions form a coherent argument; compression does not invent claims or discard consequential limitations.",
+      "evidence_requirements": [
+        "Substantive slide messages and their relationships to the exact approved content."
+      ],
+      "process_criterion_refs": [
+        "storyline-review.criterion.2"
+      ]
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "design.usability",
+      "description": "Emphasis, slide allocation and information density fit the stated meeting constraints, or clearly identified nonbinding assumptions where unspecified. Production does not need to invent missing core content.",
+      "evidence_requirements": [
+        "An implementable slide plan with pacing, substantive messages and identified production choices."
+      ],
+      "process_criterion_refs": [
+        "storyline-review.criterion.3"
+      ]
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "visual.usable",
+      "description": "The visual foundation is feasible for the actual medium and known constraints, with understandable hierarchy, readable labeling and usable layout conventions. Defaults are not misrepresented as user rules or universal numerical thresholds.",
+      "evidence_requirements": [
+        "Visual guidance and examples tied to brief constraints, with task-specific facts and final composition left to their actual owners."
+      ],
+      "process_criterion_refs": []
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "design.compatible",
+      "description": "The exact storyboard and visual foundation can be combined into a coherent deck without conflicting mandatory constraints or inventing missing core decisions. A difference in a nonbinding style preference is not a defect.",
+      "evidence_requirements": [
+        "Both design outputs, the relevant message/layout guidance and evidence of any concrete incompatibility."
+      ],
+      "process_criterion_refs": []
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "production.reproducible",
+      "description": "The internal production output contains an editable working deck and the necessary source or assets for localized revision. No particular generator or redundant source archive is mandatory.",
+      "evidence_requirements": [
+        "Working deck and the actual necessary revision assets or method."
+      ],
+      "process_criterion_refs": []
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "production.fidelity",
+      "description": "Production preserves the approved messages, source meanings and explicit constraints. Permitted visual refinements do not silently change the facts or replace the narrative.",
+      "evidence_requirements": [
+        "Actual slide content and visuals compared with the bound storyboard, evidence and visual foundation where relevant."
+      ],
+      "process_criterion_refs": []
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "release.content",
+      "description": "The final PPT substantively meets the raw task and accurately expresses material facts, figures, conclusions and required actions; unknowns and proposals are not presented as established facts.",
+      "evidence_requirements": [
+        "Exact candidate slide content, evidence locations and the relevant approved source/context."
+      ],
+      "process_criterion_refs": [
+        "final-deck-review.criterion.1"
+      ]
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "release.visual",
+      "description": "The actual slides communicate clearly for the meeting: no material clipping, overlap, unreadable labels, misleading chart expression or inconsistent hierarchy obstructs understanding.",
+      "evidence_requirements": [
+        "Rendered coverage of all slides and readable detail of key or suspicious areas, associated with the final candidate."
+      ],
+      "process_criterion_refs": [
+        "final-deck-review.criterion.2"
+      ]
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "release.usable",
+      "description": "The definitive user-facing PPTX opens and presents correctly, retains meaningful editability, and respects any explicit filename/file constraints. Count or extension checks alone do not establish these properties.",
+      "evidence_requirements": [
+        "Exact release file and inspectable final-version opening/rendering and editability evidence, with checking conditions stated."
+      ],
+      "process_criterion_refs": [
+        "final-deck-review.criterion.3"
+      ]
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "release.ready",
+      "description": "No known blocking issue remains for the requested meeting use. Required content and delivery conditions are satisfied, with relevant limitations disclosed; untested projector or target-device conditions are not claimed as tested.",
+      "evidence_requirements": [
+        "Candidate readiness, issue dispositions and limitations corresponding to the actual inspected artifact."
+      ],
+      "process_criterion_refs": [
+        "final-deck-review.criterion.4"
+      ]
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "qa.exact-version",
+      "description": "QA files identify the final candidate by content hash and relevant generation/check records. After changes, affected evidence is refreshed and the submitted whole-deck state has been checked.",
+      "evidence_requirements": [
+        "Deck identity, final render/text artifacts and records of checks and corrections."
+      ],
+      "process_criterion_refs": []
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "qa.honest",
+      "description": "Check records distinguish executed, failed, unperformed and inaccessible conditions. Actual exit results and observed findings support claims; no hand-written PASS, swallowed pipeline error or altered checking rule substitutes for verification.",
+      "evidence_requirements": [
+        "Inspectable tool results, check scope and versions, material issue fixes and unverified limitations."
+      ],
+      "process_criterion_refs": []
+    },
+    {
+      "kind": "semantic",
+      "criterion_id": "release.package-consistent",
+      "description": "The working deck and user-facing deck are the same finalized content, and QA renders/text/results refer to that exact file rather than an older candidate. Sources and QA remain separate from user delivery.",
+      "evidence_requirements": [
+        "Production, release and QA manifests plus corresponding deck hashes and verification records."
+      ],
+      "process_criterion_refs": []
+    }
+  ],
+  "requirement_coverage": [
+    {
+      "source": "process_activity",
+      "requirement_id": "presentation-brief-activity",
+      "responsible_node_ids": [
+        "meeting-brief"
+      ],
+      "output_refs": [
+        {
+          "node_id": "meeting-brief",
+          "output_id": "presentation-brief"
+        }
+      ],
+      "criterion_refs": [
+        "brief.faithful",
+        "brief.actionable"
+      ]
+    },
+    {
+      "source": "process_deliverable",
+      "requirement_id": "presentation-brief",
+      "responsible_node_ids": [
+        "meeting-brief"
+      ],
+      "output_refs": [
+        {
+          "node_id": "meeting-brief",
+          "output_id": "presentation-brief"
+        }
+      ],
+      "criterion_refs": [
+        "brief.faithful",
+        "brief.actionable"
+      ]
+    },
+    {
+      "source": "process_activity",
+      "requirement_id": "content-and-evidence",
+      "responsible_node_ids": [
+        "research-and-evidence"
+      ],
+      "output_refs": [
+        {
+          "node_id": "research-and-evidence",
+          "output_id": "content-baseline"
+        }
+      ],
+      "criterion_refs": [
+        "evidence.verified",
+        "evidence.sufficient",
+        "evidence.calibrated"
+      ]
+    },
+    {
+      "source": "process_deliverable",
+      "requirement_id": "content-baseline",
+      "responsible_node_ids": [
+        "research-and-evidence"
+      ],
+      "output_refs": [
+        {
+          "node_id": "research-and-evidence",
+          "output_id": "content-baseline"
+        }
+      ],
+      "criterion_refs": [
+        "evidence.verified",
+        "evidence.sufficient",
+        "evidence.calibrated"
+      ]
+    },
+    {
+      "source": "process_activity",
+      "requirement_id": "storyline-design",
+      "responsible_node_ids": [
+        "storyline-design"
+      ],
+      "output_refs": [
+        {
+          "node_id": "storyline-design",
+          "output_id": "presentation-storyboard"
+        }
+      ],
+      "criterion_refs": [
+        "design.coverage",
+        "design.argument",
+        "design.usability",
+        "design.compatible"
+      ]
+    },
+    {
+      "source": "process_deliverable",
+      "requirement_id": "presentation-storyboard",
+      "responsible_node_ids": [
+        "storyline-design"
+      ],
+      "output_refs": [
+        {
+          "node_id": "storyline-design",
+          "output_id": "presentation-storyboard"
+        }
+      ],
+      "criterion_refs": [
+        "design.coverage",
+        "design.argument",
+        "design.usability",
+        "design.compatible"
+      ]
+    },
+    {
+      "source": "process_activity",
+      "requirement_id": "deck-production",
+      "responsible_node_ids": [
+        "produce-and-finalize"
+      ],
+      "output_refs": [
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "presentation-deck"
+        }
+      ],
+      "criterion_refs": [
+        "production.reproducible",
+        "production.fidelity",
+        "release.package-consistent"
+      ]
+    },
+    {
+      "source": "process_deliverable",
+      "requirement_id": "presentation-deck",
+      "responsible_node_ids": [
+        "produce-and-finalize"
+      ],
+      "output_refs": [
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "presentation-deck"
+        }
+      ],
+      "criterion_refs": [
+        "production.reproducible",
+        "production.fidelity",
+        "release.package-consistent"
+      ]
+    },
+    {
+      "source": "process_activity",
+      "requirement_id": "final-validation",
+      "responsible_node_ids": [
+        "produce-and-finalize"
+      ],
+      "output_refs": [
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "final-presentation-package"
+        }
+      ],
+      "criterion_refs": [
+        "release.content",
+        "release.visual",
+        "release.usable",
+        "release.ready",
+        "release.package-consistent"
+      ]
+    },
+    {
+      "source": "process_deliverable",
+      "requirement_id": "final-presentation-package",
+      "responsible_node_ids": [
+        "produce-and-finalize"
+      ],
+      "output_refs": [
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "final-presentation-package"
+        }
+      ],
+      "criterion_refs": [
+        "release.content",
+        "release.visual",
+        "release.usable",
+        "release.ready",
+        "release.package-consistent"
+      ]
+    },
+    {
+      "source": "process_review",
+      "requirement_id": "brief-and-content-review",
+      "responsible_node_ids": [
+        "baseline-gate"
+      ],
+      "output_refs": [
+        {
+          "node_id": "meeting-brief",
+          "output_id": "presentation-brief"
+        },
+        {
+          "node_id": "research-and-evidence",
+          "output_id": "content-baseline"
+        }
+      ],
+      "criterion_refs": [
+        "brief.faithful",
+        "brief.actionable",
+        "evidence.verified",
+        "evidence.sufficient",
+        "evidence.calibrated"
+      ]
+    },
+    {
+      "source": "process_review",
+      "requirement_id": "storyline-review",
+      "responsible_node_ids": [
+        "design-gate"
+      ],
+      "output_refs": [
+        {
+          "node_id": "storyline-design",
+          "output_id": "presentation-storyboard"
+        },
+        {
+          "node_id": "visual-design",
+          "output_id": "presentation-visual-system"
+        }
+      ],
+      "criterion_refs": [
+        "design.coverage",
+        "design.argument",
+        "design.usability",
+        "design.compatible",
+        "visual.usable"
+      ]
+    },
+    {
+      "source": "process_review",
+      "requirement_id": "final-deck-review",
+      "responsible_node_ids": [
+        "release-gate"
+      ],
+      "output_refs": [
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "presentation-deck"
+        },
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "final-presentation-package"
+        },
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "validation-evidence"
+        }
+      ],
+      "criterion_refs": [
+        "production.reproducible",
+        "production.fidelity",
+        "release.package-consistent",
+        "release.content",
+        "release.visual",
+        "release.usable",
+        "release.ready",
+        "qa.exact-version",
+        "qa.honest"
+      ]
+    },
+    {
+      "source": "process_rule",
+      "requirement_id": "meeting-purpose-first",
+      "responsible_node_ids": [
+        "design-gate"
+      ],
+      "output_refs": [
+        {
+          "node_id": "storyline-design",
+          "output_id": "presentation-storyboard"
+        }
+      ],
+      "criterion_refs": [
+        "design.coverage"
+      ]
+    },
+    {
+      "source": "process_rule",
+      "requirement_id": "evidence-integrity",
+      "responsible_node_ids": [
+        "baseline-gate"
+      ],
+      "output_refs": [
+        {
+          "node_id": "research-and-evidence",
+          "output_id": "content-baseline"
+        }
+      ],
+      "criterion_refs": [
+        "evidence.verified",
+        "evidence.calibrated"
+      ]
+    },
+    {
+      "source": "process_rule",
+      "requirement_id": "storyline-before-production",
+      "responsible_node_ids": [
+        "release-gate"
+      ],
+      "output_refs": [
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "presentation-deck"
+        }
+      ],
+      "criterion_refs": [
+        "production.fidelity"
+      ]
+    },
+    {
+      "source": "process_rule",
+      "requirement_id": "independent-final-review",
+      "responsible_node_ids": [
+        "release-gate"
+      ],
+      "output_refs": [
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "final-presentation-package"
+        }
+      ],
+      "criterion_refs": [
+        "release.ready"
+      ]
+    },
+    {
+      "source": "process_rule",
+      "requirement_id": "delivery-evidence-separation",
+      "responsible_node_ids": [
+        "release-gate"
+      ],
+      "output_refs": [
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "final-presentation-package"
+        }
+      ],
+      "criterion_refs": [
+        "release.package-consistent"
+      ]
+    },
+    {
+      "source": "process_rule",
+      "requirement_id": "version-consistency",
+      "responsible_node_ids": [
+        "release-gate"
+      ],
+      "output_refs": [
+        {
+          "node_id": "produce-and-finalize",
+          "output_id": "validation-evidence"
+        }
+      ],
+      "criterion_refs": [
+        "qa.exact-version",
+        "release.package-consistent"
+      ]
+    }
+  ],
+  "completion": {
+    "required_node_ids": [
+      "meeting-brief",
+      "research-and-evidence",
+      "baseline-gate",
+      "storyline-design",
+      "visual-design",
+      "design-gate",
+      "produce-and-finalize",
+      "release-gate"
+    ],
+    "final_outputs": [
+      {
+        "node_id": "produce-and-finalize",
+        "output_id": "presentation-deck"
+      },
+      {
+        "node_id": "produce-and-finalize",
+        "output_id": "final-presentation-package"
+      },
+      {
+        "node_id": "produce-and-finalize",
+        "output_id": "validation-evidence"
+      }
+    ],
+    "delivery_outputs": [
+      {
+        "node_id": "produce-and-finalize",
+        "output_id": "final-presentation-package"
+      }
+    ],
+    "required_review_node_ids": [
+      "baseline-gate",
+      "design-gate",
+      "release-gate"
+    ]
+  }
+}

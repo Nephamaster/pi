@@ -13,7 +13,7 @@ import {
 } from "../src/index.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
-describe("important meeting PPT 1.0.3", () => {
+describe("important meeting PPT templates", () => {
 	let workflow: WorkflowDefinition;
 	let processSpec: ProcessSpec;
 	let assets: CompilerAssetCatalog;
@@ -189,5 +189,118 @@ describe("important meeting PPT 1.0.3", () => {
 		expect(lean.completion.delivery_outputs).toEqual([
 			{ node_id: "produce-and-finalize", output_id: "final-presentation-package" },
 		]);
+	});
+
+	async function workPackageTemplate(): Promise<WorkflowDefinition> {
+		return JSON.parse(
+			await readFile(new URL("../assets/workflows/important-meeting-ppt/1.1.0.json", import.meta.url), "utf8"),
+		) as WorkflowDefinition;
+	}
+
+	it("compiles 1.1.0 with a real research agenda and independent early visual preparation", async () => {
+		const candidate = await workPackageTemplate();
+		const result = compileWorkflow(input(candidate));
+		expect(result.ok, !result.ok ? JSON.stringify(result.report.diagnostics) : "").toBe(true);
+		if (!result.ok) return;
+		expect(result.baseline.graph.reverse["meeting-brief"]).toEqual([]);
+		expect(result.baseline.graph.reverse["research-and-evidence"]).toEqual(["meeting-brief"]);
+		expect(result.baseline.graph.reverse["visual-design"]).toEqual(["meeting-brief"]);
+		expect(result.baseline.graph.reverse["storyline-design"]).toEqual([
+			"baseline-gate",
+			"meeting-brief",
+			"research-and-evidence",
+		]);
+		expect(candidate.nodes.filter((node) => node.kind === "execution")).toHaveLength(5);
+		expect(candidate.completion.required_review_node_ids).toEqual([
+			"baseline-gate",
+			"design-gate",
+			"release-gate",
+		]);
+		expect(candidate.completion.final_outputs.map((output) => output.output_id)).toEqual([
+			"presentation-deck",
+			"final-presentation-package",
+			"validation-evidence",
+		]);
+		expect(candidate.completion.delivery_outputs).toEqual([
+			{ node_id: "produce-and-finalize", output_id: "final-presentation-package" },
+		]);
+		expect(candidate.criteria.find((criterion) => criterion.criterion_id === "release.one-pptx")).toMatchObject({
+			kind: "mechanical",
+			parameters: { exact_count: 1, extensions: [".pptx"] },
+		});
+	});
+
+	it("rejects candidate research without its declared stage-internal permission", async () => {
+		const candidate = await workPackageTemplate();
+		if (!candidate.stages?.[0]) throw new Error("Missing preparation stage");
+		candidate.stages[0].internal_uses = candidate.stages[0].internal_uses.filter(
+			(use) => use.consumer_node_id !== "research-and-evidence",
+		);
+		const result = compileWorkflow(input(candidate));
+		expect(result.ok).toBe(false);
+		if (!result.ok)
+			expect(result.report.diagnostics).toContainEqual(
+				expect.objectContaining({ code: "unapproved_execution_input", nodeId: "research-and-evidence" }),
+			);
+	});
+
+	it("rejects crossing the preparation scope with an unapproved visual candidate", async () => {
+		const candidate = await workPackageTemplate();
+		const producer = candidate.nodes.find((node) => node.node_id === "produce-and-finalize")!;
+		const visualInput = producer.inputs.find(
+			(item) => item.kind === "node_output" && item.source.node_id === "visual-design",
+		)!;
+		if (visualInput.kind !== "node_output") throw new Error("Missing visual input");
+		visualInput.availability = "submitted";
+		visualInput.approval_review_node_ids = [];
+		const result = compileWorkflow(input(candidate));
+		expect(result.ok).toBe(false);
+		if (!result.ok)
+			expect(result.report.diagnostics).toContainEqual(expect.objectContaining({ code: "stage_exit_bypass" }));
+	});
+
+	it("requires explicit subjects for both new composite review judgments", async () => {
+		for (const reviewId of ["design-gate", "release-gate"]) {
+			const candidate = await workPackageTemplate();
+			const review = candidate.nodes.find((node) => node.node_id === reviewId)!;
+			if (review.kind !== "review") throw new Error("Missing review");
+			delete review.criterion_subjects;
+			const result = compileWorkflow(input(candidate));
+			expect(result.ok).toBe(false);
+			if (!result.ok)
+				expect(result.report.diagnostics).toContainEqual(
+					expect.objectContaining({ code: "review_criterion_target_ambiguous" }),
+				);
+		}
+	});
+
+	it("does not route a narrative-evidence defect to the independent visual producer", async () => {
+		const candidate = await workPackageTemplate();
+		const review = candidate.nodes.find((node) => node.node_id === "design-gate")!;
+		if (review.kind !== "review") throw new Error("Missing review");
+		const mapping = review.remediation_mappings?.find((item) => item.criterion_id === "design.argument");
+		if (!mapping) throw new Error("Missing narrative remediation mapping");
+		mapping.owner = { node_id: "visual-design", output_id: "presentation-visual-system" };
+		const result = compileWorkflow(input(candidate));
+		expect(result.ok).toBe(false);
+		if (!result.ok)
+			expect(result.report.diagnostics).toContainEqual(
+				expect.objectContaining({ code: "remediation_mapping_invalid" }),
+			);
+	});
+
+	it("requires the reviewer to bind an upstream owner before routing repair to it", async () => {
+		const candidate = await workPackageTemplate();
+		const review = candidate.nodes.find((node) => node.node_id === "release-gate")!;
+		if (review.kind !== "review") throw new Error("Missing review");
+		review.inputs = review.inputs.filter(
+			(item) => item.kind !== "node_output" || item.source.node_id !== "research-and-evidence",
+		);
+		const result = compileWorkflow(input(candidate));
+		expect(result.ok).toBe(false);
+		if (!result.ok)
+			expect(result.report.diagnostics).toContainEqual(
+				expect.objectContaining({ code: "remediation_mapping_invalid" }),
+			);
 	});
 });
