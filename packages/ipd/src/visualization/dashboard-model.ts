@@ -4,6 +4,7 @@ import type { ProcessSpec } from "../contracts/process-spec.ts";
 import type { RunEvent, RunState } from "../contracts/runtime.ts";
 import type { WorkflowNode } from "../contracts/workflow.ts";
 import type { WorkflowDraftState } from "../control/workflow-draft.ts";
+import { projectAuthoringDraft } from "./authoring-projection.ts";
 
 export type DashboardWorkflowSource = "none" | "draft" | "candidate" | "compiled";
 
@@ -110,15 +111,17 @@ export function buildDashboardSnapshot(
 	draft?: WorkflowDraftState,
 ): DashboardSnapshot {
 	const workflow = state.baseline?.workflow ?? state.workflowCandidate;
+	const authoring = draft && "draft_schema_version" in draft ? projectAuthoringDraft(draft) : undefined;
+	const legacy = draft && !("draft_schema_version" in draft) ? draft : undefined;
 	const source: DashboardWorkflowSource = state.baseline
 		? "compiled"
 		: state.workflowCandidate
 			? "candidate"
-			: draft && (draft.header || draft.nodes.length > 0 || draft.criteria.length > 0)
+			: authoring || (legacy && (legacy.header || legacy.nodes.length > 0 || legacy.criteria.length > 0))
 				? "draft"
 				: "none";
-	const workflowNodes = workflow?.nodes ?? draft?.nodes ?? [];
-	const workflowCriteria = workflow?.criteria ?? draft?.criteria ?? [];
+	const workflowNodes = workflow?.nodes ?? legacy?.nodes ?? [];
+	const workflowCriteria = workflow?.criteria ?? legacy?.criteria ?? [];
 	const runtimeNodes = new Map(state.nodes.map((node) => [node.nodeId, node]));
 	const effectiveNodes = new Map(state.baseline?.nodes.map((node) => [node.definition.node_id, node]) ?? []);
 	const environments = new Map(state.baseline?.environmentBindings.map((binding) => [binding.nodeId, binding]) ?? []);
@@ -194,15 +197,15 @@ export function buildDashboardSnapshot(
 				}
 			: {}),
 		selection: selectionView(state, processSpecs),
-		workflow: {
+		workflow: !workflow && authoring ? authoring : {
 			source,
-			name: workflow?.name ?? draft?.header?.name,
-			id: workflow?.workflow_id ?? draft?.header?.workflow_id,
-			version: workflow?.workflow_version ?? draft?.header?.workflow_version,
+			name: workflow?.name ?? legacy?.header?.name,
+			id: workflow?.workflow_id ?? legacy?.header?.workflow_id,
+			version: workflow?.workflow_version ?? legacy?.header?.workflow_version,
 			...(draft ? { draftRevision: draft.revision } : {}),
 			criteriaCount: workflowCriteria.length,
-			coverageCount: workflow?.requirement_coverage.length ?? draft?.requirementCoverage.length ?? 0,
-			completionDefined: Boolean(workflow?.completion ?? draft?.completion),
+			coverageCount: workflow?.requirement_coverage.length ?? legacy?.requirementCoverage.length ?? 0,
+			completionDefined: Boolean(workflow?.completion ?? legacy?.completion),
 			nodes,
 			edges: workflowEdges(workflowNodes),
 		},
