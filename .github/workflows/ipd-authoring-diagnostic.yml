@@ -27,7 +27,7 @@ jobs:
         run: |
           npm install --package-lock-only --ignore-scripts --no-audit --no-fund
           npm ci --ignore-scripts --no-audit --no-fund
-      - name: Apply the two reviewed lint corrections
+      - name: Apply the reviewed lint corrections
         shell: python
         run: |
           from pathlib import Path
@@ -35,6 +35,9 @@ jobs:
             ('packages/ipd/src/control/workflow-draft-links.ts',
              'const add = (target: string, path: string) => result.push({ target, path });',
              'const add = (target: string, path: string) => { result.push({ target, path }); };'),
+            ('packages/ipd/src/control/workflow-draft-links.ts',
+             'refs.forEach((ref, i) => add(portKey(ref), `${path}/${i}`));',
+             'refs.forEach((ref, i) => { add(portKey(ref), `${path}/${i}`); });'),
             ('packages/ipd/src/control/workflow-draft-materialize.ts',
              'projected.generatedInputs.forEach((input, inputIndex) => {',
              'projected.generatedInputs.forEach((_input, inputIndex) => {'),
