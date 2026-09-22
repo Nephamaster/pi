@@ -166,11 +166,11 @@ function selectView(draft: AuthoringDraft, request: DraftReadRequest, context: D
 					"/operation_id",
 					"Select the operation whose receipt was lost.",
 				);
-			return [
-				Object.hasOwn(draft.operations, request.operation_id)
-					? draft.operations[request.operation_id]
-					: { found: false },
-			];
+			if (Object.hasOwn(draft.operations, request.operation_id))
+				return [draft.operations[request.operation_id]];
+			if (draft.legacyOperations && Object.hasOwn(draft.legacyOperations, request.operation_id))
+				return [{ protocol: "legacy-v1", ...draft.legacyOperations[request.operation_id] }];
+			return [{ found: false }];
 		}
 		case "catalog": {
 			const catalog = context.catalog;

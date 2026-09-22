@@ -71,6 +71,9 @@ export function draftReferences(draft: AuthoringDraft): Reference[] {
 			for (const id of exit.gate_node_ids) add(nodeKey(id), `stage:${stage.stage_id}.exits.gate_node_ids`);
 		}
 	}
+	for (const requirement of draft.requirements)
+		if (requirement.authority === "design")
+			add(`decision:${requirement.source_ref}`, `requirement:${requirement.requirement_id}.source_ref`);
 	for (const decision of draft.decisions)
 		for (const id of decision.requirement_refs)
 			add(`requirement:${id}`, `decision:${decision.decision_id}.requirement_refs`);
