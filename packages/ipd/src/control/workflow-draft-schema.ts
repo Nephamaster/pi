@@ -25,16 +25,20 @@ const object = <P extends Record<string, TSchema>>(properties: P) =>
 	Type.Object(properties, { additionalProperties: false });
 const list = <T extends TSchema>(items: T) => Type.Array(items, { maxItems: 64 });
 const ids = Type.Array(Id, { uniqueItems: true, maxItems: 128 });
-// Clearing a required list is a legal draft edit, but is incomplete at compilation.
+// Clearing a required list is a draft edit, but remains incomplete at compilation.
+// TypeBox keeps kind/optional metadata in non-enumerable descriptors. Spreading
+// a schema loses that metadata and can turn projected properties into false schemas.
 const partial = <T extends TObject>(schema: T) => {
-	const properties = Object.fromEntries(
-		Object.entries(schema.properties as Record<string, TSchema>).map(([key, field]) => {
-			const copy = { ...field };
-			if (copy.type === "array") delete copy.minItems;
-			return [key, copy];
-		}),
-	);
-	return Type.Partial({ ...schema, properties } as T);
+	const properties: Record<string, TSchema> = {};
+	for (const [key, field] of Object.entries(schema.properties as Record<string, TSchema>)) {
+		const descriptors: PropertyDescriptorMap = Object.getOwnPropertyDescriptors(field);
+		if (descriptors.type?.value === "array") delete descriptors.minItems;
+		properties[key] = Object.create(Object.getPrototypeOf(field), descriptors) as TSchema;
+	}
+	const descriptors: PropertyDescriptorMap = Object.getOwnPropertyDescriptors(schema);
+	descriptors.properties = { ...descriptors.properties, value: properties };
+	const copy = Object.create(Object.getPrototypeOf(schema), descriptors) as T;
+	return Type.Partial(copy, { additionalProperties: false });
 };
 export const DraftContractSchema = partial(ExecutionNodeSchema.properties.contract);
 export const DraftAgentSchema = object({
