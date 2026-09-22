@@ -34,7 +34,7 @@ describe("authoring Schema metadata preservation", () => {
 		const contract = { ...workflow.nodes[0].contract, responsibilities: [] };
 		expect(validateSchema(DraftContractSchema, contract).ok).toBe(true);
 		expect(validateSchema(ExecutionNodeSchema.properties.contract, contract).ok).toBe(false);
-		expect(ExecutionNodeSchema.properties.contract.properties.responsibilities.minItems).toBe(1);
+		expect(ExecutionNodeSchema.properties.contract.properties.responsibilities).toMatchObject({ minItems: 1 });
 		expect(validateSchema(NodeAgentConfigSchema, {}).ok).toBe(false);
 		expect(validateSchema(OutputDefinitionSchema, { output_id: "x" }).ok).toBe(false);
 		expect(validateSchema(WorkflowDefinitionSchema, workflow).ok).toBe(true);
