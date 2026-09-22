@@ -1,5 +1,5 @@
 # Temporary PR #17 diagnostic; remove from the final PR diff.
-# Lock regeneration is confined to this disposable checkout, never committed.
+# Dependency-lock repair and generated model data stay in the disposable checkout.
 name: IPD authoring diagnostic
 on:
   pull_request:
@@ -27,28 +27,57 @@ jobs:
         run: |
           npm install --package-lock-only --ignore-scripts --no-audit --no-fund
           npm ci --ignore-scripts --no-audit --no-fund
-      - name: Apply the reviewed lint corrections
+      - name: Apply reviewed TypeScript corrections
         shell: python
         run: |
           from pathlib import Path
           fixes = [
-            ('packages/ipd/src/control/workflow-draft-links.ts',
-             'const add = (target: string, path: string) => result.push({ target, path });',
-             'const add = (target: string, path: string) => { result.push({ target, path }); };'),
-            ('packages/ipd/src/control/workflow-draft-links.ts',
-             'refs.forEach((ref, i) => add(portKey(ref), `${path}/${i}`));',
-             'refs.forEach((ref, i) => { add(portKey(ref), `${path}/${i}`); });'),
-            ('packages/ipd/src/control/workflow-draft-materialize.ts',
-             'projected.generatedInputs.forEach((input, inputIndex) => {',
-             'projected.generatedInputs.forEach((_input, inputIndex) => {'),
+            ('packages/ipd/src/control/workflow-draft-schema.ts',
+             'Object.entries(schema.properties).map(([key, field]) => {',
+             'Object.entries(schema.properties as Record<string, TSchema>).map(([key, field]) => {'),
+            ('packages/ipd/test/workflow-authoring.test.ts',
+             'toBe(draft.nodes[0].contract.objective)',
+             'toBe(draft.nodes[0].contract!.objective)'),
+            ('packages/ipd/test/pi-control-roles.test.ts',
+             'import { hashSkillPackage } from "../src/registry/skill-package.ts";',
+             'import { toJsonValue } from "../src/ir/hash.ts";\nimport { hashSkillPackage } from "../src/registry/skill-package.ts";'),
           ]
           for name, old, new in fixes:
             p = Path(name)
             text = p.read_text()
-            if old in text:
+            if new not in text:
               assert text.count(old) == 1, name
               p.write_text(text.replace(old, new))
-      - name: Format only this PR's IPD TypeScript files
+          p = Path('packages/ipd/test/pi-control-roles.test.ts')
+          text = p.read_text()
+          old = '''\t\t\t...commands.map((command, index) =>
+          \t\t\t\tfauxAssistantMessage(
+          \t\t\t\t\tfauxToolCall(`workflow_draft_${command.domain}`, {
+          \t\t\t\t\t\texpected_revision: index,
+          \t\t\t\t\t\toperation_id: `step-${index}`,
+          \t\t\t\t\t\t...command.data,
+          \t\t\t\t\t}),
+          \t\t\t\t\t{ stopReason: "toolUse" },
+          \t\t\t\t),
+          \t\t\t),'''
+          new = '''\t\t\t...commands.map((command, index) => {
+          \t\t\t\tconst data = toJsonValue(command.data);
+          \t\t\t\tif (data === null || typeof data !== "object" || Array.isArray(data)) {
+          \t\t\t\t\tthrow new Error("Expected object-valued authoring command");
+          \t\t\t\t}
+          \t\t\t\treturn fauxAssistantMessage(
+          \t\t\t\t\tfauxToolCall(`workflow_draft_${command.domain}`, {
+          \t\t\t\t\t\texpected_revision: index,
+          \t\t\t\t\t\toperation_id: `step-${index}`,
+          \t\t\t\t\t\t...data,
+          \t\t\t\t\t}),
+          \t\t\t\t\t{ stopReason: "toolUse" },
+          \t\t\t\t);
+          \t\t\t}),'''
+          if 'Expected object-valued authoring command' not in text:
+            assert text.count(old) == 1, 'control-role fixture replacement'
+            p.write_text(text.replace(old, new))
+      - name: Format and commit only PR-owned TypeScript corrections
         shell: bash
         run: |
           mapfile -t paths < <(git diff --name-only 7431984e2e9d1e22ed4c4bfa5c48d1da280a562b HEAD -- packages/ipd | grep '\.ts$')
@@ -59,18 +88,25 @@ jobs:
             git diff --cached --check
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'fix(ipd): complete authoring lint and formatting corrections'
+            git commit -m 'fix(ipd): type schema projections and JSON tool-call fixtures'
             git push origin HEAD:refs/heads/feat/ipd-workflow-authoring-v2
           fi
           printf 'Tested implementation commit: '
           git rev-parse HEAD
-      - name: Repository checks with diagnostic dependencies
-        id: repo_check
-        continue-on-error: true
-        run: npm run check
+      - name: Hydrate ignored model catalog required by repository tests
+        run: npm --prefix packages/ai run hydrate-model-data
       - name: Type check with diagnostic dependencies
-        run: npx --no-install tsgo --noEmit
+        id: typecheck
+        continue-on-error: true
+        run: |
+          if npx --no-install tsgo --noEmit > /tmp/ipd-typecheck.log 2>&1; then
+            echo 'TypeScript: PASS'
+          else
+            head -100 /tmp/ipd-typecheck.log
+            exit 1
+          fi
       - name: Expanded IPD regressions (no external model)
+        id: regressions
         working-directory: packages/ipd
         run: >-
           node ../../node_modules/vitest/dist/cli.js --run
@@ -90,14 +126,29 @@ jobs:
           test/optional-run-skill.test.ts
           test/visualization.test.ts
           test/p0-runtime-safety.test.ts
+      - name: Full repository check (separate from targeted test result)
+        id: repo_check
+        if: always() && steps.regressions.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          if npm run check > /tmp/ipd-root-check.log 2>&1; then
+            tail -30 /tmp/ipd-root-check.log
+          else
+            tail -80 /tmp/ipd-root-check.log
+            exit 1
+          fi
       - name: Record exact validation and dependency boundary
         if: always()
         env:
           ROOT_CHECK: ${{ steps.repo_check.outcome }}
+          TYPE_CHECK: ${{ steps.typecheck.outcome }}
+          REGRESSIONS: ${{ steps.regressions.outcome }}
         run: |
-          printf 'Root check outcome: %s\n' "$ROOT_CHECK"
-          printf 'Diagnostic tests use an ephemeral repaired lock; normal npm-ci verification remains separate.\n'
+          printf 'Root check=%s; TypeScript=%s; IPD regressions=%s\n' "$ROOT_CHECK" "$TYPE_CHECK" "$REGRESSIONS"
+          printf 'Dependency repair is ephemeral; standard npm-ci verification remains separate.\n'
           git rev-parse HEAD
           sha256sum package-lock.json
           git status --short
           git diff --stat
+          test "$TYPE_CHECK" = success
+          test "$REGRESSIONS" = success
