@@ -130,7 +130,7 @@ export function materializeDraft(draft: AuthoringDraft): MaterializedDraft {
 			sourceMap[`${path}/targets/${targetIndex}`] =
 				`review:${node.node_id}.assignments[${target.criterion_refs.join(",")}]`;
 		});
-		projected.generatedInputs.forEach((input, inputIndex) => {
+		projected.generatedInputs.forEach((_input, inputIndex) => {
 			sourceMap[`${path}/inputs/${node.inputs.length + inputIndex}`] = `review:${node.node_id}.assignments`;
 		});
 		const {

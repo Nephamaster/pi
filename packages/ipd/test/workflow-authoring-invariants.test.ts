@@ -16,23 +16,67 @@ describe("authoring provenance and migration invariants", () => {
 		const draft = applyDraftCommand(emptyDraft(), {
 			domain: "governance",
 			data: {
-				requirements: { upsert: [
-					{ requirement_id: "R-user", description: "Keep evidence", authority: "user", strength: "required", source_ref: "task", source_quote: "Keep evidence" },
-					{ requirement_id: "R-design", description: "Use an evidence index", authority: "design", strength: "required", source_ref: "D-index", source_quote: "Use an evidence index" },
-				] },
-				decisions: { upsert: [{ decision_id: "D-index", description: "Use an evidence index", requirement_refs: ["R-user"], rationale: "Make required evidence locatable" }] },
+				requirements: {
+					upsert: [
+						{
+							requirement_id: "R-user",
+							description: "Keep evidence",
+							authority: "user",
+							strength: "required",
+							source_ref: "task",
+							source_quote: "Keep evidence",
+						},
+						{
+							requirement_id: "R-design",
+							description: "Use an evidence index",
+							authority: "design",
+							strength: "required",
+							source_ref: "D-index",
+							source_quote: "Use an evidence index",
+						},
+					],
+				},
+				decisions: {
+					upsert: [
+						{
+							decision_id: "D-index",
+							description: "Use an evidence index",
+							requirement_refs: ["R-user"],
+							rationale: "Make required evidence locatable",
+						},
+					],
+				},
 			},
 		}).draft;
-		expect(draftReferences(draft)).toContainEqual({ target: "decision:D-index", path: "requirement:R-design.source_ref" });
+		expect(draftReferences(draft)).toContainEqual({
+			target: "decision:D-index",
+			path: "requirement:R-design.source_ref",
+		});
 		const before = structuredClone(draft);
-		expect(() => applyDraftCommand(draft, { domain: "governance", data: { decisions: { remove_ids: ["D-index"] } } })).toThrow("references");
+		expect(() =>
+			applyDraftCommand(draft, { domain: "governance", data: { decisions: { remove_ids: ["D-index"] } } }),
+		).toThrow("references");
 		expect(draft).toEqual(before);
 	});
 	it("accepts an explicit atomic removal of both requirement and its unreferenced decision", () => {
 		const draft = emptyDraft();
-		draft.requirements = [{ requirement_id: "R-design", description: "Design choice", authority: "design", strength: "advisory", source_ref: "D", source_quote: "Design choice" }];
-		draft.decisions = [{ decision_id: "D", description: "Design choice", requirement_refs: [], rationale: "Fixture" }];
-		const next = applyDraftCommand(draft, { domain: "governance", data: { requirements: { remove_ids: ["R-design"] }, decisions: { remove_ids: ["D"] } } }).draft;
+		draft.requirements = [
+			{
+				requirement_id: "R-design",
+				description: "Design choice",
+				authority: "design",
+				strength: "advisory",
+				source_ref: "D",
+				source_quote: "Design choice",
+			},
+		];
+		draft.decisions = [
+			{ decision_id: "D", description: "Design choice", requirement_refs: [], rationale: "Fixture" },
+		];
+		const next = applyDraftCommand(draft, {
+			domain: "governance",
+			data: { requirements: { remove_ids: ["R-design"] }, decisions: { remove_ids: ["D"] } },
+		}).draft;
 		expect(next.requirements).toEqual([]);
 		expect(next.decisions).toEqual([]);
 	});

@@ -30,9 +30,13 @@ export function declaredEntities(draft: AuthoringDraft): Set<string> {
 }
 export function draftReferences(draft: AuthoringDraft): Reference[] {
 	const result: Reference[] = [];
-	const add = (target: string, path: string) => result.push({ target, path });
+	const add = (target: string, path: string) => {
+		result.push({ target, path });
+	};
 	const outputs = (refs: readonly NodeOutputRef[], path: string) =>
-		refs.forEach((ref, i) => add(portKey(ref), `${path}/${i}`));
+		refs.forEach((ref, i) => {
+			add(portKey(ref), `${path}/${i}`);
+		});
 	for (const node of draft.nodes) {
 		const path = `node:${node.node_id}`;
 		for (const input of node.inputs) {
