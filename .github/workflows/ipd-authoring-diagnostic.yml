@@ -1,9 +1,10 @@
-# Temporary implementation diagnostic for PR #17. Remove before the final PR diff.
-# The repository's locked npm-ci checks remain unchanged and authoritative.
+# Temporary PR #17 diagnostic; removed from the final PR diff.
+# Ephemeral lock repair does not replace the unchanged locked CI verification.
 name: IPD authoring diagnostic
 on:
-  push:
-    branches: [feat/ipd-workflow-authoring-v2]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 permissions:
   contents: write
 concurrency:
@@ -11,13 +12,14 @@ concurrency:
   cancel-in-progress: true
 jobs:
   diagnose:
-    if: github.repository == 'Nephamaster/pi' && github.ref == 'refs/heads/feat/ipd-workflow-authoring-v2'
+    if: github.event.pull_request.head.repo.full_name == 'Nephamaster/pi' && github.event.pull_request.head.ref == 'feat/ipd-workflow-authoring-v2'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24
@@ -49,7 +51,7 @@ jobs:
             git commit -m 'style: format workflow authoring implementation'
             git push origin HEAD:refs/heads/feat/ipd-workflow-authoring-v2
           fi
-      - name: Type check against the diagnostic dependency resolution
+      - name: Type check with diagnostic dependencies
         if: success() || steps.format.outcome == 'failure'
         id: types
         continue-on-error: true
@@ -67,7 +69,7 @@ jobs:
           test/workflow-draft-storage.test.ts
           test/workflow-draft.test.ts
           test/pi-control-roles.test.ts
-      - name: Diagnostic summary and honest status
+      - name: Diagnostic summary
         if: always()
         env:
           INSTALL: ${{ steps.install.outcome }}
@@ -76,6 +78,6 @@ jobs:
           TESTS: ${{ steps.tests.outcome }}
         run: |
           printf 'Diagnostic install=%s format=%s types=%s tests=%s\n' "$INSTALL" "$FORMAT" "$TYPES" "$TESTS"
-          printf 'These checks use an ephemeral repaired lock; they do not repair or replace standard npm-ci verification.\n'
+          printf 'Ephemeral repaired lock only: standard npm-ci verification remains unchanged.\n'
           git status --short
           test "$INSTALL" = success && test "$FORMAT" = success && test "$TYPES" = success && test "$TESTS" = success
