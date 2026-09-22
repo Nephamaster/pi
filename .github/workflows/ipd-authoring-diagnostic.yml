@@ -1,5 +1,5 @@
 # Temporary PR #17 diagnostic; remove from the final PR diff.
-# Lock regeneration is confined to this disposable checkout, not committed.
+# Lock regeneration is confined to this disposable checkout, never committed.
 name: IPD authoring diagnostic
 on:
   pull_request:
@@ -27,26 +27,50 @@ jobs:
         run: |
           npm install --package-lock-only --ignore-scripts --no-audit --no-fund
           npm ci --ignore-scripts --no-audit --no-fund
+      - name: Apply the two reviewed lint corrections
+        shell: python
+        run: |
+          from pathlib import Path
+          fixes = [
+            ('packages/ipd/src/control/workflow-draft-links.ts',
+             'const add = (target: string, path: string) => result.push({ target, path });',
+             'const add = (target: string, path: string) => { result.push({ target, path }); };'),
+            ('packages/ipd/src/control/workflow-draft-materialize.ts',
+             'projected.generatedInputs.forEach((input, inputIndex) => {',
+             'projected.generatedInputs.forEach((_input, inputIndex) => {'),
+          ]
+          for name, old, new in fixes:
+            p = Path(name)
+            text = p.read_text()
+            if old in text:
+              assert text.count(old) == 1, name
+              p.write_text(text.replace(old, new))
       - name: Format only this PR's IPD TypeScript files
         shell: bash
         run: |
           mapfile -t paths < <(git diff --name-only 7431984e2e9d1e22ed4c4bfa5c48d1da280a562b HEAD -- packages/ipd | grep '\.ts$')
           test "${#paths[@]}" -gt 0
-          npx --no-install biome check --write --max-diagnostics=1000 "${paths[@]}"
+          npx --no-install biome check --write --error-on-warnings --max-diagnostics=1000 "${paths[@]}"
           git add -- "${paths[@]}"
           if ! git diff --cached --quiet; then
             git diff --cached --check
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'style: format authoring invariants'
+            git commit -m 'fix(ipd): complete authoring lint and formatting corrections'
             git push origin HEAD:refs/heads/feat/ipd-workflow-authoring-v2
           fi
+          printf 'Tested implementation commit: '
+          git rev-parse HEAD
+      - name: Repository checks with diagnostic dependencies
+        id: repo_check
+        continue-on-error: true
+        run: npm run check
       - name: Type check with diagnostic dependencies
         run: npx --no-install tsgo --noEmit
-      - name: Targeted IPD regressions (no external model)
+      - name: Expanded IPD regressions (no external model)
         working-directory: packages/ipd
         run: >-
-          npx --no-install vitest run
+          node ../../node_modules/vitest/dist/cli.js --run
           test/workflow-authoring.test.ts
           test/workflow-authoring-manager.test.ts
           test/workflow-authoring-dashboard.test.ts
@@ -54,8 +78,23 @@ jobs:
           test/workflow-draft-storage.test.ts
           test/workflow-draft.test.ts
           test/pi-control-roles.test.ts
-      - name: Record diagnostic dependency boundary
+          test/compiler.test.ts
+          test/contracts.test.ts
+          test/control-plane.test.ts
+          test/governance-kernel.test.ts
+          test/governance-records.test.ts
+          test/general-environment.test.ts
+          test/optional-run-skill.test.ts
+          test/visualization.test.ts
+          test/p0-runtime-safety.test.ts
+      - name: Record exact validation and dependency boundary
         if: always()
+        env:
+          ROOT_CHECK: ${{ steps.repo_check.outcome }}
         run: |
-          printf 'Diagnostic tests use an ephemeral repaired lock; normal npm-ci verification is unchanged.\n'
+          printf 'Root check outcome: %s\n' "$ROOT_CHECK"
+          printf 'Diagnostic tests use an ephemeral repaired lock; normal npm-ci verification remains separate.\n'
+          git rev-parse HEAD
+          sha256sum package-lock.json
           git status --short
+          git diff --stat
