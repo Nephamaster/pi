@@ -28,7 +28,7 @@ const ids = Type.Array(Id, { uniqueItems: true, maxItems: 128 });
 // Clearing a required list is a legal draft edit, but is incomplete at compilation.
 const partial = <T extends TObject>(schema: T) => {
 	const properties = Object.fromEntries(
-		Object.entries(schema.properties).map(([key, field]) => {
+		Object.entries(schema.properties as Record<string, TSchema>).map(([key, field]) => {
 			const copy = { ...field };
 			if (copy.type === "array") delete copy.minItems;
 			return [key, copy];

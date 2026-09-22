@@ -386,7 +386,7 @@ describe("partial workflow authoring", () => {
 			expect(++count).toBeLessThan(20);
 			page = readDraftView(draft, { ...request, cursor: page.next_cursor });
 		}
-		expect(JSON.parse(text).contract.objective).toBe(draft.nodes[0].contract.objective);
+		expect(JSON.parse(text).contract.objective).toBe(draft.nodes[0].contract!.objective);
 		expect(() =>
 			readDraftView({ ...draft, revision: draft.revision + 1 }, { ...request, cursor: first.next_cursor! }),
 		).toThrow(/cursor/i);

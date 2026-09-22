@@ -8,6 +8,7 @@ import type { NodeSessionEventEnvelope } from "../src/adapter/node-session-adapt
 import { compileWorkflow } from "../src/compiler/compiler.ts";
 import { type PiControlRoleOptions, PiProcessSelector, PiWorkflowDesigner } from "../src/control/pi-control-roles.ts";
 import { WorkflowDraftManager } from "../src/control/workflow-draft.ts";
+import { toJsonValue } from "../src/ir/hash.ts";
 import { hashSkillPackage } from "../src/registry/skill-package.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 import { authoringCommands } from "./workflow-authoring-fixtures.ts";
@@ -186,16 +187,20 @@ describe("native control role bindings", () => {
 		const commands = authoringCommands(base.workflow);
 		faux.setResponses([
 			fauxAssistantMessage("Method loaded."),
-			...commands.map((command, index) =>
-				fauxAssistantMessage(
+			...commands.map((command, index) => {
+				const data = toJsonValue(command.data);
+				if (data === null || typeof data !== "object" || Array.isArray(data)) {
+					throw new Error("Expected object-valued authoring command");
+				}
+				return fauxAssistantMessage(
 					fauxToolCall(`workflow_draft_${command.domain}`, {
 						expected_revision: index,
 						operation_id: `step-${index}`,
-						...command.data,
+						...data,
 					}),
 					{ stopReason: "toolUse" },
-				),
-			),
+				);
+			}),
 			fauxAssistantMessage(
 				fauxToolCall("workflow_draft_submit", {
 					expected_revision: commands.length,
