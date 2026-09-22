@@ -316,6 +316,7 @@ describe("managed Run lifecycle", () => {
 		await running;
 		await f.store.mutate("run-1", "invalidate-input", {}, (state) => {
 			state.submissions[0].status = "stale";
+			state.governance.artifacts[0].status = "invalidated";
 			return true;
 		});
 		await expect(f.runtime.resume()).rejects.toThrow("Inputs or approvals changed");

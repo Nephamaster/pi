@@ -4,10 +4,14 @@
 
 ### Breaking Changes
 
+- New IPD Runs use Runtime schema v3; prior Run schemas are rejected without migration. Review evidence must resolve to sealed objects, and Finding repairs require explicit claims and verification.
 - Removed implicit host I/O fallback. Legacy adapters now require the explicit `/legacy` entry and optional sandbox-runtime peer; execution images must be rebuilt for the versioned bridge protocol.
 
 ### Added
 
+- Added StageScope candidate-use and exit validation, fixed composite ReviewBundles, criterion Assessments, persistent Findings, scoped release certificates, and source-aware requirement/decision contracts.
+- Added output-level provenance and targeted invalidation, verified preservation of unchanged outputs, release-only re-adoption, compact consumption views, and separately sealed Reviewer verification evidence.
+- Added shared cross-Run activity/tool admission, retained-participant and sealed-production storage limits, with durable resource waits and governance-aware completion diagnostics.
 - Added durable create-request receipts, controller terms, scope epochs, append-only Attempts, dispatch/wait/failure/external-operation records, provider-request admission records, and versioned completion candidates.
 - Added process-restart recovery for preserved or interrupted Pi Sessions and Docker leases. Active containers are quarantined before WIP is resumed; claimed dispatches proven not delivered are replaced by a new Attempt.
 
@@ -41,6 +45,7 @@
 
 ### Changed
 
+- Review independence now follows actual scoped production contributions and Session identity; independent instances may reuse a capable AgentCard. Advisory failures remain visible without blocking release.
 - Changed IPD service shutdown from Run cancellation to bounded work preservation, and isolated node-local failures so independent branches can finish before the Run settles.
 - Changed final delivery publication to use immutable version directories and an exact CompletionBasis instead of replacing one mutable final directory.
 

@@ -33,7 +33,7 @@ export type ClaimedExecution = ExecutionStamp & {
 };
 
 export function requireCurrentRunState(state: RunState): RunState {
-	if (state.runtimeSchemaVersion !== 2)
+	if (state.runtimeSchemaVersion !== 3)
 		throw new Error(`Unsupported IPD Runtime schema: ${String(state.runtimeSchemaVersion)}`);
 	return state;
 }

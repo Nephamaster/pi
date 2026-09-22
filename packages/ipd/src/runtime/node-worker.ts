@@ -1,6 +1,7 @@
 // Node work and domain feedback. Model retries belong to Pi AgentSession.
 import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "../adapter/structured-submissions.ts";
 import type { EffectiveNode } from "../contracts/baseline.ts";
+import type { FindingRecord, ReviewBundleRecord } from "../contracts/governance.ts";
 import type { JsonValue } from "../contracts/primitives.ts";
 import type {
 	ExternalOperationOutcome,
@@ -12,6 +13,7 @@ import type {
 	WorkProgressReference,
 } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
+import type { WorkflowDefinition } from "../contracts/workflow.ts";
 import type { EnvironmentBinding, EnvironmentErrorCode } from "../environment/contracts.ts";
 import type { ExecutionStamp } from "./execution-control.ts";
 
@@ -29,6 +31,7 @@ export interface RoundFeedback {
 	issue: string;
 	evidenceRef?: string;
 	expectedCorrection?: string;
+	findingId?: string;
 }
 
 export interface ExternalOperationIntent {
@@ -68,6 +71,10 @@ export interface NodeRoundWork {
 	taskContext: NodeTaskContext;
 	forbiddenMutableReadPaths: string[];
 	feedback: RoundFeedback[];
+	findings?: FindingRecord[];
+	reviewBundle?: ReviewBundleRecord;
+	preservableOutputs?: Array<{ outputId: string; submissionId: string; revisionId: string }>;
+	governanceContract?: Pick<WorkflowDefinition, "requirements" | "decisions" | "stages">;
 	environmentBinding?: EnvironmentBinding;
 }
 
@@ -85,6 +92,7 @@ export interface NodeWorker {
 		submission: SubmitArtifact,
 		signal?: AbortSignal,
 	): Promise<string | undefined>;
+	exportReviewEvidence?(work: NodeRoundWork, paths: readonly string[], signal?: AbortSignal): Promise<string>;
 	runExecution(work: NodeRoundWork): Promise<ExecutionNodeResult>;
 	runReview(work: NodeRoundWork): Promise<SubmitReview>;
 	stopRound?(runId: string, nodeId: string, participantId: string, roundId: string): Promise<void>;
@@ -97,6 +105,7 @@ export type NodeWorkerFailureKind =
 	| "session_lost"
 	| "configuration"
 	| "request_capacity"
+	| "resource_capacity"
 	| "timeout"
 	| "cancelled"
 	| EnvironmentErrorCode;

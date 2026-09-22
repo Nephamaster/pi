@@ -10,12 +10,14 @@ Do not copy this entire document into node prompts.
 
 ## 1. Header, Identity, and Resources
 
-The header contains only:
+The header contains:
 
 - `schema_version`;
 - `workflow_id`;
 - `workflow_version`;
 - `name`.
+
+It may also contain `prerequisites`, `stages`, `requirements`, and `decisions`. `schema_version` is `3`.
 
 Trusted `task_input_ref` and `process_selection_ref` are filled by the draft manager.
 
@@ -107,6 +109,8 @@ Provide:
 - `approval_review_node_ids`.
 
 Execution nodes consuming controlled upstream work should use `approved` and list the exact review nodes responsible for approval of that output.
+
+An explicit StageScope may authorize `submitted` for a specific internal consumer/input pair. Its exits declare the outputs and Gate IDs required by cross-stage consumers. Input `purpose` distinguishes `content_basis` (default), `test_subject`, and `historical_reference`; a false test subject need not make the report observing its failure false.
 
 A review node reading the candidate it reviews should use `submitted`.
 
@@ -206,6 +210,12 @@ Do not create slightly different versions of the same criterion in multiple plac
 
 Every semantic criterion must have real Reviewer coverage.
 
+One criterion covering multiple target outputs must list their exact set in `criterion_subjects`. `required_relations` declares exact content derivations that must hold inside the frozen ReviewBundle. A `remediation_mappings` entry can authorize a direct upstream owner for an observed downstream defect; it requires a bound owner input, real content dependency and supported root-cause evidence.
+
+Criteria may use `requirement_refs` and `blocking`. Header `requirements` records `requirement_id`, `description`, `authority` (`user/process/design/recommendation`), `strength` (`required/advisory`), `source_ref` and `source_quote`. Header `decisions` records `decision_id`, `description`, `requirement_refs` and `rationale`. User quotes must occur in the raw task, and process quotes must resolve to the selected specification. Advisory requirements cannot back blocking criteria; ProcessSpec requirements cannot be weakened. Unannotated criteria are explicitly attributed to the frozen workflow design, not to the user.
+
+Reviewers submit criterion-level Finding resolutions; producers submit exact repair claims and may retain valid output revisions. Evidence references must resolve to sealed files. The fixed `all_required` decision policy cannot override a required FAIL or BLOCKED with PASS votes. Independence concerns actual scoped participants, Sessions and production contributions; using another AgentCard name alone proves nothing.
+
 `allowed_rework_node_ids` should contain only execution nodes actually responsible for correcting potential defects.
 
 Do not add:
@@ -221,7 +231,6 @@ as first-version workflow control.
 
 `requirement_coverage.source` must be one of:
 
-- `task_requirement`;
 - `process_activity`;
 - `process_deliverable`;
 - `process_review`;

@@ -80,10 +80,10 @@ Review does not exist merely to "read it again" or "find some problems."
 It ensures that:
 
 - a producer cannot approve itself through a completion claim;
-- downstream work uses only the required approved outputs;
+- downstream work satisfies its declared candidate-use or Gate-release conditions;
 - defects can be mapped to a criterion, output, and responsible rework owner.
 
-Whether the same AgentCard may be reused depends on ProcessSpec independence requirements and Compiler rules.
+Independence is checked against actual scoped participants, Sessions and production contributions. Independent instances may share a capable AgentCard; changing a role label does not erase production involvement.
 
 The current implementation binds one employee per review node.
 
@@ -199,7 +199,7 @@ Coverage is not about making every ID appear.
 
 It proves:
 
-> Every user requirement and mandatory ProcessSpec item has accountable responsibility, a real artifact, and the required quality verification.
+> Every mandatory ProcessSpec item has accountable responsibility, a real artifact, and the required quality verification. Source-linked criteria help preserve user requirements, but structural coverage alone does not prove semantic task fulfillment.
 
 Good coverage answers:
 

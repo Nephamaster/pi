@@ -1,6 +1,7 @@
 // 定义 Run、节点、轮次、提交、评审和批准的运行记录。
 import type { ArtifactManifest } from "../artifact/manifest.ts";
 import type { ExecutionBaseline, LockedSkill } from "./baseline.ts";
+import type { ConsumptionView, GovernanceState, InputPurpose } from "./governance.ts";
 import type { JsonValue } from "./primitives.ts";
 import type { ProcessSelection, ProcessSpec } from "./process-spec.ts";
 import type { TaskInput } from "./task-input.ts";
@@ -201,6 +202,7 @@ export interface CompletionBasis {
 	runGeneration: number;
 	deliveryBindings: CompletionDeliveryBinding[];
 	requiredReviewIds: string[];
+	governanceDigest?: string;
 }
 
 export interface CompletionCandidateRecord {
@@ -271,6 +273,7 @@ export interface RoundRecord {
 	inputSubmissionIds: string[];
 	inputBindings: RoundInputBindingRecord[];
 	activeAttemptId?: string;
+	reviewBundleId?: string;
 	startedAt: number;
 	finishedAt?: number;
 }
@@ -280,12 +283,20 @@ export interface RoundInputBindingRecord {
 	submissionId: string;
 	outputId: string;
 	approvalReviewNodeIds: string[];
+	revisionId?: string;
+	purpose?: InputPurpose;
+	releaseIds?: string[];
 }
 
 export interface SubmissionOutputRecord {
 	outputId: string;
 	sealedRoot: string;
 	manifest: ArtifactManifest;
+	revisionId?: string;
+	preservedFrom?: { submissionId: string; revisionId: string };
+	manifestHash?: string;
+	contractHash?: string;
+	handoff?: ConsumptionView;
 }
 
 export interface SubmissionRecord {
@@ -299,6 +310,7 @@ export interface SubmissionRecord {
 	outputs: SubmissionOutputRecord[];
 	evidence: JsonValue;
 	createdAt: number;
+	resolutionClaims?: Array<{ findingId: string; outputId: string; explanation: string; evidence: string[] }>;
 }
 
 export interface CriterionResultRecord {
@@ -310,8 +322,8 @@ export interface CriterionResultRecord {
 	reworkTargets: Array<{
 		nodeId: string;
 		outputId: string;
-		status: "pending" | "addressed" | "resolved" | "superseded";
 	}>;
+	findingIds?: string[];
 }
 
 export interface ReviewRecord {
@@ -383,7 +395,8 @@ export interface OperationRecord {
 }
 
 export interface RunState {
-	runtimeSchemaVersion: 2;
+	runtimeSchemaVersion: 3;
+	governance: GovernanceState;
 	request?: RunRequestRecord;
 	generation?: number;
 	controller?: RunControllerRecord;

@@ -32,7 +32,7 @@ Do not infer revisions from the number of model turns.
 
 | kind | Payload | Update Semantics |
 |---|---|---|
-| `set_header` | `header` | Set `schema_version`, `workflow_id`, `workflow_version`, `name`; no `task_input_ref` or `process_selection_ref`. |
+| `set_header` | `header` | Set `schema_version`, `workflow_id`, `workflow_version`, `name`, optional `prerequisites/stages/requirements/decisions`; no `task_input_ref` or `process_selection_ref`. Replaces the complete header. |
 | `upsert_criterion` | `criterion` | Add or replace the complete criterion by `criterion_id`. |
 | `upsert_node` | `node` | Add or replace the complete node by `node_id`; must provide the whole node. |
 | `remove_node` | `node_id` | Remove only the node. Caller must also repair inputs, review targets, coverage, and completion references. |
@@ -67,7 +67,7 @@ Replace `draft_id` and `expected_revision` with actual values returned by `open/
     {
       "kind": "set_header",
       "header": {
-        "schema_version": 1,
+        "schema_version": 3,
         "workflow_id": "task-delivery",
         "workflow_version": "1.0.0",
         "name": "Task Delivery Workflow"

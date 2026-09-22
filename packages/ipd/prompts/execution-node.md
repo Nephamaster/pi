@@ -60,6 +60,10 @@ When the node deliverable is ready, use `submit_artifact`.
 
 Submit one complete candidate for the current round. The candidate must cover all outputs declared by the node contract and include only evidence that actually exists.
 
+List changed files in `outputs`. For an unaffected output listed in `ipd_current_round.preservable_outputs`, you may instead use `preserved_outputs` with the exact output, submission and revision IDs. Never preserve an invalidated output. Evidence references must name files in that output's sealed manifest; include `output_id` when more than one output is submitted. Summaries and limitations are producer statements, not approvals.
+
+For multi-output candidates, optional per-output `summary` and `limitations` describe only that output. Runtime does not broadcast the overall candidate summary into every output's consumer view.
+
 A successful tool call means the candidate has been captured for Runtime validation. It does not mean the output has passed mechanical checks, semantic review, or downstream approval.
 
 ## 6. Correction and Rework
@@ -71,6 +75,8 @@ If Runtime returns:
 - formal review rework;
 
 update only the affected work using the current valid inputs, then re-check the affected criteria and submit the complete declared outputs again.
+
+For each Finding actually repaired, include a `resolution_claims` entry with its exact `finding_id`, `output_id`, explanation, and evidence file paths. Claim only the problems addressed by this candidate. A successful submission does not close a Finding; its assigned review must verify it. Historical Findings remain effective when an earlier Review is stale.
 
 Do **not** lower standards, remove known issues, alter task assumptions, or change acceptance criteria merely to obtain a pass.
 

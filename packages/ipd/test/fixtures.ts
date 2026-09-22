@@ -4,6 +4,7 @@ import {
 	compileAgentCard,
 	createArtifactIntegrityCheckExecutor,
 	type ExecutionStamp,
+	emptyGovernanceState,
 	hashJson,
 	type ProcessSelection,
 	type ProcessSpec,
@@ -27,7 +28,8 @@ export function createExecutionStamp(roundId: string, index = 1, runGeneration =
 
 export function createEmptyRuntimeRecords() {
 	return {
-		runtimeSchemaVersion: 2 as const,
+		runtimeSchemaVersion: 3 as const,
+		governance: emptyGovernanceState(),
 		attempts: [],
 		dispatchIntents: [],
 		waits: [],

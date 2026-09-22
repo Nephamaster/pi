@@ -60,6 +60,17 @@ export interface EffectiveNode {
 	definition: WorkflowNode;
 	criteria: CriterionDefinition[];
 	agents: EffectiveParticipant[];
+	criterionAuthority: Record<
+		string,
+		{
+			blocking: boolean;
+			sources: Array<{
+				authority: "user" | "process" | "design" | "recommendation";
+				strength: "required" | "advisory";
+				reference: string;
+			}>;
+		}
+	>;
 }
 
 export interface ExecutionGraphIndex {

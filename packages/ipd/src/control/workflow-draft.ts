@@ -20,6 +20,9 @@ export interface WorkflowDraftHeader {
 	workflow_version: string;
 	name: string;
 	prerequisites?: WorkflowDefinition["prerequisites"];
+	stages?: WorkflowDefinition["stages"];
+	requirements?: WorkflowDefinition["requirements"];
+	decisions?: WorkflowDefinition["decisions"];
 }
 
 export interface WorkflowDraftTrustedReferences {

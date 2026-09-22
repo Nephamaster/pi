@@ -6,6 +6,7 @@ import { resolveEnvironmentLayout } from "../environment/paths.ts";
 import { DEFAULT_ENVIRONMENT_PATHS } from "../environment/profiles.ts";
 import { canonicalJson } from "../ir/hash.ts";
 import { wrapPromptBlock } from "../prompt/block.ts";
+import { consumptionView } from "../runtime/artifact-governance.ts";
 import { nodeDispatchKind } from "../runtime/node-prompts.ts";
 import type { NodeRoundWork } from "../runtime/node-worker.ts";
 import { loadPrompt } from "./prompt-loader.ts";
@@ -27,7 +28,7 @@ function criteria(node: EffectiveNode): string {
 	return node.criteria
 		.map(
 			(criterion) =>
-				`### ${criterion.criterion_id}\n\nType: ${criterion.kind}\n\n${criterion.description}\n\nRequired evidence:\n\n${bullets(criterion.evidence_requirements)}`,
+				`### ${criterion.criterion_id}\n\nType: ${criterion.kind}\nBlocking: ${criterion.blocking !== false}\nAuthority: ${canonicalJson(node.criterionAuthority[criterion.criterion_id])}\n\n${criterion.description}\n\nRequired evidence:\n\n${bullets(criterion.evidence_requirements)}`,
 		)
 		.join("\n\n");
 }
@@ -159,6 +160,10 @@ ${targets}
 
 ${bullets(definition.allowed_rework_node_ids)}
 
+## Review Subjects and Remediation Authority
+
+${canonicalJson({ criterion_subjects: definition.criterion_subjects ?? [], required_relations: definition.required_relations ?? [], remediation_mappings: definition.remediation_mappings ?? [], decision_policy: definition.decision_policy ?? { aggregation: "all_required", independent_production: true } })}
+
 ## Review Requirements
 
 ${bullets(definition.contract.work_requirements)}
@@ -258,6 +263,16 @@ export function renderCurrentRoundContext(work: NodeRoundWork): string {
 			submission_id: binding.submissionId,
 			output_id: binding.outputId,
 			approval_review_node_ids: binding.approvalReviewNodeIds,
+			revision_id: binding.revisionId,
+			purpose: binding.purpose,
+			release_ids: binding.releaseIds,
+			consumption:
+				submission && output
+					? {
+							...consumptionView(output),
+							expected_consumer_work: work.node.definition.contract.objective,
+						}
+					: undefined,
 			sealed_root: output ? `${paths.inputs}/${binding.inputId}` : undefined,
 			submission_record: output ? `${paths.inputs}/${binding.inputId}/submission.json` : undefined,
 		};
@@ -270,6 +285,7 @@ export function renderCurrentRoundContext(work: NodeRoundWork): string {
 		issue: item.issue,
 		evidence_ref: item.evidenceRef,
 		expected_correction: item.expectedCorrection,
+		finding_id: item.findingId,
 	}));
 	return canonicalJson({
 		run_id: work.runId,
@@ -280,6 +296,10 @@ export function renderCurrentRoundContext(work: NodeRoundWork): string {
 		dispatch: nodeDispatchKind(work),
 		inputs,
 		feedback,
+		findings: work.findings ?? [],
+		review_bundle: work.reviewBundle,
+		preservable_outputs: work.preservableOutputs ?? [],
+		governance_contract: work.governanceContract,
 	});
 }
 

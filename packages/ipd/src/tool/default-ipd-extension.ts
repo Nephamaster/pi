@@ -35,6 +35,7 @@ import { CheckExecutorRegistry } from "../registry/check-executor-registry.ts";
 import { hashSkillPackage, snapshotSkillPackage } from "../registry/skill-package.ts";
 import { FileWorkflowAssetStore } from "../registry/workflow-asset-store.ts";
 import { IpdService } from "../runtime/ipd-service.ts";
+import { ResourceAdmission } from "../runtime/resource-admission.ts";
 import { FileRunStore } from "../runtime/run-store.ts";
 import { SubmissionStore } from "../runtime/submission-store.ts";
 import { FileIpdTelemetry } from "../runtime/telemetry.ts";
@@ -130,6 +131,14 @@ export interface DefaultIpdExtensionOptions {
 export function registerDefaultIpdExtension(pi: ExtensionAPI, options: DefaultIpdExtensionOptions = {}): void {
 	let activeSkills: Skill[] = [];
 	const services = new Map<string, Promise<IpdService>>();
+	const admission = new ResourceAdmission({
+		active: runtimeInteger("PI_IPD_MAX_ACTIVE_EXECUTIONS", 8, 1),
+		activePerRoot: runtimeInteger("PI_IPD_MAX_CONCURRENT_NODES", 4, 1),
+		tools: runtimeInteger("PI_IPD_MAX_ACTIVE_TOOLS", 16, 1),
+		toolsPerRoot: runtimeInteger("PI_IPD_MAX_TOOLS_PER_RUN", 8, 1),
+		residentPerRoot: runtimeInteger("PI_IPD_MAX_RETAINED_PARTICIPANTS", 64, 1),
+		sealedBytesPerRoot: runtimeInteger("PI_IPD_MAX_SEALED_BYTES", 10 * 1024 ** 3, 1),
+	});
 
 	pi.on("before_agent_start", (event) => {
 		activeSkills = [...(event.systemPromptOptions.skills ?? [])];
@@ -186,7 +195,15 @@ export function registerDefaultIpdExtension(pi: ExtensionAPI, options: DefaultIp
 		});
 		const existing = services.get(key);
 		if (existing) return existing;
-		const service = createDefaultService(context, model, effectiveSkills, toolDefinitions, sessionSettings, options);
+		const service = createDefaultService(
+			context,
+			model,
+			effectiveSkills,
+			toolDefinitions,
+			sessionSettings,
+			options,
+			admission,
+		);
 		services.set(key, service);
 		void service.catch(() => {
 			if (services.get(key) === service) services.delete(key);
@@ -202,6 +219,7 @@ async function createDefaultService(
 	toolDefinitions: readonly ToolDefinition[],
 	sessionSettings: IpdSessionSettings,
 	options: DefaultIpdExtensionOptions,
+	admission: ResourceAdmission,
 ): Promise<IpdService> {
 	const agentDir = getAgentDir();
 	const selectedEnvironmentMode = options.environmentMode ?? environmentMode();
@@ -348,6 +366,7 @@ async function createDefaultService(
 	const customTools = runtimeToolDefinitions.filter((tool) => !BUILTIN_IO_TOOLS.has(tool.name));
 	const managerByRun = new Map<string, WorkflowDraftManager>();
 	const roleOptions = (runId: string, card: typeof selectorCard): PiControlRoleOptions => ({
+		admission,
 		agentDir,
 		workspace: join(context.cwd, ".pi", "ipd", "runs", runId, "workspace"),
 		sessionDirectory: join(context.cwd, ".pi", "ipd", "runs", runId, "sessions"),
@@ -471,6 +490,7 @@ async function createDefaultService(
 					agentCards: assembled.agentCards,
 				}),
 				workflowAssets,
+				admission,
 			);
 		},
 		createRuntime: (directory, controller) =>
@@ -478,6 +498,7 @@ async function createDefaultService(
 				store,
 				directory,
 				new PiNodeWorker({
+					admission,
 					legacyToolAdapter: selectedEnvironmentMode === "legacy-srt" ? options.legacyToolAdapter : undefined,
 					agentDir,
 					workspace: directory.workspace,
@@ -494,6 +515,7 @@ async function createDefaultService(
 				new MechanicalChecker(checks),
 				{
 					controller,
+					admission,
 					maxConcurrentNodes: runtimeInteger("PI_IPD_MAX_CONCURRENT_NODES", 4, 1),
 					maxQualityReworkRounds: runtimeInteger("PI_IPD_MAX_QUALITY_REWORK_ROUNDS", 10, 0),
 					roundTimeoutMs: runtimeInteger("PI_IPD_ROUND_TIMEOUT_MS", DEFAULT_ROUND_TIMEOUT_MS, 0),

@@ -111,6 +111,12 @@ describe("WorkflowRuntime", () => {
 					);
 				return {
 					summary: "Produced content",
+					resolution_claims: (work.findings ?? []).map((finding) => ({
+						finding_id: finding.findingId,
+						output_id: finding.owner.output_id,
+						explanation: "Replaced draft with revised content",
+						evidence: ["outputs/produce/result.txt"],
+					})),
 					outputs: [
 						{
 							output_id: "content-output",
@@ -135,6 +141,13 @@ describe("WorkflowRuntime", () => {
 							rationale: pass ? "The revision is acceptable" : "The first version is a draft",
 							required_rework: pass ? [] : ["Replace the draft"],
 							rework_targets: pass ? [] : [{ node_id: "produce", output_id: "content-output" }],
+							finding_resolutions: pass
+								? (work.findings ?? []).map((finding) => ({
+										finding_id: finding.findingId,
+										result: "resolved" as const,
+										reason: "Checked the revised version",
+									}))
+								: [],
 						},
 					],
 					unresolved_issues: [],

@@ -24,6 +24,8 @@ const SubmittedOutputSchema = Type.Object(
 	{
 		output_id: IdentifierSchema,
 		files: Type.Array(SubmittedFileSchema, { minItems: 1 }),
+		summary: Type.Optional(NonEmptyStringSchema),
+		limitations: Type.Optional(Type.Array(NonEmptyStringSchema)),
 	},
 	{ additionalProperties: false },
 );
@@ -34,6 +36,9 @@ const SubmittedEvidenceSchema = Type.Object(
 		reference: NonEmptyStringSchema,
 		output_id: Type.Optional(IdentifierSchema),
 		criterion_id: Type.Optional(IdentifierSchema),
+		method: Type.Optional(NonEmptyStringSchema),
+		locator: Type.Optional(NonEmptyStringSchema),
+		limitations: Type.Optional(Type.Array(NonEmptyStringSchema)),
 	},
 	{ additionalProperties: false },
 );
@@ -41,7 +46,29 @@ const SubmittedEvidenceSchema = Type.Object(
 export const SubmitArtifactSchema = Type.Object(
 	{
 		summary: NonEmptyStringSchema,
-		outputs: Type.Array(SubmittedOutputSchema, { minItems: 1 }),
+		outputs: Type.Array(SubmittedOutputSchema),
+		preserved_outputs: Type.Optional(
+			Type.Array(
+				Type.Object(
+					{ output_id: IdentifierSchema, submission_id: NonEmptyStringSchema, revision_id: NonEmptyStringSchema },
+					{ additionalProperties: false },
+				),
+			),
+		),
+		resolution_claims: Type.Optional(
+			Type.Array(
+				Type.Object(
+					{
+						finding_id: NonEmptyStringSchema,
+						output_id: IdentifierSchema,
+						explanation: NonEmptyStringSchema,
+						evidence: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
+					},
+					{ additionalProperties: false },
+				),
+			),
+		),
+		limitations: Type.Optional(Type.Array(NonEmptyStringSchema)),
 		evidence: Type.Array(SubmittedEvidenceSchema),
 		metadata: JsonValueSchema,
 	},
@@ -96,6 +123,16 @@ const ReviewEvidenceSchema = Type.Object(
 		node_id: IdentifierSchema,
 		output_id: IdentifierSchema,
 		criterion_id: IdentifierSchema,
+		verification_path: Type.Optional(
+			Type.String({
+				minLength: 1,
+				description:
+					"Optional reviewer-generated verification file under outputs/review-evidence/, relative to the private workspace.",
+			}),
+		),
+		method: Type.Optional(NonEmptyStringSchema),
+		locator: Type.Optional(NonEmptyStringSchema),
+		limitations: Type.Optional(Type.Array(NonEmptyStringSchema)),
 	},
 	{ additionalProperties: false },
 );
@@ -112,6 +149,32 @@ export const SubmitReviewSchema = Type.Object(
 					rationale: NonEmptyStringSchema,
 					required_rework: Type.Array(NonEmptyStringSchema),
 					rework_targets: Type.Array(NodeOutputRefSchema, { uniqueItems: true }),
+					root_cause: Type.Optional(
+						Type.Object(
+							{
+								status: Type.Union([Type.Literal("unknown"), Type.Literal("supported")]),
+								explanation: NonEmptyStringSchema,
+							},
+							{ additionalProperties: false },
+						),
+					),
+					finding_resolutions: Type.Optional(
+						Type.Array(
+							Type.Object(
+								{
+									finding_id: NonEmptyStringSchema,
+									result: Type.Union([
+										Type.Literal("resolved"),
+										Type.Literal("withdrawn"),
+										Type.Literal("superseded"),
+									]),
+									reason: NonEmptyStringSchema,
+									replacement_finding_id: Type.Optional(NonEmptyStringSchema),
+								},
+								{ additionalProperties: false },
+							),
+						),
+					),
 				},
 				{ additionalProperties: false },
 			),

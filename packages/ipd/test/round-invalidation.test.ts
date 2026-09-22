@@ -138,6 +138,12 @@ it.each(["export", "check"] as const)(
 					await writeFile(join(directory.workspace, output.path_prefix, "result.txt"), "result");
 					return {
 						summary: "done",
+						resolution_claims: (work.findings ?? []).map((finding) => ({
+							finding_id: finding.findingId,
+							output_id: finding.owner.output_id,
+							explanation: "Repaired output",
+							evidence: [`${output.path_prefix}/result.txt`],
+						})),
 						outputs: [
 							{
 								output_id: output.output_id,
@@ -180,6 +186,19 @@ it.each(["export", "check"] as const)(
 									rationale: "checked",
 									required_rework: rework ? ["revise"] : [],
 									rework_targets: rework ? [{ node_id: "other", output_id: "other-output" }] : [],
+									finding_resolutions: rework
+										? []
+										: (work.findings ?? [])
+												.filter(
+													(finding) =>
+														finding.criterionId === criterion &&
+														finding.reviewNodeId === work.node.definition.node_id,
+												)
+												.map((finding) => ({
+													finding_id: finding.findingId,
+													result: "resolved" as const,
+													reason: "Verified exact candidate",
+												})),
 								};
 							}),
 						),

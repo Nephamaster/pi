@@ -85,9 +85,12 @@ export class MechanicalChecker {
 				});
 			}
 		}
-		const result = outcomes.some((outcome) => outcome.result === "ERROR")
+		const required = outcomes.filter(
+			(outcome) => criteria.find((criterion) => criterion.criterion_id === outcome.criterionId)?.blocking !== false,
+		);
+		const result = required.some((outcome) => outcome.result === "ERROR")
 			? "ERROR"
-			: outcomes.some((outcome) => outcome.result === "FAIL")
+			: required.some((outcome) => outcome.result === "FAIL")
 				? "FAIL"
 				: "PASS";
 		return { result, criteria: outcomes };

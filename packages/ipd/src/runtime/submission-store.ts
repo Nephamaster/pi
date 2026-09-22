@@ -3,7 +3,7 @@ import { copyFile, mkdir, readFile, realpath, rename, rm, writeFile } from "node
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { SubmitArtifact } from "../adapter/structured-submissions.ts";
 import { createArtifactManifest, validateArtifactManifest } from "../artifact/manifest.ts";
-import type { SubmissionRecord } from "../contracts/runtime.ts";
+import type { SubmissionOutputRecord, SubmissionRecord } from "../contracts/runtime.ts";
 import type { ExecutionNode } from "../contracts/workflow.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
 import { normalizeScope, scopeContains } from "../ir/scopes.ts";
@@ -21,6 +21,7 @@ export interface SealSubmissionInput {
 	submission: SubmitArtifact;
 	sourceWorkspace?: string;
 	signal?: AbortSignal;
+	preservedOutputs?: SubmissionOutputRecord[];
 }
 
 export class SubmissionValidationError extends Error {
@@ -53,7 +54,7 @@ export class SubmissionStore {
 		}
 		const sourceWorkspace = input.sourceWorkspace ?? input.run.workspace;
 		const definitions = new Map(input.node.outputs.map((output) => [output.output_id, output]));
-		if (input.submission.outputs.length !== definitions.size)
+		if (input.submission.outputs.length + (input.submission.preserved_outputs?.length ?? 0) !== definitions.size)
 			throw new SubmissionValidationError("Submission must provide every declared output exactly once");
 		const staging = join(input.run.submissions, `.${input.submissionId}.${process.pid}.${Date.now()}.tmp`);
 		await mkdir(staging, { recursive: false });
@@ -66,6 +67,8 @@ export class SubmissionStore {
 				if (!definition || seenOutputs.has(submitted.output_id))
 					throw new SubmissionValidationError(`Invalid output submission: ${submitted.output_id}`);
 				seenOutputs.add(submitted.output_id);
+				const outputSummary =
+					submitted.summary ?? (definitions.size === 1 ? input.submission.summary : definition.description);
 				const outputRoot = normalizeScope(definition.path_prefix);
 				if (!outputRoot) throw new SubmissionValidationError(`Invalid output path: ${definition.path_prefix}`);
 				const realOutputRoot = await realpath(resolve(sourceWorkspace, outputRoot));
@@ -99,7 +102,7 @@ export class SubmissionStore {
 						createdAt: Date.now(),
 						inputs: input.inputSubmissionIds,
 						files: submitted.files.map((file) => ({ path: file.path, mimeType: file.media_type })),
-						metadata: { summary: input.submission.summary },
+						metadata: { summary: outputSummary },
 					},
 				});
 				for (const file of manifest.files) {
@@ -120,7 +123,26 @@ export class SubmissionStore {
 					manifest,
 				});
 				if (!validation.ok) throw new Error(`Submission changed while being sealed: ${definition.output_id}`);
-				outputs.push({ outputId: definition.output_id, sealedRoot: join(target, definition.output_id), manifest });
+				outputs.push({
+					outputId: definition.output_id,
+					sealedRoot: join(target, definition.output_id),
+					manifest,
+					revisionId: `${input.submissionId}:output:${definition.output_id}`,
+					manifestHash: hashJson(manifest),
+					contractHash: hashJson(definition),
+					handoff: {
+						outputId: definition.output_id,
+						purpose: definition.business_purpose,
+						keyResult: outputSummary,
+						requirementRefs: [...(input.node.contract.requirement_refs ?? [])],
+						decisionRefs: [...(input.node.contract.decision_refs ?? [])],
+						limitations: [
+							...(submitted.limitations ?? (definitions.size === 1 ? (input.submission.limitations ?? []) : [])),
+						],
+						navigation: manifest.files.map((file) => file.path),
+						provenance: "producer_authored_summary",
+					},
+				});
 			}
 			for (const output of outputs) {
 				const definition = definitions.get(output.outputId)!;
@@ -139,6 +161,34 @@ export class SubmissionStore {
 						`Submission source changed before the complete candidate was frozen: ${output.outputId}`,
 					);
 			}
+			for (const preserved of input.preservedOutputs ?? []) {
+				if (!definitions.has(preserved.outputId) || seenOutputs.has(preserved.outputId) || !preserved.preservedFrom)
+					throw new SubmissionValidationError(`Invalid preserved output: ${preserved.outputId}`);
+				seenOutputs.add(preserved.outputId);
+				const destinationRoot = join(staging, preserved.outputId);
+				for (const file of preserved.manifest.files) {
+					const destination = resolve(destinationRoot, file.path);
+					await mkdir(dirname(destination), { recursive: true });
+					await copyFile(resolve(preserved.sealedRoot, file.path), destination);
+				}
+				const definition = definitions.get(preserved.outputId)!;
+				const verified = await validateArtifactManifest({
+					workspace: destinationRoot,
+					contract: {
+						id: definition.output_id,
+						artifactType: definition.artifact_type,
+						description: definition.description,
+						businessPurpose: definition.business_purpose,
+					},
+					manifest: preserved.manifest,
+				});
+				if (!verified.ok) throw new SubmissionValidationError(`Preserved output changed: ${preserved.outputId}`);
+				outputs.push({ ...structuredClone(preserved), sealedRoot: join(target, preserved.outputId) });
+			}
+			if (seenOutputs.size !== definitions.size)
+				throw new SubmissionValidationError(
+					"Every declared output must be changed or validly preserved exactly once",
+				);
 			const record: SubmissionRecord = {
 				submissionId: input.submissionId,
 				contentHash,
@@ -150,15 +200,24 @@ export class SubmissionStore {
 				outputs,
 				evidence: toJsonValue(input.submission.evidence),
 				createdAt: Date.now(),
+				resolutionClaims: input.submission.resolution_claims?.map((claim) => ({
+					findingId: claim.finding_id,
+					outputId: claim.output_id,
+					explanation: claim.explanation,
+					evidence: [...claim.evidence],
+				})),
 			};
 			await writeFile(join(staging, "submission.json"), `${JSON.stringify(record, null, "\t")}\n`, "utf8");
 			for (const output of record.outputs) {
 				const scopedRecord: SubmissionRecord = {
 					...record,
 					outputs: [output],
+					resolutionClaims: record.resolutionClaims?.filter((claim) => claim.outputId === output.outputId),
 					evidence: toJsonValue(
 						input.submission.evidence.filter(
-							(item) => item.output_id === undefined || item.output_id === output.outputId,
+							(item) =>
+								item.output_id === output.outputId ||
+								(record.outputs.length === 1 && item.output_id === undefined),
 						),
 					),
 				};

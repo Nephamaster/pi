@@ -3,6 +3,7 @@ import { compileWorkflow } from "../compiler/compiler.ts";
 import type { CompilerAssetCatalog } from "../compiler/types.ts";
 import { validateProcessSpecStaffing } from "../compiler/validate-process-spec.ts";
 import type { ExecutionBaseline, LockedSkill } from "../contracts/baseline.ts";
+import { emptyGovernanceState } from "../contracts/governance.ts";
 import type { JsonValue } from "../contracts/primitives.ts";
 import type { ProcessSelection, ProcessSpec } from "../contracts/process-spec.ts";
 import type { RunControllerRecord, RunRequestRecord, RunState } from "../contracts/runtime.ts";
@@ -13,6 +14,7 @@ import type { WorkflowAssetRecord } from "../ir/types.ts";
 import type { WorkflowAssetStore } from "../registry/workflow-asset-store.ts";
 import { WorkflowAssetWriteError } from "../registry/workflow-asset-store.ts";
 import { requireCurrentController } from "../runtime/execution-control.ts";
+import type { ResourceAdmission } from "../runtime/resource-admission.ts";
 import { prepareRunDirectory, type RunDirectory } from "../runtime/run-directory.ts";
 import { type FileRunStore, RunAlreadyExistsError } from "../runtime/run-store.ts";
 
@@ -86,17 +88,21 @@ export class IpdControlPlane {
 	private readonly selector: ProcessSelector;
 	private readonly designer: WorkflowDesigner;
 	private readonly workflowAssets: WorkflowAssetStore;
+	private readonly admission?: ResourceAdmission;
+	private readonly preparationSignals = new Map<string, AbortController>();
 
 	constructor(
 		store: FileRunStore,
 		selector: ProcessSelector,
 		designer: WorkflowDesigner,
 		workflowAssets: WorkflowAssetStore,
+		admission?: ResourceAdmission,
 	) {
 		this.store = store;
 		this.selector = selector;
 		this.designer = designer;
 		this.workflowAssets = workflowAssets;
+		this.admission = admission;
 	}
 
 	async prepare(input: PrepareRunInput): Promise<PrepareRunResult> {
@@ -105,6 +111,7 @@ export class IpdControlPlane {
 	}
 
 	async cancelRun(runId: string): Promise<void> {
+		this.preparationSignals.get(runId)?.abort();
 		const results = await Promise.allSettled([this.selector.cancelRun?.(runId), this.designer.cancelRun?.(runId)]);
 		const errors = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
 		if (errors.length)
@@ -118,7 +125,8 @@ export class IpdControlPlane {
 		const directory = await prepareRunDirectory(input.projectRoot, input.runId);
 		this.store.bind(input.runId, directory.stateFile);
 		const initial: RunState = {
-			runtimeSchemaVersion: 2,
+			runtimeSchemaVersion: 3,
+			governance: emptyGovernanceState(),
 			runId: input.runId,
 			revision: 0,
 			phase: "intake",
@@ -177,7 +185,9 @@ export class IpdControlPlane {
 		} else {
 			await this.setPreparationPhase(input.runId, "selection", "selection", input.controller);
 			try {
-				selection = await this.selector.select(input.runId, input.taskInput, input.processSpecs);
+				selection = await this.admittedPreparation(input, "selection", () =>
+					this.selector.select(input.runId, input.taskInput, input.processSpecs),
+				);
 			} catch (error) {
 				if (!(error instanceof ProcessSelectionBlockedError)) throw error;
 				return this.block(
@@ -251,7 +261,9 @@ export class IpdControlPlane {
 				return { ok: false, directory, diagnostics: ["Run cancelled or controller replaced"] };
 			let workflow: WorkflowDefinition;
 			try {
-				workflow = await this.designer.design(input.runId, input.taskInput, selection, spec, diagnostics);
+				workflow = await this.admittedPreparation(input, `design:${revision}`, () =>
+					this.designer.design(input.runId, input.taskInput, selection, spec, diagnostics),
+				);
 			} catch (error) {
 				if (!(error instanceof WorkflowDesignBlockedError)) throw error;
 				const blockJson = toJsonValue(error.block);
@@ -380,6 +392,28 @@ export class IpdControlPlane {
 			},
 		);
 		return { ok: true, baseline: compiled.baseline, directory };
+	}
+
+	private async admittedPreparation<T>(
+		input: PrepareRunInput,
+		activity: string,
+		operation: () => Promise<T>,
+	): Promise<T> {
+		if (!this.admission) return operation();
+		let controller = this.preparationSignals.get(input.runId);
+		if (!controller || controller.signal.aborted) {
+			controller = new AbortController();
+			this.preparationSignals.set(input.runId, controller);
+		}
+		const key = `${input.runId}:control:${input.controller?.term ?? 0}:${activity}`;
+		const release = await this.admission.acquire(input.runId, key, controller.signal);
+		try {
+			if (!(await this.isRunning(input.runId, input.controller)))
+				throw new Error("Preparation controller lost authority during admission");
+			return await operation();
+		} finally {
+			release();
+		}
 	}
 
 	private async prepareWorkflowTemplate(

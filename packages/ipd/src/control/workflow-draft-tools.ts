@@ -21,6 +21,9 @@ const HeaderSchema = Type.Object(
 		workflow_version: VersionSchema,
 		name: NonEmptyStringSchema,
 		prerequisites: WorkflowDefinitionSchema.properties.prerequisites,
+		stages: WorkflowDefinitionSchema.properties.stages,
+		requirements: WorkflowDefinitionSchema.properties.requirements,
+		decisions: WorkflowDefinitionSchema.properties.decisions,
 	},
 	{ additionalProperties: false },
 );

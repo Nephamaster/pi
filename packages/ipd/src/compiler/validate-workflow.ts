@@ -8,7 +8,9 @@ import { topologicalSort } from "../ir/graph.ts";
 import { normalizeScope, scopeContains, scopesOverlap } from "../ir/scopes.ts";
 import { addDiagnostic as add, duplicateIds as duplicates, outputKey } from "./diagnostics.ts";
 import { usesPrivateNodeWorkspaces } from "./environment-workspace.ts";
+import { candidateUseAllowed } from "./governance-policy.ts";
 import type { CompilerAssetCatalog, ValidatedWorkflow } from "./types.ts";
+import { validateGovernance } from "./validate-governance.ts";
 import { validateNodeAgent } from "./validate-node-agent.ts";
 import { validateCoverageReferences } from "./validate-process-coverage.ts";
 
@@ -18,7 +20,7 @@ export function validateWorkflowRelations(
 	spec: ProcessSpec,
 	catalog: CompilerAssetCatalog,
 ): ValidatedWorkflow {
-	const diagnostics: CompilerDiagnostic[] = [];
+	const diagnostics: CompilerDiagnostic[] = validateGovernance(workflow, task, spec);
 	const prerequisites = workflow.prerequisites;
 	if (prerequisites && task.materials.length < prerequisites.minimum_materials) {
 		const retrievalBound = prerequisites.retrieval_tools.some(
@@ -202,7 +204,7 @@ export function validateWorkflowRelations(
 				);
 		}
 		for (const [criterionId, targetKeys] of targetsByCriterion) {
-			if (targetKeys.size > 1)
+			if (targetKeys.size > 1 && !review.criterion_subjects?.some((subject) => subject.criterion_id === criterionId))
 				add(
 					diagnostics,
 					"review_criterion_target_ambiguous",
@@ -244,7 +246,7 @@ export function validateWorkflowRelations(
 		const output = outputs.get(key);
 		if (!output) return [];
 		const required = output.node.outputs[output.outputIndex].criterion_refs.filter(
-			(id) => criteria.get(id)?.kind === "semantic",
+			(id) => criteria.get(id)?.kind === "semantic" && criteria.get(id)?.blocking !== false,
 		);
 		const covered = new Set(
 			reviews
@@ -280,7 +282,11 @@ export function validateWorkflowRelations(
 					node.node_id,
 				);
 			else dependencies.get(node.node_id)?.add(input.source.node_id);
-			if (node.kind === "execution" && input.availability !== "approved")
+			if (
+				node.kind === "execution" &&
+				input.availability !== "approved" &&
+				!candidateUseAllowed(workflow, node.node_id, input)
+			)
 				add(
 					diagnostics,
 					"unapproved_execution_input",

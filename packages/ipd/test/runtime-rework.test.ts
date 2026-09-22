@@ -85,6 +85,12 @@ describe("WorkflowRuntime local rework", () => {
 				);
 				return {
 					summary: "produced",
+					resolution_claims: (work.findings ?? []).map((finding) => ({
+						finding_id: finding.findingId,
+						output_id: finding.owner.output_id,
+						explanation: "Revised the failed output",
+						evidence: [`${output.path_prefix}/result.txt`],
+					})),
 					outputs: [
 						{
 							output_id: output.output_id,
@@ -111,7 +117,7 @@ describe("WorkflowRuntime local rework", () => {
 							evidence: [
 								{
 									description: "Inspected both sealed results",
-									reference: "sealed results",
+									reference: "outputs/produce/result.txt",
 									submission_id: reviewed.submissionId,
 									node_id: "produce",
 									output_id: "content-output",
@@ -121,6 +127,13 @@ describe("WorkflowRuntime local rework", () => {
 							rationale: pass ? "accepted" : "first result needs revision",
 							required_rework: pass ? [] : ["Revise the first result"],
 							rework_targets: pass ? [] : [{ node_id: "produce", output_id: "content-output" }],
+							finding_resolutions: pass
+								? (work.findings ?? []).map((finding) => ({
+										finding_id: finding.findingId,
+										result: "resolved" as const,
+										reason: "Verified the revised first result",
+									}))
+								: [],
 						},
 						{
 							criterion_id: "quality-two",
@@ -128,7 +141,7 @@ describe("WorkflowRuntime local rework", () => {
 							evidence: [
 								{
 									description: "Inspected the unaffected sealed result",
-									reference: "sealed results",
+									reference: "outputs/produce-two/result.txt",
 									submission_id: secondReviewed.submissionId,
 									node_id: "produce-two",
 									output_id: "content-two",

@@ -16,6 +16,7 @@ import { type ProcessSelection, ProcessSelectionDecisionSchema, type ProcessSpec
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
 import { hashJson } from "../ir/hash.ts";
+import type { ResourceAdmission } from "../runtime/resource-admission.ts";
 import { createAgentCardCatalogTools, createProcessSpecCatalogTools } from "./asset-catalog-tools.ts";
 import {
 	ProcessSelectionBlockedError,
@@ -60,6 +61,7 @@ const WorkflowDesignBlockSchema = Type.Object(
 );
 
 export interface PiControlRoleOptions {
+	admission?: ResourceAdmission;
 	agentDir: string;
 	sessionDirectory: string;
 	workspace: string;
@@ -118,6 +120,9 @@ export class PiProcessSelector implements ProcessSelector {
 				participantId: roleId,
 				createInput: {
 					controlRole: true,
+					resourceAdmission: this.options.admission
+						? { admission: this.options.admission, rootId: runId }
+						: undefined,
 					nodeId: roleId,
 					workspace: this.options.workspace,
 					sessionDirectory: this.options.sessionDirectory,
@@ -151,6 +156,7 @@ export class PiProcessSelector implements ProcessSelector {
 			);
 		} finally {
 			await this.sessions.releaseRun(runId);
+			this.options.admission?.releaseParticipant(runId, `${roleId}/${roleId}`);
 		}
 		if (decision.status === "blocked")
 			throw new ProcessSelectionBlockedError(
@@ -318,6 +324,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 				createInput: {
 					controlRole: true,
 					nodeId: "workflow-designer",
+					resourceAdmission: options.admission ? { admission: options.admission, rootId: runId } : undefined,
 					workspace: options.workspace,
 					sessionDirectory: options.sessionDirectory,
 					systemPrompt: `${loadPrompt("common")}\n\n${renderAgentRuntimeProfile(options.agentCard)}\n\n${loadPrompt("workflow-designer")}`,
@@ -375,6 +382,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 		const active = this.active.get(runId);
 		if (!active) return;
 		await active.adapter.releaseRun(runId);
+		this.optionsForRun(runId).admission?.releaseParticipant(runId, "workflow-designer/workflow-designer");
 		this.active.delete(runId);
 	}
 }

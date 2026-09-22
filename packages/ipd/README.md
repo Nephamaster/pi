@@ -46,6 +46,10 @@ evaluate assigned quality criteria against the preserved original task, includin
 - Per-node controlled execution leases with non-overlapping output roots and independently sealed, hashed output views.
 - Bounded ready-node scheduling, exact input-version binding, local and cross-node rework invalidation, and final
   delivery projection.
+- Explicit stage-internal candidate use and Gate-controlled exits, fixed composite ReviewBundles, persistent Findings,
+  criterion-level Assessments, release certificates, output-level provenance and validated partial-output preservation.
+- Source/strength annotations for requirements and design decisions, resolvable EvidenceRecords, and compact consumption
+  views that distinguish producer summaries from verified observations.
 - Durable create-request identity, controller terms, append-only Attempts, dispatch/wait/failure records, provider
   request byte/image admission, and immutable CompletionBasis-bound final delivery versions.
 - Process-restart recovery at verified pause/block boundaries or after quarantining an interrupted active Docker lease,
@@ -103,10 +107,70 @@ Run data is stored under `<project>/.pi/ipd/runs/<run-id>/`; reusable Workflow a
 
 The on-disk state snapshot uses `storageVersion: 1` and hash references to immutable `objects/<hash>.json` files for
 Baseline, task, selection and locked static assets. Back up the whole Run directory, not just `state.json`.
-`FileRunStore.read()` and `ipd_get_run` still return a hydrated RunState. Existing inline snapshots are read and migrated
-on their next committed mutation. Business state, audit events and operation idempotency remain in one atomic state
+`FileRunStore.read()` returns a hydrated RunState; `ipd_get_run` returns a read-only status projection. New Runs use
+`runtimeSchemaVersion: 3`. Older Runtime schemas are rejected; no old-Run migration is provided. Business state,
+audit events and operation idempotency remain in one atomic state
 replacement; object files are durable before publication. Interrupted writes can leave unreferenced object files;
 these are retained, not automatically deleted from a potentially active Run.
+
+## Stage and quality governance
+
+WorkflowDefinition remains v3. Its optional `stages`, `requirements`, and `decisions` are accepted by the draft
+`set_header` operation. A StageScope contains `stage_id`, `member_node_ids`, `internal_uses` (consumer node/input pairs),
+and `exits` (output references and required Gate IDs). Only explicitly listed internal execution inputs may consume
+`submitted` candidates; crossing an exit requires all declared Gates. Each candidate must already be sealed, registered,
+mechanically accepted and valid for its intended use. This permits A → B → joint Gate without an approval cycle.
+
+For a criterion covering multiple outputs, the review node must declare its exact `criterion_subjects`. Optional
+`required_relations` verifies direct derivation between the selected target versions. Runtime also checks transitive
+content provenance so A2 cannot be combined with B1 derived from A1. `remediation_mappings` can authorize a declared,
+direct upstream repair owner for a downstream observation; the owner must be a bound review input, the version relation
+must hold, and the Reviewer must supply a supported root-cause explanation with evidence for that owner.
+
+Input `purpose` is `content_basis` by default; `test_subject` and `historical_reference` retain provenance without
+asserting that the referenced content is correct. Runtime still enforces the input's declared availability. Purposes do
+not grant access to arbitrary historical or invalidated outputs.
+
+Each review Attempt freezes one ReviewBundle with exact output revisions, input references, standards, required assessors,
+background identity and the `all_required` policy. Assessments preserve individual observations. A required FAIL or
+BLOCKED cannot be outvoted. Known failures remain registered even when another criterion is BLOCKED. Independent review
+uses scoped participant/Session production contributions; role names and model diversity alone do not establish independence.
+
+Finding identity survives a stale Review. Producers address exact Finding IDs via `resolution_claims`; reviewers explicitly
+resolve, withdraw or supersede those Findings through criterion-level `finding_resolutions`. A PASS omitting its unresolved
+blocking Findings is returned for correction. A different Gate cannot close another Gate's issues. The final completion
+check requires all blocking Findings to be settled, together with current stage exits, release credentials and adoptions.
+
+Partial repair still declares a complete candidate. Put new files in `outputs`, and authorized unchanged revisions in:
+
+```json
+{
+  "preserved_outputs": [{ "output_id": "unchanged", "submission_id": "exact-prior-submission", "revision_id": "exact-revision" }],
+  "resolution_claims": [{ "finding_id": "assigned-finding", "output_id": "changed", "explanation": "What was repaired", "evidence": ["outputs/changed/check.txt"] }]
+}
+```
+
+Runtime verifies preservation against ownership, contract, manifest, dispatch authorization and current validity. It keeps
+the original production identity; copying the retained bytes into a scoped candidate does not count as new production.
+Invalidation follows exact content, assessment, release and adoption relationships. An independent output remains intact
+when a joint Gate is revoked. A result that only lost release credentials can receive a new AdoptionRecord after those
+credentials are revalidated, without rewriting its Attempt history or invoking its producer again.
+
+Evidence `reference` resolves to a file in the exact sealed output manifest or its scoped `submission.json`; it is not a
+free-form assertion or an arbitrary host path. Reviewers may additionally provide `verification_path` under
+`outputs/review-evidence/`; the Docker adapter freezes and exports these files into the Run's separate `evidence/` store.
+Records distinguish producer statements, reviewer observations, and actual mechanical-check execution. A sealed,
+model-authored verification log is still a statement, not proof that a tool ran. Evidence sufficiency remains a professional
+judgment. Full checker/build identity locking remains separate from this governance protocol.
+
+Requirements distinguish `user/process/design/recommendation` authority and `required/advisory` strength. Source quotes
+are checked against the raw task, ProcessSpec, or design decision; recommendation-to-hard-Gate promotion is rejected.
+Criteria without explicit provenance are labeled as frozen workflow design decisions, never fabricated user quotations.
+Advisory criteria use `blocking: false`; their failures remain visible without creating blocking production rework.
+
+The domain implementation is split among `contracts/governance.ts`, `compiler/validate-governance.ts`, and Runtime modules
+for artifact/adoption records, review bundles, Findings, impact propagation, evidence and release policy. The scheduler
+continues to use these facts through existing RunStore transactions and native Pi Sessions.
 
 ## Controlled execution environments
 
@@ -172,6 +236,11 @@ The default Runtime uses these safety limits:
 
 ```text
 PI_IPD_MAX_CONCURRENT_NODES=4
+PI_IPD_MAX_ACTIVE_EXECUTIONS=8
+PI_IPD_MAX_ACTIVE_TOOLS=16
+PI_IPD_MAX_TOOLS_PER_RUN=8
+PI_IPD_MAX_RETAINED_PARTICIPANTS=64
+PI_IPD_MAX_SEALED_BYTES=10737418240
 PI_IPD_MAX_QUALITY_REWORK_ROUNDS=10
 PI_IPD_ROUND_TIMEOUT_MS=0
 ```
@@ -180,6 +249,13 @@ Whole-round deadlines are disabled by default: an omitted value or `0` permits l
 cutoff. Only an explicitly configured positive value enables a round deadline. Optional `PI_IPD_SOFT_ROUND_TIMEOUT_MS`
 requests a checkpoint but does not stop the node, and can be used without a hard deadline. Individual command, network,
 preflight and cleanup deadlines remain separate. Running Pi processes retain the configuration they already loaded.
+
+One ResourceAdmission instance is shared by the default extension's Runs and services. The activity slot bounds the
+whole native dispatch (including model/tool turns); per-call tool slots separately bound parallel tools. Preparation
+roles use the same activity capacity. Resource waits are recorded before Attempt claim, and real work must settle before
+its slot is released. Retained participants are counted separately and are never evicted to satisfy a limit. The storage
+limit covers sealed production candidates; it is not a filesystem quota on arbitrary Bash scratch/cache writes. These
+limits coordinate one Pi process, not independently launched Pi processes or future child-Run execution trees.
 
 For registered `pi-web-access` tools, the controlled-session adapter copies returned PDF Markdown files from the specific
 extraction cache into `/workspace/.external-content/<content-hash>.md` before presenting the path to the node. It validates

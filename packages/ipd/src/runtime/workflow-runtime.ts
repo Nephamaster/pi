@@ -6,11 +6,14 @@ import type { ReportNodeBlocked, SubmitReview } from "../adapter/structured-subm
 import { ArtifactValidationError } from "../artifact/manifest.ts";
 import { baselineIndex } from "../compiler/baseline-index.ts";
 import type { EffectiveNode, ExecutionBaseline } from "../contracts/baseline.ts";
+import type { EvidenceRecord } from "../contracts/governance.ts";
+import { emptyGovernanceState } from "../contracts/governance.ts";
 import type { MechanicalCheckRecord, RunControllerRecord, RunState, SubmissionRecord } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { ExecutionNode, ReviewNode } from "../contracts/workflow.ts";
 import type { MechanicalChecker } from "../gate/mechanical-checker.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
+import { validateCandidateEvidence, validateReviewEvidence } from "./evidence-validation.ts";
 import {
 	claimExecution,
 	claimRunController,
@@ -33,11 +36,16 @@ import { applyCandidateSubmission, applyReviewDecision } from "./governance-tran
 import { bounded, isTerminal } from "./lifecycle.ts";
 import { dispatchKindFor } from "./node-prompts.ts";
 import { type NodeRoundWork, NodeSubmissionProtocolError, type NodeWorker, NodeWorkerError } from "./node-worker.ts";
+import { assignedFindings, validateFindingResolutions } from "./quality-findings.ts";
+import type { ResourceAdmission } from "./resource-admission.ts";
+import { buildReviewBundle } from "./review-bundle.ts";
+import { sealReviewEvidence } from "./review-evidence-store.ts";
 import { validateReviewSubmission } from "./review-validation.ts";
 import type { RunDirectory } from "./run-directory.ts";
 import { classifyRunRecovery } from "./run-recovery.ts";
 import type { RunStore } from "./run-store.ts";
 import {
+	completionProblems,
 	markRunCancelled,
 	nodeIsReady,
 	nodeWaitConditions,
@@ -50,6 +58,7 @@ import {
 	runIsComplete,
 	taskContextForNode,
 } from "./runtime-state.ts";
+import { preservableOutputs, preservedOutputsFor } from "./submission-governance.ts";
 import { type SubmissionStore, SubmissionValidationError } from "./submission-store.ts";
 
 export const DEFAULT_ROUND_TIMEOUT_MS = 0;
@@ -63,6 +72,7 @@ export interface WorkflowRuntimeMetric {
 }
 
 export interface WorkflowRuntimeOptions {
+	admission?: ResourceAdmission;
 	controller?: Pick<RunControllerRecord, "controllerId" | "term">;
 	finalizer?: typeof materializeFinalSubmission;
 	maxConcurrentNodes?: number;
@@ -106,6 +116,7 @@ export class WorkflowRuntime {
 	private controllerId?: string;
 	private controllerTerm?: number;
 	private recoveryValidated = false;
+	private readonly admission?: ResourceAdmission;
 
 	constructor(
 		store: RunStore,
@@ -116,6 +127,7 @@ export class WorkflowRuntime {
 		options: WorkflowRuntimeOptions = {},
 	) {
 		this.store = store;
+		this.admission = options.admission;
 		this.directory = directory;
 		this.worker = worker;
 		this.submissions = submissions;
@@ -149,7 +161,8 @@ export class WorkflowRuntime {
 	async activate(baseline: ExecutionBaseline, taskInput?: TaskInput): Promise<void> {
 		this.baselineHash = hashJson(baseline);
 		const state: RunState = {
-			runtimeSchemaVersion: 2,
+			runtimeSchemaVersion: 3,
+			governance: emptyGovernanceState(),
 			runId: baseline.runId,
 			revision: 0,
 			phase: "execute",
@@ -227,6 +240,8 @@ export class WorkflowRuntime {
 		}
 		const recoverableFinalization = boundary.kind === "finalization";
 		if (!state.baseline) throw new Error("Cannot recover a Run without its frozen Baseline");
+		for (const resource of state.activeResources)
+			this.admission?.retain(state.runId, `${resource.nodeId}/${resource.participantId}`);
 		const controller = state.controller;
 		if (!controller || controller.status !== "active") throw new Error("Recovered Run has no active controller");
 		if (this.controllerId && this.controllerId !== controller.controllerId)
@@ -352,7 +367,7 @@ export class WorkflowRuntime {
 					[...this.inFlight.values()].some((round) => round.work.node.definition.node_id === nodeId)
 				)
 					continue;
-				const operation = this.runNode(state.runId, node).finally(() => this.running.delete(nodeId));
+				const operation = this.runAdmittedNode(state.runId, node).finally(() => this.running.delete(nodeId));
 				this.running.set(nodeId, operation);
 			}
 			if (this.running.size === 0) {
@@ -361,10 +376,84 @@ export class WorkflowRuntime {
 				const blockedNode = current.nodes.find((node) => node.status === "blocked" && node.block);
 				return this.suspend(
 					current.nodes.some((node) => node.status === "paused") ? "paused" : "blocked",
-					current.failure?.message ?? blockedNode?.block?.reason ?? "No ready nodes",
+					current.failure?.message ?? blockedNode?.block?.reason ?? completionProblems(current).join("; "),
 				);
 			}
 			await Promise.race(this.running.values());
+		}
+	}
+
+	private async runAdmittedNode(runId: string, node: EffectiveNode): Promise<void> {
+		if (!this.admission) return this.runNode(runId, node);
+		const signal = this.abortController.signal;
+		const state = await this.store.read(runId);
+		const nodeId = node.definition.node_id;
+		const current = state.nodes.find((item) => item.nodeId === nodeId)!;
+		const key = `${runId}:${nodeId}:${current.scopeEpoch}:${current.nextRound}`;
+		if (!this.admission.isAvailable(runId))
+			await this.store.mutate(runId, `resource-wait:${key}`, { key }, (draft, event) => {
+				registerNodeWait({
+					state: draft,
+					nodeId,
+					participantId: node.agents[0].participantId,
+					roundId: `admission:${key}`,
+					kind: "resource",
+					reason: "Shared execution capacity is occupied",
+					missingConditions: ["execution_slot"],
+					wakeEvents: ["resource_released"],
+				});
+				event.emit("resource_waiting", { nodeId });
+				return true;
+			});
+		let release: (() => void) | undefined;
+		try {
+			release = await this.admission.acquire(runId, key, signal);
+			this.admission.retain(runId, `${nodeId}/${node.agents[0].participantId}`);
+			await this.runNode(runId, node);
+			// A timeout only ends the waiter; the slot remains owned until the real operation settles.
+			const running = [...this.inFlight.values()].filter((item) => item.work.node.definition.node_id === nodeId);
+			if (running.length) {
+				const eventualRelease = release;
+				release = undefined;
+				void Promise.allSettled(running.map((item) => item.operation)).then(() => eventualRelease());
+			}
+		} catch (error) {
+			if (signal.aborted) return;
+			if (error instanceof NodeWorkerError && error.kind === "resource_capacity") {
+				await this.store.mutate(
+					runId,
+					`resource-capacity:${key}`,
+					{ key, message: error.message },
+					(draft, event) => {
+						const runtime = draft.nodes.find((item) => item.nodeId === nodeId)!;
+						runtime.status = "blocked";
+						registerNodeWait({
+							state: draft,
+							nodeId,
+							participantId: node.agents[0].participantId,
+							roundId: `capacity:${key}`,
+							kind: "resource",
+							reason: error.message,
+							missingConditions: ["retained_capacity"],
+							wakeEvents: ["resource_released"],
+						});
+						recordFailure(draft, undefined, {
+							nodeId,
+							phase: "prepare",
+							classification: "resource_capacity",
+							message: error.message,
+							retryUnchanged: false,
+							affectedScope: "node",
+						});
+						event.emit("resource_capacity_exceeded", { nodeId, message: error.message });
+						return true;
+					},
+				);
+				return;
+			}
+			throw error;
+		} finally {
+			release?.();
 		}
 	}
 
@@ -572,7 +661,9 @@ export class WorkflowRuntime {
 			const operation = (async () => {
 				await this.worker.releaseRun?.(this.directory.runId);
 				await Promise.allSettled([...this.inFlight.values()].map((round) => round.operation));
+				await Promise.allSettled(this.running.values());
 				await this.cleanupUnregistered();
+				this.admission?.releaseRoot(this.directory.runId);
 			})();
 			this.stopping = operation;
 			void operation
@@ -737,6 +828,11 @@ export class WorkflowRuntime {
 					inputBindings: bindingRecords,
 					inputBindingHash: hashJson(bindingRecords),
 				});
+				if (node.definition.kind === "review") {
+					const bundle = buildReviewBundle(draft, node, stamp.attemptId, bindingRecords);
+					draft.governance.reviewBundles.push(bundle);
+					draft.rounds.find((round) => round.roundId === roundId)!.reviewBundleId = bundle.bundleId;
+				}
 				event.emit(
 					"round_started",
 					{
@@ -816,6 +912,20 @@ export class WorkflowRuntime {
 						: [],
 				),
 			feedback: reworkFeedback(node, claimedState),
+			findings: assignedFindings(claimedState, node.definition.node_id),
+			reviewBundle: claimedState.governance.reviewBundles.find(
+				(bundle) => bundle.attemptId === claim.stamp.attemptId,
+			),
+			preservableOutputs: preservableOutputs(claimedState, node.definition.node_id),
+			governanceContract: {
+				requirements: requireBaseline(claimedState).workflow.requirements,
+				decisions: requireBaseline(claimedState).workflow.decisions,
+				stages: requireBaseline(claimedState).workflow.stages?.filter(
+					(stage) =>
+						stage.member_node_ids.includes(node.definition.node_id) ||
+						stage.exits.some((exit) => exit.gate_node_ids.includes(node.definition.node_id)),
+				),
+			},
 			environmentBinding: requireBaseline(claimedState).environmentBindings.find(
 				(binding) =>
 					binding.nodeId === node.definition.node_id && binding.participantId === node.agents[0].participantId,
@@ -874,7 +984,10 @@ export class WorkflowRuntime {
 			toJsonValue(snapshot),
 			(draft, event) => {
 				if (!executionIsCurrent(draft, nodeId, roundId, stamp)) return false;
-				draft.activeResources = snapshot;
+				draft.activeResources = [
+					...draft.activeResources.filter((resource) => resource.nodeId !== nodeId),
+					...snapshot.filter((resource) => resource.nodeId === nodeId),
+				];
 				event.emit(
 					"active_resources_recorded",
 					{ attemptId: stamp.attemptId, count: snapshot.length },
@@ -1221,6 +1334,7 @@ export class WorkflowRuntime {
 
 	private async runExecution(work: NodeRoundWork, node: ExecutionNode): Promise<void> {
 		let record: SubmissionRecord | undefined;
+		let evidence: EvidenceRecord[] = [];
 		let correctionWork = work;
 		for (let correction = 0; correction < 10; correction++) {
 			try {
@@ -1234,6 +1348,7 @@ export class WorkflowRuntime {
 				}
 				let sourceWorkspace: string | undefined;
 				try {
+					const preservedOutputs = preservedOutputsFor(await this.store.read(work.runId), work, submitted);
 					this.inFlight.get(work.roundId)!.phase = "export";
 					sourceWorkspace = await this.worker.exportSubmission?.(work, submitted, work.signal);
 					await this.assertCurrent(work);
@@ -1248,8 +1363,10 @@ export class WorkflowRuntime {
 						submission: submitted,
 						sourceWorkspace,
 						signal: work.signal,
+						preservedOutputs,
 					});
 					this.unregisteredSubmissions.add(record.submissionId);
+					evidence = await validateCandidateEvidence(record, work);
 				} finally {
 					if (sourceWorkspace) await rm(sourceWorkspace, { recursive: true, force: true });
 				}
@@ -1264,6 +1381,11 @@ export class WorkflowRuntime {
 					throw new NodeWorkerError("transient", error instanceof Error ? error.message : String(error), true, {
 						cause: error,
 					});
+				}
+				if (record && this.unregisteredSubmissions.has(record.submissionId)) {
+					await rm(join(this.directory.submissions, record.submissionId), { recursive: true, force: true });
+					this.unregisteredSubmissions.delete(record.submissionId);
+					record = undefined;
 				}
 				correctionWork = {
 					...work,
@@ -1282,6 +1404,22 @@ export class WorkflowRuntime {
 		let result: "PASS" | "FAIL" | "ERROR" = "PASS";
 		const mechanicalChecks: MechanicalCheckRecord[] = [];
 		const state = await this.store.read(work.runId);
+		this.admission?.checkSealedBytes(
+			work.runId,
+			state.submissions.reduce(
+				(total, submission) =>
+					total +
+					submission.outputs.reduce(
+						(sum, output) => sum + output.manifest.files.reduce((bytes, file) => bytes + file.size, 0),
+						0,
+					),
+				0,
+			),
+			record.outputs.reduce(
+				(total, output) => total + output.manifest.files.reduce((bytes, file) => bytes + file.size, 0),
+				0,
+			),
+		);
 		const workflowCriteria = requireBaseline(state).workflow.criteria;
 		this.inFlight.get(work.roundId)!.phase = "check";
 		for (const output of record.outputs) {
@@ -1331,6 +1469,21 @@ export class WorkflowRuntime {
 				outcome: toJsonValue(outcome),
 				createdAt: Date.now(),
 			});
+			for (const criterion of outcome.criteria)
+				evidence.push({
+					evidenceId: `${work.stamp.attemptId}:check:${output.outputId}:${criterion.criterionId}`,
+					attemptId: work.stamp.attemptId,
+					participantId: "runtime-checker",
+					criterionId: criterion.criterionId,
+					subjects: [output.revisionId!],
+					provenance: "mechanical_execution",
+					method: criterion.checkId,
+					environmentRef: work.environmentBinding?.bindingId,
+					observation: toJsonValue(criterion),
+					rawRef: `mechanical:${record.submissionId}:${output.outputId}:${criterion.criterionId}`,
+					limitations: ["Only the declared deterministic check was executed; this is not semantic approval."],
+					createdAt: Date.now(),
+				});
 			if (outcome.result === "ERROR") result = "ERROR";
 			else if (outcome.result === "FAIL" && result === "PASS") result = "FAIL";
 		}
@@ -1338,13 +1491,14 @@ export class WorkflowRuntime {
 			work.runId,
 			`submit:${work.stamp.attemptId}`,
 			{ submissionId: record.submissionId },
-			(draft, event) => applyCandidateSubmission(draft, event, work, record, mechanicalChecks, result),
+			(draft, event) => applyCandidateSubmission(draft, event, work, record, mechanicalChecks, result, evidence),
 		);
 		if (accepted) this.unregisteredSubmissions.delete(record.submissionId);
 	}
 
 	private async runReview(work: NodeRoundWork): Promise<void> {
 		let report: SubmitReview | undefined;
+		let evidence: EvidenceRecord[] = [];
 		let correctionWork = work;
 		for (let correction = 0; correction < 10; correction++) {
 			try {
@@ -1354,9 +1508,13 @@ export class WorkflowRuntime {
 					await this.worker.runReview(correctionWork),
 					work.inputSubmissions,
 				);
+				validateFindingResolutions(await this.store.read(work.runId), work, report);
+				const verification = await sealReviewEvidence(this.directory, this.worker, work, report);
+				evidence = await validateReviewEvidence(work, report, verification);
 				break;
 			} catch (error) {
 				if (error instanceof NodeWorkerError) throw error;
+				report = undefined;
 				correctionWork = {
 					...work,
 					feedback: [
@@ -1375,7 +1533,7 @@ export class WorkflowRuntime {
 			work.runId,
 			`review:${work.stamp.attemptId}`,
 			{ decision: report.decision },
-			(draft, event) => applyReviewDecision(draft, event, work, report),
+			(draft, event) => applyReviewDecision(draft, event, work, report, evidence),
 		);
 		if (invalidatedRounds.length > 0) {
 			const state = await this.store.read(work.runId);

@@ -36,6 +36,12 @@ Acceptance criteria must be concrete enough to support real evidence-based judgm
 
 Let genuinely independent work proceed in parallel. Make downstream work wait when it requires approved upstream outputs. Do not introduce parallel branches merely because multiple employees exist.
 
+For a stage whose internal work needs candidates before its joint review, declare `stages` in the draft header: member nodes, exact `internal_uses` (consumer node and input ID), and output `exits` with required Gate IDs. Only those internal uses may consume `submitted` outputs; cross-stage consumers must bind every exit Gate. Reviewers read their targets without depending on their own future approval. Internal candidate consumers cannot be granted external actions.
+
+When one semantic criterion evaluates several outputs together, declare its complete `criterion_subjects` on the review node. Use `required_relations` to require an output to derive from the exact upstream version included in the same review. Set input `purpose` to `content_basis`, `test_subject`, or `historical_reference` according to the actual role; only correctness dependencies propagate content invalidation.
+
+For an observed downstream defect whose repair may belong to a direct upstream owner, declare a bounded `remediation_mappings` entry (criterion, observed output, owner output). The owner must be bound as a required review input and included in the allowed rework owners; actual version lineage and supported root-cause evidence are checked before routing.
+
 ## 5. Select Employees Through Progressive Asset Discovery
 
 Select employees after understanding the responsibility of the work package. Use `search_agent_cards` for candidates and exact `capabilities_all` / `tools_all` filters for non-negotiable constraints. Inspect serious candidates with `get_agent_card` before binding them.
@@ -64,6 +70,8 @@ Formal `requirement_coverage` exists only for ProcessSpec governance obligations
 → `independent review`
 
 The Compiler validates these formal process relationships and workflow invariants. It does **not** prove that the final delivery semantically satisfies every aspect of the user's natural-language request.
+
+Use header `requirements` and `decisions` when a criterion needs explicit provenance. Requirements distinguish `user`, `process`, `design`, and `recommendation` authority, with `required` or `advisory` strength and an exact source reference/quote. User quotes must occur verbatim in the task; process quotes must resolve to the selected specification. Connect contracts and criteria through `requirement_refs` and `decision_refs`. A recommendation cannot become required, and advisory criteria must set `blocking: false`. Design decisions remain identified as design choices; they must trace to independent requirements.
 
 ## 8. Author the Workflow Incrementally
 

@@ -19,6 +19,7 @@ import type { EnvironmentPaths } from "../environment/contracts.ts";
 import type { EnvironmentToolContext } from "../environment/tool-backend.ts";
 import { hashSkillPackage } from "../registry/skill-package.ts";
 import { NodeWorkerError } from "../runtime/node-worker.ts";
+import type { ResourceAdmission } from "../runtime/resource-admission.ts";
 import { createControlReadTool } from "./control-read.ts";
 import { createExternalReadResultAdapter } from "./external-read-results.ts";
 import { createCurrentRoundContextExtension, type VirtualContextFile } from "./node-context.ts";
@@ -27,6 +28,7 @@ import {
 	createProviderRequestAdmissionExtension,
 	type ProviderRequestObservation,
 } from "./provider-request-admission.ts";
+import { admitTools } from "./resource-tools.ts";
 import { type IpdSessionSettings, projectIpdSessionSettings } from "./session-policy.ts";
 import { createSubmissionResultExtension } from "./structured-submissions.ts";
 
@@ -68,6 +70,7 @@ export function openRetainedSession(
 }
 
 export interface PiNodeSessionCreateInput {
+	resourceAdmission?: { admission: ResourceAdmission; rootId: string };
 	controlRole?: boolean;
 	nodeId: string;
 	workspace: string;
@@ -135,6 +138,10 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 	async create(input: PiNodeSessionCreateInput): Promise<AgentSession> {
 		const verifyLockedSkills = () => this.validate(input);
 		await verifyLockedSkills();
+		input.resourceAdmission?.admission.retain(
+			input.resourceAdmission.rootId,
+			`${input.nodeId}/${input.participant.participantId}`,
+		);
 		const cardModel = input.participant.agentCard.model;
 		let model: Model<Api> | undefined;
 		if (cardModel.selection === "run_default") model = input.runDefaultModel;
@@ -277,7 +284,14 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 			model,
 			thinkingLevel,
 			tools: [...allowedToolNames],
-			customTools,
+			customTools: input.resourceAdmission
+				? admitTools(
+						customTools,
+						input.resourceAdmission.admission,
+						input.resourceAdmission.rootId,
+						`${input.nodeId}/${input.participant.participantId}`,
+					)
+				: customTools,
 		});
 		if (!input.restoreSession)
 			created.session.sessionManager.appendCustomEntry("ipd_execution_configuration", {

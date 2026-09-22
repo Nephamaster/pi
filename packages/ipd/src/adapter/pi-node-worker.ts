@@ -20,6 +20,7 @@ import {
 	type NodeWorker,
 	NodeWorkerError,
 } from "../runtime/node-worker.ts";
+import type { ResourceAdmission } from "../runtime/resource-admission.ts";
 import { renderCurrentRoundContext, renderNodeContextFiles } from "./node-context.ts";
 import { NodeSessionAdapter, type NodeSessionEventEnvelope } from "./node-session-adapter.ts";
 import {
@@ -55,6 +56,7 @@ interface WorkerBinding {
 }
 
 export interface PiNodeWorkerOptions {
+	admission?: ResourceAdmission;
 	legacyToolAdapter?: LegacyNodeToolAdapter;
 	agentDir: string;
 	workspace: string;
@@ -176,7 +178,7 @@ export class PiNodeWorker implements NodeWorker {
 				allowedOperations: [
 					"read",
 					"write",
-					...(work.node.definition.kind === "execution" ? (["export"] as const) : []),
+					"export",
 					...(work.node.agents[0].lockedTools.some((tool) => tool.id === "bash") ? (["exec"] as const) : []),
 					...(work.node.agents[0].lockedTools.some((tool) => tool.id === "environment_process_start")
 						? (["process"] as const)
@@ -311,6 +313,38 @@ export class PiNodeWorker implements NodeWorker {
 		return value as SubmitReview;
 	}
 
+	async exportReviewEvidence(work: NodeRoundWork, paths: readonly string[], signal?: AbortSignal): Promise<string> {
+		const environment = this.sessions.getState(
+			work.runId,
+			work.node.definition.node_id,
+			work.node.agents[0].participantId,
+		)?.environment;
+		if (!environment)
+			throw new NodeSubmissionProtocolError(
+				"Reviewer verification export requires a controlled Environment Provider",
+			);
+		const destination = await mkdtemp(join(tmpdir(), "pi-ipd-review-evidence-"));
+		try {
+			const exported = await environment.provider.exportOutputs(
+				environment.lease,
+				environment.round,
+				{
+					destination,
+					outputs: paths.map((path) => ({
+						outputId: "review-evidence",
+						outputRoot: "outputs/review-evidence",
+						logicalPath: path,
+					})),
+				},
+				signal,
+			);
+			return exported.root;
+		} catch (error) {
+			await rm(destination, { recursive: true, force: true });
+			throw error;
+		}
+	}
+
 	stopRound(runId: string, nodeId: string, participantId: string, roundId: string): Promise<void> {
 		return this.sessions.stop(runId, nodeId, participantId, roundId);
 	}
@@ -346,7 +380,10 @@ export class PiNodeWorker implements NodeWorker {
 						parameters: SubmitArtifactSchema,
 						capture: capture as SubmissionCapture<SubmitArtifact>,
 						validate: (value) => {
-							const submitted = value.outputs.map((output) => output.output_id);
+							const submitted = [
+								...value.outputs.map((output) => output.output_id),
+								...(value.preserved_outputs ?? []).map((output) => output.output_id),
+							];
 							const invalid = submitted.filter((id) => !declaredOutputIds.includes(id));
 							const missing = declaredOutputIds.filter((id) => !submitted.includes(id));
 							const duplicate = submitted.filter((id, index) => submitted.indexOf(id) !== index);
@@ -599,6 +636,9 @@ export class PiNodeWorker implements NodeWorker {
 				nodeId: work.node.definition.node_id,
 				participantId: participant.participantId,
 				createInput: {
+					resourceAdmission: this.options.admission
+						? { admission: this.options.admission, rootId: work.runId }
+						: undefined,
 					nodeId: work.node.definition.node_id,
 					workspace: this.options.workspace,
 					sessionDirectory: this.options.sessionDirectory,

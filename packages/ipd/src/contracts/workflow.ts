@@ -38,6 +38,13 @@ const NodeOutputInputSchema = Type.Object(
 		required: Type.Boolean(),
 		availability: Type.Union([Type.Literal("submitted"), Type.Literal("approved")]),
 		approval_review_node_ids: Type.Array(IdentifierSchema, { uniqueItems: true }),
+		purpose: Type.Optional(
+			Type.Union([
+				Type.Literal("content_basis"),
+				Type.Literal("test_subject"),
+				Type.Literal("historical_reference"),
+			]),
+		),
 	},
 	{ additionalProperties: false },
 );
@@ -77,6 +84,8 @@ const NodeWorkContractSchema = Type.Object(
 		non_responsibilities: Type.Array(NonEmptyStringSchema),
 		work_requirements: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
 		constraints: Type.Array(NonEmptyStringSchema),
+		requirement_refs: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
+		decision_refs: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
 	},
 	{ additionalProperties: false },
 );
@@ -129,6 +138,47 @@ export const ReviewNodeSchema = Type.Object(
 		...CommonNodeFields,
 		targets: Type.Array(ReviewTargetSchema, { minItems: 1 }),
 		allowed_rework_node_ids: Type.Array(IdentifierSchema, { minItems: 1, uniqueItems: true }),
+		criterion_subjects: Type.Optional(
+			Type.Array(
+				Type.Object(
+					{
+						criterion_id: IdentifierSchema,
+						targets: Type.Array(NodeOutputRefSchema, { minItems: 1, uniqueItems: true }),
+					},
+					{ additionalProperties: false },
+				),
+			),
+		),
+		required_relations: Type.Optional(
+			Type.Array(
+				Type.Object(
+					{
+						consumer: NodeOutputRefSchema,
+						basis: NodeOutputRefSchema,
+					},
+					{ additionalProperties: false },
+				),
+				{ uniqueItems: true },
+			),
+		),
+		remediation_mappings: Type.Optional(
+			Type.Array(
+				Type.Object(
+					{ criterion_id: IdentifierSchema, observed: NodeOutputRefSchema, owner: NodeOutputRefSchema },
+					{ additionalProperties: false },
+				),
+				{ uniqueItems: true },
+			),
+		),
+		decision_policy: Type.Optional(
+			Type.Object(
+				{
+					aggregation: Type.Literal("all_required"),
+					independent_production: Type.Boolean(),
+				},
+				{ additionalProperties: false },
+			),
+		),
 	},
 	{ additionalProperties: false },
 );
@@ -146,6 +196,8 @@ export const MechanicalCriterionDefinitionSchema = Type.Object(
 		check_id: IdentifierSchema,
 		parameters: JsonValueSchema,
 		evidence_requirements: Type.Array(NonEmptyStringSchema),
+		requirement_refs: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
+		blocking: Type.Optional(Type.Boolean()),
 	},
 	{ additionalProperties: false },
 );
@@ -157,6 +209,8 @@ export const SemanticCriterionDefinitionSchema = Type.Object(
 		description: NonEmptyStringSchema,
 		evidence_requirements: Type.Array(NonEmptyStringSchema, { minItems: 1 }),
 		process_criterion_refs: Type.Array(IdentifierSchema, { uniqueItems: true }),
+		requirement_refs: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
+		blocking: Type.Optional(Type.Boolean()),
 	},
 	{ additionalProperties: false },
 );
@@ -194,6 +248,58 @@ export const WorkflowCompletionSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+export const StageScopeSchema = Type.Object(
+	{
+		stage_id: IdentifierSchema,
+		member_node_ids: Type.Array(IdentifierSchema, { minItems: 1, uniqueItems: true }),
+		internal_uses: Type.Array(
+			Type.Object(
+				{ consumer_node_id: IdentifierSchema, input_id: IdentifierSchema },
+				{ additionalProperties: false },
+			),
+			{ uniqueItems: true },
+		),
+		exits: Type.Array(
+			Type.Object(
+				{
+					output: NodeOutputRefSchema,
+					gate_node_ids: Type.Array(IdentifierSchema, { minItems: 1, uniqueItems: true }),
+				},
+				{ additionalProperties: false },
+			),
+			{ minItems: 1 },
+		),
+	},
+	{ additionalProperties: false },
+);
+
+export const RequirementDefinitionSchema = Type.Object(
+	{
+		requirement_id: IdentifierSchema,
+		description: NonEmptyStringSchema,
+		authority: Type.Union([
+			Type.Literal("user"),
+			Type.Literal("process"),
+			Type.Literal("design"),
+			Type.Literal("recommendation"),
+		]),
+		strength: Type.Union([Type.Literal("required"), Type.Literal("advisory")]),
+		source_ref: NonEmptyStringSchema,
+		source_quote: NonEmptyStringSchema,
+	},
+	{ additionalProperties: false },
+);
+
+export const DesignDecisionSchema = Type.Object(
+	{
+		decision_id: IdentifierSchema,
+		description: NonEmptyStringSchema,
+		requirement_refs: Type.Array(IdentifierSchema, { minItems: 1, uniqueItems: true }),
+		rationale: NonEmptyStringSchema,
+	},
+	{ additionalProperties: false },
+);
+
 export const WorkflowDefinitionSchema = Type.Object(
 	{
 		schema_version: Type.Literal(3),
@@ -215,6 +321,9 @@ export const WorkflowDefinitionSchema = Type.Object(
 		criteria: Type.Array(CriterionDefinitionSchema, { minItems: 1 }),
 		requirement_coverage: Type.Array(RequirementCoverageSchema),
 		completion: WorkflowCompletionSchema,
+		stages: Type.Optional(Type.Array(StageScopeSchema)),
+		requirements: Type.Optional(Type.Array(RequirementDefinitionSchema)),
+		decisions: Type.Optional(Type.Array(DesignDecisionSchema)),
 	},
 	{ additionalProperties: false },
 );

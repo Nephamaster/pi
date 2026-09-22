@@ -132,6 +132,26 @@ export function completionBasisForState(state: RunState): CompletionBasis | unde
 		runGeneration: state.generation ?? 0,
 		deliveryBindings,
 		requiredReviewIds: [...completion.required_review_node_ids].sort(),
+		governanceDigest: hashJson({
+			releases: state.governance.releases
+				.filter(
+					(release) =>
+						release.status === "active" && completion.required_review_node_ids.includes(release.reviewNodeId),
+				)
+				.map((release) => release.releaseId)
+				.sort(),
+			findings: state.governance.findings
+				.filter((finding) => finding.blocking)
+				.map((finding) => ({
+					findingId: finding.findingId,
+					status: finding.status,
+					resolution: finding.resolution ?? null,
+				})),
+			adoptions: state.governance.adoptions
+				.filter((adoption) => adoption.status === "active")
+				.map((adoption) => adoption.adoptionId)
+				.sort(),
+		}),
 	};
 }
 

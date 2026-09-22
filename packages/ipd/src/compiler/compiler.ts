@@ -194,23 +194,64 @@ export function compileWorkflow(input: CompileWorkflowInput): CompileWorkflowRes
 	if (diagnostics.some((item) => item.severity === "error")) return { ok: false, report };
 
 	const workflowHash = hashJson(workflow);
-	const nodes = workflow.nodes.map((node) => ({
-		definition: node,
-		criteria: workflow.criteria.filter((criterion) => {
-			const refs =
-				node.kind === "execution"
-					? node.outputs.flatMap((output) => output.criterion_refs)
-					: node.targets.flatMap((target) => target.criterion_refs);
-			return refs.includes(criterion.criterion_id);
-		}),
-		agents: node.agents.map((agent) => ({
-			participantId: agent.participant_id,
-			agentCard: validated.agentByNode.get(node.node_id)!,
-			lockedSkills: lockedNamedResources(agent.skills, input.assets.skills),
-			lockedTools: lockedNamedResources(agent.tools, input.assets.tools),
-			lockedKnowledgeBases: lockedResources(agent.knowledge_bases, input.assets.knowledgeBases),
-		})),
-	}));
+	const nodes = workflow.nodes.map((node) => {
+		const refs =
+			node.kind === "execution"
+				? node.outputs.flatMap((output) => output.criterion_refs)
+				: node.targets.flatMap((target) => target.criterion_refs);
+		const criteria = workflow.criteria.filter((criterion) => refs.includes(criterion.criterion_id));
+		return {
+			definition: node,
+			criterionAuthority: Object.fromEntries(
+				criteria.map((criterion) => {
+					const explicit = (criterion.requirement_refs ?? []).flatMap((id) => {
+						const requirement = workflow.requirements?.find((item) => item.requirement_id === id);
+						return requirement
+							? [
+									{
+										authority: requirement.authority,
+										strength: requirement.strength,
+										reference: requirement.source_ref,
+									},
+								]
+							: [];
+					});
+					const process =
+						criterion.kind === "semantic"
+							? criterion.process_criterion_refs.map((reference) => ({
+									authority: "process" as const,
+									strength: "required" as const,
+									reference: `${spec.process_spec_id}@${spec.version}:${reference}`,
+								}))
+							: [];
+					const sources = [...explicit, ...process];
+					return [
+						criterion.criterion_id,
+						{
+							blocking: criterion.blocking !== false,
+							sources: sources.length
+								? sources
+								: [
+										{
+											authority: "design" as const,
+											strength: criterion.blocking === false ? ("advisory" as const) : ("required" as const),
+											reference: `${workflow.workflow_id}@${workflow.workflow_version}:criterion:${criterion.criterion_id}`,
+										},
+									],
+						},
+					];
+				}),
+			),
+			criteria,
+			agents: node.agents.map((agent) => ({
+				participantId: agent.participant_id,
+				agentCard: validated.agentByNode.get(node.node_id)!,
+				lockedSkills: lockedNamedResources(agent.skills, input.assets.skills),
+				lockedTools: lockedNamedResources(agent.tools, input.assets.tools),
+				lockedKnowledgeBases: lockedResources(agent.knowledge_bases, input.assets.knowledgeBases),
+			})),
+		};
+	});
 	const environmentBindings: EnvironmentBinding[] = [];
 	const environmentProfiles = input.assets.environmentProfiles;
 	const environmentPolicy = input.assets.environmentPolicy;

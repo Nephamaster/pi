@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	artifactRef,
 	compileWorkflow,
 	type EffectiveNode,
-	invalidateFromNode,
+	invalidateOutputRevisions,
 	nodeIsReady,
 	projectInputSubmissions,
 	type ReviewRecord,
@@ -12,6 +13,7 @@ import {
 	type SubmissionRecord,
 } from "../src/index.ts";
 import { createCompilerFixture, createEmptyRuntimeRecords } from "./fixtures.ts";
+import { seedGovernanceFacts } from "./governance-state-fixtures.ts";
 
 function activeReview(
 	reviewId: string,
@@ -111,6 +113,7 @@ function fixtureState() {
 		events: [],
 		operations: {},
 	};
+	seedGovernanceFacts(state);
 	return { compiled, state, submission };
 }
 
@@ -162,10 +165,25 @@ describe("runtime input and approval semantics", () => {
 		expect(nodeIsReady(consumer, state)).toBe(false);
 		state.approvals.at(-1)!.criterionIds = ["quality"];
 		state.reviews.push(activeReview("review-produce:review", "review-produce", [submission.submissionId]));
+		seedGovernanceFacts(state);
 		expect(nodeIsReady(consumer, state)).toBe(true);
+		submission.evidence = [
+			{ output_id: "content-output", description: "authorized evidence" },
+			{ output_id: "private-output", description: "private evidence must not leak" },
+		];
+		submission.resolutionClaims = [
+			{
+				findingId: "private-finding",
+				outputId: "private-output",
+				explanation: "private repair",
+				evidence: ["private.txt"],
+			},
+		];
 		const projected = projectInputSubmissions(resolveInputBindings(consumer, state));
 		expect(projected).toHaveLength(1);
 		expect(projected[0].outputs.map((output) => output.outputId)).toEqual(["content-output"]);
+		expect(projected[0].evidence).toEqual([{ output_id: "content-output", description: "authorized evidence" }]);
+		expect(projected[0].resolutionClaims).toEqual([]);
 	});
 
 	it("does not let an optional input replace a missing required input", () => {
@@ -201,6 +219,7 @@ describe("runtime input and approval semantics", () => {
 			createdAt: 1,
 		});
 		state.reviews.push(activeReview("review", "review-produce", [submission.submissionId]));
+		seedGovernanceFacts(state);
 		state.nodes.find((node) => node.nodeId === "review-produce")!.status = "succeeded";
 		state.nodes.find((node) => node.nodeId === "produce")!.status = "blocked";
 		expect(runIsComplete(state)).toBe(false);
@@ -246,7 +265,11 @@ describe("runtime input and approval semantics", () => {
 			],
 			startedAt: 1,
 		});
-		const invalidated = invalidateFromNode(state, "produce");
+		seedGovernanceFacts(state);
+		const invalidated = invalidateOutputRevisions(
+			state,
+			submission.outputs.map((output) => artifactRef(submission, output).revisionId),
+		).invalidatedRounds;
 		expect(invalidated).toEqual([{ nodeId: "consumer", roundId: "consumer:round:1" }]);
 		expect(state.rounds[0].status).toBe("invalidated");
 		expect(state.nodes.find((node) => node.nodeId === "consumer")?.activeRoundId).toBeUndefined();
@@ -311,7 +334,11 @@ describe("runtime input and approval semantics", () => {
 			},
 		);
 
-		invalidateFromNode(state, "produce");
+		seedGovernanceFacts(state);
+		invalidateOutputRevisions(
+			state,
+			submission.outputs.map((output) => artifactRef(submission, output).revisionId),
+		);
 
 		expect(state.reviews[0].status).toBe("stale");
 		expect(state.approvals.map((approval) => approval.status)).toEqual(["stale", "stale"]);
@@ -379,6 +406,7 @@ describe("runtime input and approval semantics", () => {
 			});
 		}
 		for (const id of ["C", "active", "independent-consumer"]) {
+			seedGovernanceFacts(state);
 			const consumer = consumerNode("B", [id === "independent-consumer" ? "independent" : "joint"]);
 			consumer.definition.node_id = id;
 			baseline.nodes.push(consumer);
@@ -426,9 +454,19 @@ describe("runtime input and approval semantics", () => {
 		const d = consumerNode("C", ["review-C"]);
 		d.definition.node_id = "D";
 		state.nodes.push({ nodeId: "D", kind: "execution", status: "waiting", scopeEpoch: 1, nextRound: 1 });
+		seedGovernanceFacts(state);
 		expect(nodeIsReady(d, state)).toBe(true);
-		expect(invalidateFromNode(state, "produce")).toEqual([{ nodeId: "active", roundId: "active:1" }]);
-		expect(c.status).toBe("stale");
+		expect(
+			invalidateOutputRevisions(
+				state,
+				a.outputs.map((output) => artifactRef(a, output).revisionId),
+			).invalidatedRounds,
+		).toEqual([{ nodeId: "active", roundId: "active:1" }]);
+		expect(c.status).toBe("candidate");
+		expect(
+			state.governance.artifacts.filter((item) => item.nodeId === "C").every((item) => item.status === "current"),
+		).toBe(true);
+		expect(state.governance.adoptions.find((item) => item.submissionId === "C1")?.status).toBe("held");
 		expect(state.reviews.find((review) => review.reviewId === "review-C")?.status).toBe("stale");
 		expect(nodeIsReady(d, state)).toBe(false);
 		expect(state.rounds.find((round) => round.nodeId === "independent-consumer")?.status).toBe("active");

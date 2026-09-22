@@ -11,6 +11,7 @@ import type { RunState } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import { wrapPromptBlock } from "../prompt/block.ts";
 import type { IpdService } from "../runtime/ipd-service.ts";
+import { completionProblems } from "../runtime/runtime-state.ts";
 
 const CreateRunSchema = Type.Object(
 	{
@@ -71,6 +72,10 @@ function runControlView(state: RunState) {
 			["pending", "unknown"].includes(operation.outcome),
 		),
 		active_resources: state.activeResources ?? [],
+		findings: state.governance?.findings.filter((finding) => ["open", "addressed"].includes(finding.status)) ?? [],
+		stage_releases: state.governance?.releases.filter((release) => release.status === "active") ?? [],
+		adoption_holds: state.governance?.adoptions.filter((adoption) => adoption.status === "held") ?? [],
+		completion_obligations: state.baseline && state.governance ? completionProblems(state) : [],
 	};
 }
 

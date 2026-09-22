@@ -251,20 +251,14 @@ export function validateProcessCoverage(
 		if (!requiredReview.independent_agent) continue;
 		for (const reviewId of satisfyingReviews) {
 			const review = reviewNodes.get(reviewId);
-			const reviewer = agentByNode.get(reviewId);
-			for (const target of review?.targets ?? []) {
-				if (!expectedTargets.has(outputKey(target))) continue;
-				const producer = agentByNode.get(target.node_id);
-				if (producer && reviewer && producer.id === reviewer.id && producer.version === reviewer.version) {
-					error(
-						diagnostics,
-						"reviewer_not_independent",
-						"/nodes",
-						`Review ${reviewId} uses the same AgentCard as producer ${target.node_id}`,
-						requiredReview.review_id,
-					);
-				}
-			}
+			if (review?.decision_policy?.independent_production === false)
+				error(
+					diagnostics,
+					"review_independence_weakened",
+					"/nodes",
+					`Review ${reviewId} disables required production independence`,
+					requiredReview.review_id,
+				);
 		}
 	}
 

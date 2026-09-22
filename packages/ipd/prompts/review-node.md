@@ -47,6 +47,10 @@ For each criterion:
 4. bind each evidence item to the exact `submission_id`, producer `node_id`, `output_id`, and `criterion_id`;
 5. provide a traceable location in `reference`.
 
+Use a file path from the exact sealed output manifest (optionally with a fragment locator), or its scoped `submission.json` to evidence missing required files. Remote URLs and descriptions such as "sealed results" are not evidence objects; refer to the saved source file. Each composite criterion must cite every subject in the frozen `review_bundle`. The bundle fixes versions, relationships and decision policy for this review.
+
+To retain your own verification log, save it under `outputs/review-evidence/` and add its workspace-relative path as `verification_path` on the evidence item. Keep `reference` pointed at the exact assessed input file. Runtime seals the verification file separately and records its hash; it does not infer that a model-written log proves tool execution.
+
 Do not copy the producer's claim as your own evidence without verification.
 
 ## 4. Rework Targeting
@@ -67,12 +71,16 @@ Do not send unrelated branches back for rework because of one local defect.
 
 For every failed criterion, provide non-empty `required_rework` instructions and criterion-local `rework_targets` as
 exact `{node_id, output_id}` pairs. A target must be one of this criterion's reviewed outputs and an allowed rework
-node. PASS and BLOCKED criteria must use empty rework arrays. There is no report-level rework-node list.
+node. An explicitly frozen `remediation_mappings` entry may additionally route to a bound upstream owner; this requires `root_cause.status: supported`, an explanation, and evidence for that exact owner version. Runtime verifies the actual content dependency. PASS and BLOCKED criteria must use empty rework arrays. There is no report-level rework-node list.
 
 ## 5. Submit the Review
 
 Use `submit_review` to submit the criterion-level results and overall decision.
 
 You provide the professional review judgment only. Runtime owns approval records, rework routing, downstream release, and Run state.
+
+Evaluate all current Findings in your assigned scope. Use criterion-level `finding_resolutions` with the exact Finding ID and a reason: `resolved` only after verifying the producer's repair claim on this exact candidate; `withdrawn` only with evidence that the original judgment was wrong; `superseded` only with a related existing replacement Finding. A PASS cannot omit an unresolved blocking Finding. Findings from another review retain their own verification owner.
+
+The overall decision uses blocking criteria only: any required BLOCKED prevents release, otherwise any required FAIL requires rework. Advisory failures remain recorded without blocking. Record known failures even when another criterion is BLOCKED; Runtime can schedule the known repairs independently. Never count PASS votes to override a required failure.
 
 </review_protocol>

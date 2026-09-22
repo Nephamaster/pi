@@ -10,8 +10,16 @@ import type {
 	SubmissionRecord,
 } from "../contracts/runtime.ts";
 import type { NodeInput, NodeOutputRef } from "../contracts/workflow.ts";
-import { cancelNodeWaits, incrementScopeEpoch, interruptActiveExecution } from "./execution-control.ts";
+import {
+	adoptionUsable,
+	artifactRef,
+	outputUsable,
+	releaseIsCurrent,
+	versionRelationsSatisfied,
+} from "./artifact-governance.ts";
+import { cancelNodeWaits, interruptActiveExecution } from "./execution-control.ts";
 import type { NodeTaskContext, RoundFeedback } from "./node-worker.ts";
+import { findingFeedback } from "./quality-findings.ts";
 
 type NodeOutputInput = Extract<NodeInput, { kind: "node_output" }>;
 const graphOutputKey = (nodeId: string, outputId: string) => `${nodeId}/${outputId}`;
@@ -75,6 +83,17 @@ function outputIsFullyApproved(
 	reviewNodeIds: readonly string[],
 ): boolean {
 	if (reviewNodeIds.length === 0) return false;
+	if (
+		state.governance.findings.some(
+			(finding) =>
+				finding.blocking &&
+				reviewNodeIds.includes(finding.reviewNodeId) &&
+				["open", "addressed"].includes(finding.status) &&
+				finding.owner.node_id === nodeId &&
+				finding.owner.output_id === outputId,
+		)
+	)
+		return false;
 	const approvals = reviewNodeIds.map((reviewNodeId) =>
 		state.approvals.find(
 			(approval) =>
@@ -82,6 +101,10 @@ function outputIsFullyApproved(
 				approval.reviewNodeId === reviewNodeId &&
 				approval.submissionId === submissionId &&
 				approval.outputId === outputId &&
+				state.governance.releases.some(
+					(release) =>
+						release.decisionId === `${approval.reviewId}:decision` && releaseIsCurrent(state, release.releaseId),
+				) &&
 				state.reviews.some(
 					(review) =>
 						review.status === "active" &&
@@ -97,16 +120,18 @@ function outputIsFullyApproved(
 	const output = index.outputs.get(graphOutputKey(nodeId, outputId));
 	if (!output) return false;
 	const semanticCriteria = output.criterion_refs.filter(
-		(criterionId) => index.criteria.get(criterionId)?.kind === "semantic",
+		(criterionId) =>
+			index.criteria.get(criterionId)?.kind === "semantic" && index.criteria.get(criterionId)?.blocking !== false,
 	);
 	const approvedCriteria = new Set(approvals.flatMap((approval) => approval?.criterionIds ?? []));
-	return semanticCriteria.length > 0 && semanticCriteria.every((criterionId) => approvedCriteria.has(criterionId));
+	return semanticCriteria.every((criterionId) => approvedCriteria.has(criterionId));
 }
 
 function submissionSatisfiesInput(input: NodeOutputInput, submission: SubmissionRecord, state: RunState): boolean {
 	if (
 		submission.nodeId !== input.source.node_id ||
-		!["candidate", "approved"].includes(submission.status) ||
+		!adoptionUsable(state, submission.submissionId) ||
+		!outputUsable(state, submission, input.source.output_id) ||
 		!submissionHasOutput(submission, input.source.output_id)
 	)
 		return false;
@@ -123,16 +148,34 @@ function submissionSatisfiesInput(input: NodeOutputInput, submission: Submission
 }
 
 function resolveNodeOutputInput(input: NodeOutputInput, state: RunState): ResolvedInputBinding | undefined {
-	const submission = findLatestSubmission(state, (candidate) => submissionSatisfiesInput(input, candidate, state));
-	return submission
-		? {
-				inputId: input.input_id,
-				submissionId: submission.submissionId,
-				outputId: input.source.output_id,
-				approvalReviewNodeIds: [...input.approval_review_node_ids],
-				submission,
-			}
-		: undefined;
+	const latest = findLatestSubmission(
+		state,
+		(candidate) =>
+			candidate.nodeId === input.source.node_id && submissionHasOutput(candidate, input.source.output_id),
+	);
+	const submission = latest && submissionSatisfiesInput(input, latest, state) ? latest : undefined;
+	if (!submission) return undefined;
+	const revisionId = artifactRef(
+		submission,
+		submission.outputs.find((output) => output.outputId === input.source.output_id)!,
+	).revisionId;
+	return {
+		inputId: input.input_id,
+		submissionId: submission.submissionId,
+		outputId: input.source.output_id,
+		approvalReviewNodeIds: [...input.approval_review_node_ids],
+		revisionId,
+		purpose: input.purpose ?? "content_basis",
+		releaseIds: state.governance.releases
+			.filter(
+				(release) =>
+					releaseIsCurrent(state, release.releaseId) &&
+					input.approval_review_node_ids.includes(release.reviewNodeId) &&
+					release.subjectRevisionIds.includes(revisionId),
+			)
+			.map((release) => release.releaseId),
+		submission,
+	};
 }
 
 export function resolveInputBindings(node: EffectiveNode, state: RunState): ResolvedInputBinding[] {
@@ -155,6 +198,18 @@ export function projectInputSubmissions(bindings: readonly ResolvedInputBinding[
 	}
 	return [...grouped.values()].map(({ submission, outputIds }) => ({
 		...structuredClone(submission),
+		evidence: Array.isArray(submission.evidence)
+			? submission.evidence.filter(
+					(item) =>
+						item !== null &&
+						typeof item === "object" &&
+						!Array.isArray(item) &&
+						(typeof item.output_id === "string"
+							? outputIds.has(item.output_id)
+							: submission.outputs.length === 1),
+				)
+			: [],
+		resolutionClaims: submission.resolutionClaims?.filter((claim) => outputIds.has(claim.outputId)),
 		outputs: submission.outputs
 			.filter((output) => outputIds.has(output.outputId))
 			.map((output) => structuredClone(output)),
@@ -193,7 +248,7 @@ export function nodeIsReady(node: EffectiveNode, state: RunState): boolean {
 	const status = state.nodes.find((item) => item.nodeId === node.definition.node_id)?.status;
 	if (!status || !["waiting", "waiting_rework"].includes(status)) return false;
 	const bindings = resolveInputBindings(node, state);
-	if (!requiredInputsResolved(node, bindings, state)) return false;
+	if (!requiredInputsResolved(node, bindings, state) || !versionRelationsSatisfied(state, bindings)) return false;
 	if (node.definition.kind === "execution") return true;
 	return node.definition.targets.every((target) =>
 		bindings.some((binding) => binding.submission.nodeId === target.node_id && binding.outputId === target.output_id),
@@ -209,6 +264,7 @@ export function nodeWaitConditions(node: EffectiveNode, state: RunState): string
 		return runtime.block?.missingConditions ?? [state.failure?.message ?? "Node is blocked"];
 	if (!["waiting", "waiting_rework"].includes(runtime.status)) return [];
 	const bindings = resolveInputBindings(node, state);
+	if (!versionRelationsSatisfied(state, bindings)) return ["Input versions have incompatible content provenance"];
 	const resolved = new Set(bindings.map((binding) => binding.inputId));
 	const missing = node.definition.inputs.flatMap((input) => {
 		if (!input.required) return [];
@@ -261,37 +317,35 @@ export function roundInputsAreValid(node: EffectiveNode, round: RoundRecord, sta
 }
 
 export function reworkFeedback(node: EffectiveNode, state: RunState): RoundFeedback[] {
-	let latestReviewFeedback: RoundFeedback[] = [];
-	for (let index = state.reviews.length - 1; index >= 0; index--) {
-		const review = state.reviews[index];
-		if (
-			review?.decision === "REWORK" &&
-			review.criteria.some((criterion) =>
-				criterion.reworkTargets.some(
-					(target) => target.nodeId === node.definition.node_id && target.status === "pending",
-				),
-			)
-		) {
-			latestReviewFeedback = review.criteria.flatMap((criterion) =>
-				criterion.reworkTargets.some(
-					(target) => target.nodeId === node.definition.node_id && target.status === "pending",
-				)
-					? criterion.requiredRework.map((issue) => ({
-							type: "quality_rework" as const,
-							sourceId: review.reviewId,
-							criterionId: criterion.criterionId,
-							outputId: criterion.reworkTargets.find(
-								(target) => target.nodeId === node.definition.node_id && target.status === "pending",
-							)?.outputId,
-							issue,
-							evidenceRef: `review:${review.reviewId}:${criterion.criterionId}`,
-							expectedCorrection: issue,
-						}))
-					: [],
-			);
-			break;
-		}
-	}
+	const latestReviewFeedback = findingFeedback(state, node.definition.node_id);
+	const previous = state.submissions.filter((submission) => submission.nodeId === node.definition.node_id).at(-1);
+	const changedBases: RoundFeedback[] = previous
+		? previous.outputs.flatMap((output) => {
+				const artifact = state.governance.artifacts.find(
+					(item) => item.revisionId === artifactRef(previous, output).revisionId,
+				);
+				const affected =
+					artifact?.bases.filter(
+						(basis) =>
+							basis.purpose === "content_basis" &&
+							state.governance.artifacts.some(
+								(item) => item.revisionId === basis.revisionId && item.status === "invalidated",
+							),
+					) ?? [];
+				return affected.length
+					? [
+							{
+								type: "quality_rework" as const,
+								sourceId: previous.submissionId,
+								outputId: output.outputId,
+								issue: `The prior output depended on invalidated input versions: ${affected.map((basis) => basis.revisionId).join(", ")}. Revalidate or revise this output against the current bindings.`,
+								expectedCorrection:
+									"Preserve independent outputs; update the affected derivation and its evidence.",
+							},
+						]
+					: [];
+			})
+		: [];
 	let latestMechanicalRound: string | undefined;
 	for (let index = state.mechanicalChecks.length - 1; index >= 0; index--) {
 		const check = state.mechanicalChecks[index];
@@ -320,118 +374,7 @@ export function reworkFeedback(node: EffectiveNode, state: RunState): RoundFeedb
 					}),
 				)
 		: [];
-	return [...latestReviewFeedback, ...mechanicalFeedback];
-}
-
-export function markReworkAddressed(state: RunState, nodeId: string): void {
-	for (const review of state.reviews)
-		for (const criterion of review.criteria)
-			for (const target of criterion.reworkTargets)
-				if (target.nodeId === nodeId && target.status === "pending") target.status = "addressed";
-}
-
-export function resolveReworkForTargets(
-	state: RunState,
-	targets: ReadonlyArray<{ node_id: string; output_id: string }>,
-): void {
-	const keys = new Set(targets.map((target) => graphOutputKey(target.node_id, target.output_id)));
-	for (const review of state.reviews)
-		for (const criterion of review.criteria)
-			for (const target of criterion.reworkTargets)
-				if (
-					["pending", "addressed"].includes(target.status) &&
-					keys.has(graphOutputKey(target.nodeId, target.outputId))
-				)
-					target.status = "resolved";
-}
-
-export function supersedePendingRework(state: RunState, nodeIds: readonly string[]): void {
-	const affected = new Set(nodeIds);
-	for (const review of state.reviews)
-		for (const criterion of review.criteria)
-			for (const target of criterion.reworkTargets)
-				if (affected.has(target.nodeId) && target.status === "pending") target.status = "superseded";
-}
-
-export function invalidateFromNode(state: RunState, nodeId: string, excludeRoundId?: string): InvalidatedRound[] {
-	const root = state.submissions
-		.filter((item) => item.nodeId === nodeId && ["candidate", "approved"].includes(item.status))
-		.at(-1);
-	const affected = new Set<string>();
-	const invalidated: InvalidatedRound[] = [];
-	const nodes = baselineIndex(requireBaseline(state)).nodes;
-	if (root) {
-		root.status = "rejected";
-		affected.add(root.submissionId);
-	}
-	let changed = true;
-	while (changed) {
-		changed = false;
-		// Revoking a joint review can invalidate approvals of otherwise unchanged inputs.
-		for (const review of state.reviews) {
-			const round = state.rounds.find((item) => item.roundId === review.roundId);
-			const node = nodes.get(review.reviewNodeId);
-			if (
-				review.status === "stale" ||
-				(!review.submissionIds.some((id) => affected.has(id)) &&
-					!(round && node && !roundInputsAreValid(node, round, state)))
-			)
-				continue;
-			review.status = "stale";
-			const reviewer = state.nodes.find((item) => item.nodeId === review.reviewNodeId);
-			if (reviewer) reviewer.status = "waiting";
-			changed = true;
-		}
-		for (const approval of state.approvals) {
-			if (approval.status !== "active") continue;
-			if (
-				!affected.has(approval.submissionId) &&
-				!state.reviews.some((review) => review.reviewId === approval.reviewId && review.status === "stale")
-			)
-				continue;
-			approval.status = "stale";
-			refreshSubmissionStatus(state, approval.submissionId);
-			changed = true;
-		}
-		for (const submission of state.submissions) {
-			if (!["candidate", "approved"].includes(submission.status)) continue;
-			const round = state.rounds.find((item) => item.roundId === submission.roundId);
-			const node = nodes.get(submission.nodeId);
-			if (
-				!submission.inputSubmissionIds.some((id) => affected.has(id)) &&
-				!(round && node && !roundInputsAreValid(node, round, state))
-			)
-				continue;
-			submission.status = "stale";
-			affected.add(submission.submissionId);
-			const consumer = state.nodes.find((item) => item.nodeId === submission.nodeId);
-			if (consumer) consumer.status = "waiting_rework";
-			changed = true;
-		}
-		for (const round of state.rounds) {
-			const node = nodes.get(round.nodeId);
-			if (
-				round.status !== "active" ||
-				round.roundId === excludeRoundId ||
-				(!round.inputSubmissionIds.some((id) => affected.has(id)) &&
-					!(node && !roundInputsAreValid(node, round, state)))
-			)
-				continue;
-			round.status = "invalidated";
-			round.finishedAt = Date.now();
-			const consumer = state.nodes.find((item) => item.nodeId === round.nodeId);
-			if (consumer?.activeRoundId === round.roundId) {
-				interruptActiveExecution(state, consumer.nodeId, "superseded", "cancelled");
-				incrementScopeEpoch(state, consumer.nodeId);
-				consumer.activeRoundId = undefined;
-				consumer.status = consumer.kind === "execution" ? "waiting_rework" : "waiting";
-			}
-			invalidated.push({ nodeId: round.nodeId, roundId: round.roundId });
-		}
-	}
-	const target = state.nodes.find((item) => item.nodeId === nodeId);
-	if (target) target.status = "waiting_rework";
-	return invalidated;
+	return [...latestReviewFeedback, ...changedBases, ...mechanicalFeedback];
 }
 
 export function addApprovals(
@@ -457,7 +400,7 @@ export function addApprovals(
 
 export function refreshSubmissionStatus(state: RunState, submissionId: string): void {
 	const submission = state.submissions.find((item) => item.submissionId === submissionId);
-	if (!submission || ["rejected", "stale"].includes(submission.status)) return;
+	if (!submission || !submission.outputs.every((output) => outputUsable(state, submission, output.outputId))) return;
 	const baseline = requireBaseline(state);
 	const fullyApproved = submission.outputs.every((output) => {
 		const reviewers = baseline.graph.reviewsByOutput[graphOutputKey(submission.nodeId, output.outputId)] ?? [];
@@ -465,7 +408,12 @@ export function refreshSubmissionStatus(state: RunState, submissionId: string): 
 	});
 	submission.status = fullyApproved ? "approved" : "candidate";
 	const producer = state.nodes.find((item) => item.nodeId === submission.nodeId);
-	if (producer) producer.status = fullyApproved ? "succeeded" : "waiting_review";
+	if (
+		producer &&
+		state.submissions.filter((item) => item.nodeId === submission.nodeId).at(-1) === submission &&
+		!["active", "waiting_rework"].includes(producer.status)
+	)
+		producer.status = fullyApproved ? "succeeded" : "waiting_review";
 }
 
 export function approvedSubmissionForOutput(
@@ -476,14 +424,13 @@ export function approvedSubmissionForOutput(
 	const reviewers = requiredReviewNodeIds.filter((id) =>
 		(requireBaseline(state).graph.reviewsByOutput[graphOutputKey(ref.node_id, ref.output_id)] ?? []).includes(id),
 	);
-	return findLatestSubmission(
+	const latest = findLatestSubmission(
 		state,
-		(submission) =>
-			submission.nodeId === ref.node_id &&
-			["candidate", "approved"].includes(submission.status) &&
-			submissionHasOutput(submission, ref.output_id) &&
-			outputIsFullyApproved(state, ref.node_id, submission.submissionId, ref.output_id, reviewers),
+		(item) => item.nodeId === ref.node_id && submissionHasOutput(item, ref.output_id),
 	);
+	if (!latest || !outputUsable(state, latest, ref.output_id) || !adoptionUsable(state, latest.submissionId))
+		return undefined;
+	return outputIsFullyApproved(state, ref.node_id, latest.submissionId, ref.output_id, reviewers) ? latest : undefined;
 }
 
 export function finalApprovedSubmissionIds(state: RunState): string[] {
@@ -498,23 +445,62 @@ export function finalApprovedSubmissionIds(state: RunState): string[] {
 	];
 }
 
-export function runIsComplete(state: RunState): boolean {
+export function completionProblems(state: RunState): string[] {
 	const completion = requireBaseline(state).workflow.completion;
-	return (
-		completion.required_node_ids.every(
-			(id) => state.nodes.find((item) => item.nodeId === id)?.status === "succeeded",
-		) &&
-		completion.required_review_node_ids.every(
-			(id) => state.nodes.find((item) => item.nodeId === id && item.kind === "review")?.status === "succeeded",
-		) &&
-		completion.final_outputs.every(
-			(ref) => approvedSubmissionForOutput(state, ref, completion.required_review_node_ids) !== undefined,
-		) &&
-		!state.rounds.some((round) => round.status === "active") &&
-		!state.attempts.some((attempt) => ["claimed", "dispatching", "active"].includes(attempt.status)) &&
-		!state.dispatchIntents.some((dispatch) =>
-			["pending", "delivering", "started", "outcome_unknown"].includes(dispatch.status),
-		) &&
-		!state.externalOperations.some((operation) => ["pending", "unknown"].includes(operation.outcome))
-	);
+	const problems: string[] = [];
+	for (const id of completion.required_node_ids)
+		if (state.nodes.find((node) => node.nodeId === id)?.status !== "succeeded")
+			problems.push(`Required node ${id} has not completed its governed responsibility`);
+	for (const id of completion.required_review_node_ids)
+		if (state.nodes.find((node) => node.nodeId === id && node.kind === "review")?.status !== "succeeded")
+			problems.push(`Required Gate ${id} has not passed`);
+	for (const ref of completion.final_outputs)
+		if (!approvedSubmissionForOutput(state, ref, completion.required_review_node_ids))
+			problems.push(`Final output ${ref.node_id}/${ref.output_id} lacks current release authority`);
+	for (const stage of state.baseline!.workflow.stages ?? [])
+		for (const exit of stage.exits) {
+			const submission = approvedSubmissionForOutput(state, exit.output, exit.gate_node_ids);
+			const output = submission?.outputs.find((item) => item.outputId === exit.output.output_id);
+			if (
+				!submission ||
+				!output ||
+				!exit.gate_node_ids.every((id) =>
+					state.governance.releases.some(
+						(release) =>
+							release.reviewNodeId === id &&
+							release.stageIds.includes(stage.stage_id) &&
+							release.subjectRevisionIds.includes(artifactRef(submission, output).revisionId) &&
+							releaseIsCurrent(state, release.releaseId),
+					),
+				)
+			)
+				problems.push(
+					`Stage ${stage.stage_id} exit ${exit.output.node_id}/${exit.output.output_id} is not released`,
+				);
+		}
+	for (const finding of state.governance.findings)
+		if (finding.blocking && ["open", "addressed"].includes(finding.status))
+			problems.push(`Finding ${finding.findingId} remains ${finding.status}`);
+	const latest = new Map(state.submissions.map((submission) => [submission.nodeId, submission.submissionId]));
+	for (const adoption of state.governance.adoptions) {
+		const submission = state.submissions.find((item) => item.submissionId === adoption.submissionId);
+		if (adoption.status === "held" && submission && latest.get(submission.nodeId) === submission.submissionId)
+			problems.push(`Adoption ${adoption.adoptionId} requires revalidation`);
+	}
+	if (
+		state.rounds.some((round) => round.status === "active") ||
+		state.attempts.some((attempt) => ["claimed", "dispatching", "active"].includes(attempt.status))
+	)
+		problems.push("Active execution remains");
+	for (const dispatch of state.dispatchIntents)
+		if (["pending", "delivering", "started", "outcome_unknown"].includes(dispatch.status))
+			problems.push(`Dispatch ${dispatch.commandId} remains ${dispatch.status}`);
+	for (const operation of state.externalOperations)
+		if (["pending", "unknown"].includes(operation.outcome))
+			problems.push(`External operation ${operation.operationId} remains ${operation.outcome}`);
+	return problems;
+}
+
+export function runIsComplete(state: RunState): boolean {
+	return completionProblems(state).length === 0;
 }

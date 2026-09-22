@@ -82,15 +82,25 @@ describe("compileWorkflow", () => {
 		expect(Object.isFrozen(result.baseline)).toBe(true);
 	});
 
-	it("rejects a review that reuses an independently reviewed producer AgentCard", () => {
+	it("rejects disabling production independence required by ProcessSpec", () => {
 		const fixture = createCompilerFixture();
 		const review = fixture.workflow.nodes.find((node) => node.kind === "review");
 		if (!review) throw new Error("Missing review node");
-		review.agents[0].agent_ref = { id: "producer", version: "1.0.0" };
+		review.decision_policy = { aggregation: "all_required", independent_production: false };
 		const result = compileWorkflow(fixture);
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
-		expect(result.report.diagnostics.map((item) => item.code)).toContain("reviewer_not_independent");
+		expect(result.report.diagnostics.map((item) => item.code)).toContain("review_independence_weakened");
+	});
+
+	it("allows independent instances to share a capable AgentCard", () => {
+		const fixture = createCompilerFixture();
+		fixture.assets.agentCards = fixture.assets.agentCards.map((card) =>
+			card.id === "producer" ? { ...structuredClone(card), capabilities: [...card.capabilities, "review"] } : card,
+		);
+		fixture.workflow.nodes[1].agents[0].agent_ref = { id: "producer", version: "1.0.0" };
+		const result = compileWorkflow(fixture);
+		expect(result.ok, JSON.stringify(result)).toBe(true);
 	});
 
 	it("rejects overlapping execution output ownership", () => {
