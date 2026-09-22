@@ -197,18 +197,21 @@ export function buildDashboardSnapshot(
 				}
 			: {}),
 		selection: selectionView(state, processSpecs),
-		workflow: !workflow && authoring ? authoring : {
-			source,
-			name: workflow?.name ?? legacy?.header?.name,
-			id: workflow?.workflow_id ?? legacy?.header?.workflow_id,
-			version: workflow?.workflow_version ?? legacy?.header?.workflow_version,
-			...(draft ? { draftRevision: draft.revision } : {}),
-			criteriaCount: workflowCriteria.length,
-			coverageCount: workflow?.requirement_coverage.length ?? legacy?.requirementCoverage.length ?? 0,
-			completionDefined: Boolean(workflow?.completion ?? legacy?.completion),
-			nodes,
-			edges: workflowEdges(workflowNodes),
-		},
+		workflow:
+			!workflow && authoring
+				? authoring
+				: {
+						source,
+						name: workflow?.name ?? legacy?.header?.name,
+						id: workflow?.workflow_id ?? legacy?.header?.workflow_id,
+						version: workflow?.workflow_version ?? legacy?.header?.workflow_version,
+						...(draft ? { draftRevision: draft.revision } : {}),
+						criteriaCount: workflowCriteria.length,
+						coverageCount: workflow?.requirement_coverage.length ?? legacy?.requirementCoverage.length ?? 0,
+						completionDefined: Boolean(workflow?.completion ?? legacy?.completion),
+						nodes,
+						edges: workflowEdges(workflowNodes),
+					},
 		events: state.events.slice(-80).map((event) => structuredClone(event)),
 	};
 }

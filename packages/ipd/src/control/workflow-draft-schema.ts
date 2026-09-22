@@ -2,13 +2,14 @@
 import Type, { type TObject, type TSchema } from "typebox";
 import { IdentifierSchema as Id, NonEmptyStringSchema, VersionedAssetRefSchema } from "../contracts/primitives.ts";
 import {
+	CriterionDefinitionSchema,
 	DesignDecisionSchema,
 	ExecutionNodeSchema,
 	MechanicalCriterionDefinitionSchema,
 	NodeAgentConfigSchema,
-	NodeOutputRefSchema as OutputRef,
 	NodePermissionsSchema,
 	OutputDefinitionSchema,
+	NodeOutputRefSchema as OutputRef,
 	RequirementCoverageSchema,
 	RequirementDefinitionSchema,
 	ReviewNodeSchema,
@@ -17,20 +18,22 @@ import {
 	WorkflowCompletionSchema,
 	WorkflowDefinitionSchema,
 	WorkflowNodeSchema,
-	CriterionDefinitionSchema,
 } from "../contracts/workflow.ts";
 import type { DraftCommand, DraftDomain } from "./workflow-draft-model.ts";
 
-const object = <P extends Record<string, TSchema>>(properties: P) => Type.Object(properties, { additionalProperties: false });
+const object = <P extends Record<string, TSchema>>(properties: P) =>
+	Type.Object(properties, { additionalProperties: false });
 const list = <T extends TSchema>(items: T) => Type.Array(items, { maxItems: 64 });
 const ids = Type.Array(Id, { uniqueItems: true, maxItems: 128 });
 // Clearing a required list is a legal draft edit, but is incomplete at compilation.
 const partial = <T extends TObject>(schema: T) => {
-	const properties = Object.fromEntries(Object.entries(schema.properties).map(([key, field]) => {
-		const copy = { ...field };
-		if (copy.type === "array") delete copy.minItems;
-		return [key, copy];
-	}));
+	const properties = Object.fromEntries(
+		Object.entries(schema.properties).map(([key, field]) => {
+			const copy = { ...field };
+			if (copy.type === "array") delete copy.minItems;
+			return [key, copy];
+		}),
+	);
 	return Type.Partial({ ...schema, properties } as T);
 };
 export const DraftContractSchema = partial(ExecutionNodeSchema.properties.contract);
@@ -47,7 +50,11 @@ export const AccessSchema = Type.Union([
 	object({ mode: Type.Literal("stage_candidate"), stage_id: Id }),
 	object({ mode: Type.Literal("review_candidate") }),
 ]);
-const PurposeSchema = Type.Union([Type.Literal("content_basis"), Type.Literal("test_subject"), Type.Literal("historical_reference")]);
+const PurposeSchema = Type.Union([
+	Type.Literal("content_basis"),
+	Type.Literal("test_subject"),
+	Type.Literal("historical_reference"),
+]);
 const InputEditSchema = object({
 	consumer_node_id: Id,
 	input_id: Id,
@@ -83,73 +90,223 @@ export const DraftStageSchema = object({
 });
 const MetadataSchema = partial(Type.Pick(WorkflowDefinitionSchema, ["workflow_id", "workflow_version", "name"]));
 const nullable = <T extends TSchema>(schema: T) => Type.Optional(Type.Union([schema, Type.Null()]));
-const edits = <T extends TSchema>(schema: T) => object({ upsert: Type.Optional(list(schema)), remove_ids: Type.Optional(ids) });
+const edits = <T extends TSchema>(schema: T) =>
+	object({ upsert: Type.Optional(list(schema)), remove_ids: Type.Optional(ids) });
 
 export const DraftCommandSchemas: Record<DraftDomain, TObject> = {
 	topology: object({
-		nodes: Type.Optional(list(object({ node_id: Id, kind: Type.Union([Type.Literal("execution"), Type.Literal("review")]), name: NonEmptyStringSchema, output_ids: Type.Optional(ids) }))),
+		nodes: Type.Optional(
+			list(
+				object({
+					node_id: Id,
+					kind: Type.Union([Type.Literal("execution"), Type.Literal("review")]),
+					name: NonEmptyStringSchema,
+					output_ids: Type.Optional(ids),
+				}),
+			),
+		),
 		connections: Type.Optional(list(object({ consumer_node_id: Id, input_id: Id, source: SourceSchema }))),
 		remove_node_ids: Type.Optional(ids),
 	}),
-	configure_nodes: object({ nodes: Type.Array(object({
-		node_id: Id,
-		name: Type.Optional(NonEmptyStringSchema),
-		contract: Type.Optional(DraftContractSchema),
-		employee: Type.Optional(partial(Type.Pick(NodeAgentConfigSchema, ["agent_ref", "participant_id"]))),
-		resources: Type.Optional(object({
-			...partial(Type.Omit(NodeAgentConfigSchema, ["agent_ref", "participant_id", "permissions"])).properties,
-			permissions: Type.Optional(partial(NodePermissionsSchema)),
-		})),
-		environment_ref: nullable(VersionedAssetRefSchema),
-	}), { minItems: 1, maxItems: 32 }) }),
-	outputs: object({ upsert: Type.Optional(list(object({ node_id: Id, ...DraftOutputSchema.properties }))), remove: Type.Optional(list(OutputRef)) }),
-	criteria: object({ upsert: Type.Optional(list(object({ criterion_id: Id, definition: Type.Optional(DraftCriterionDefinitionSchema), output_bindings: Type.Optional(Type.Array(OutputRef, { uniqueItems: true })) }))), remove_ids: Type.Optional(ids) }),
-	inputs: object({ upsert: Type.Optional(list(InputEditSchema)), remove: Type.Optional(list(object({ consumer_node_id: Id, input_id: Id }))) }),
-	reviews: object({ upsert: Type.Array(object({ review_node_id: Id, ...ReviewPlanSchema.properties, decision_policy: nullable(ReviewNodeSchema.properties.decision_policy) }), { minItems: 1, maxItems: 32 }) }),
+	configure_nodes: object({
+		nodes: Type.Array(
+			object({
+				node_id: Id,
+				name: Type.Optional(NonEmptyStringSchema),
+				contract: Type.Optional(DraftContractSchema),
+				employee: Type.Optional(partial(Type.Pick(NodeAgentConfigSchema, ["agent_ref", "participant_id"]))),
+				resources: Type.Optional(
+					object({
+						...partial(Type.Omit(NodeAgentConfigSchema, ["agent_ref", "participant_id", "permissions"]))
+							.properties,
+						permissions: Type.Optional(partial(NodePermissionsSchema)),
+					}),
+				),
+				environment_ref: nullable(VersionedAssetRefSchema),
+			}),
+			{ minItems: 1, maxItems: 32 },
+		),
+	}),
+	outputs: object({
+		upsert: Type.Optional(list(object({ node_id: Id, ...DraftOutputSchema.properties }))),
+		remove: Type.Optional(list(OutputRef)),
+	}),
+	criteria: object({
+		upsert: Type.Optional(
+			list(
+				object({
+					criterion_id: Id,
+					definition: Type.Optional(DraftCriterionDefinitionSchema),
+					output_bindings: Type.Optional(Type.Array(OutputRef, { uniqueItems: true })),
+				}),
+			),
+		),
+		remove_ids: Type.Optional(ids),
+	}),
+	inputs: object({
+		upsert: Type.Optional(list(InputEditSchema)),
+		remove: Type.Optional(list(object({ consumer_node_id: Id, input_id: Id }))),
+	}),
+	reviews: object({
+		upsert: Type.Array(
+			object({
+				review_node_id: Id,
+				...ReviewPlanSchema.properties,
+				decision_policy: nullable(ReviewNodeSchema.properties.decision_policy),
+			}),
+			{ minItems: 1, maxItems: 32 },
+		),
+	}),
 	stages: edits(DraftStageSchema),
-	governance: object({ metadata: Type.Optional(MetadataSchema), prerequisites: nullable(WorkflowDefinitionSchema.properties.prerequisites), requirements: Type.Optional(edits(RequirementDefinitionSchema)), decisions: Type.Optional(edits(DesignDecisionSchema)) }),
-	coverage: object({ upsert: Type.Optional(list(RequirementCoverageSchema)), remove: Type.Optional(list(Type.Pick(RequirementCoverageSchema, ["source", "requirement_id"]))) }),
+	governance: object({
+		metadata: Type.Optional(MetadataSchema),
+		prerequisites: nullable(WorkflowDefinitionSchema.properties.prerequisites),
+		requirements: Type.Optional(edits(RequirementDefinitionSchema)),
+		decisions: Type.Optional(edits(DesignDecisionSchema)),
+	}),
+	coverage: object({
+		upsert: Type.Optional(list(RequirementCoverageSchema)),
+		remove: Type.Optional(list(Type.Pick(RequirementCoverageSchema, ["source", "requirement_id"]))),
+	}),
 	completion: partial(WorkflowCompletionSchema),
 };
-export const DraftCommandSchema = Type.Unsafe<DraftCommand>(Type.Union(Object.entries(DraftCommandSchemas).map(([domain, data]) => object({ domain: Type.Literal(domain), data }))));
-export const MutationEnvelopeSchema = object({ expected_revision: Type.Integer({ minimum: 0 }), operation_id: NonEmptyStringSchema });
+export const DraftCommandSchema = Type.Unsafe<DraftCommand>(
+	Type.Union(
+		Object.entries(DraftCommandSchemas).map(([domain, data]) => object({ domain: Type.Literal(domain), data })),
+	),
+);
+export const MutationEnvelopeSchema = object({
+	expected_revision: Type.Integer({ minimum: 0 }),
+	operation_id: NonEmptyStringSchema,
+});
 
-const DiagnosticSchema = object({ code: Type.Optional(NonEmptyStringSchema), path: Type.String(), message: Type.String(), nodeId: Type.Optional(Type.String()), processRequirementId: Type.Optional(Type.String()), category: Type.Optional(Type.String()), authoringPath: Type.Optional(Type.String()), suggestedTool: Type.Optional(Type.String()) });
-const ReceiptSchema = object({ operation_id: NonEmptyStringSchema, applied_revision: Type.Integer({ minimum: 0 }), changed: Type.Array(Type.String()), defaults_applied: Type.Array(Type.String()), candidate_hash: Type.Optional(Type.String()), candidate_file: Type.Optional(Type.String()) });
+const DiagnosticSchema = object({
+	code: Type.Optional(NonEmptyStringSchema),
+	path: Type.String(),
+	message: Type.String(),
+	nodeId: Type.Optional(Type.String()),
+	processRequirementId: Type.Optional(Type.String()),
+	category: Type.Optional(Type.String()),
+	authoringPath: Type.Optional(Type.String()),
+	suggestedTool: Type.Optional(Type.String()),
+});
+const ReceiptSchema = object({
+	operation_id: NonEmptyStringSchema,
+	applied_revision: Type.Integer({ minimum: 0 }),
+	changed: Type.Array(Type.String()),
+	defaults_applied: Type.Array(Type.String()),
+	candidate_hash: Type.Optional(Type.String()),
+	candidate_file: Type.Optional(Type.String()),
+});
 const OperationSchema = object({ requestHash: Type.String(), protocol: Type.String(), receipt: ReceiptSchema });
 export const LegacyDraftSchema = object({
- draftId: NonEmptyStringSchema, runId: NonEmptyStringSchema, revision: Type.Integer({ minimum: 0 }),
- trustedReferences: Type.Pick(WorkflowDefinitionSchema, ["task_input_ref", "process_selection_ref"]),
- header: Type.Optional(Type.Pick(WorkflowDefinitionSchema, ["schema_version", "workflow_id", "workflow_version", "name", "prerequisites", "stages", "requirements", "decisions"])),
- nodes: Type.Array(WorkflowNodeSchema), criteria: Type.Array(CriterionDefinitionSchema), requirementCoverage: Type.Array(RequirementCoverageSchema), completion: Type.Optional(WorkflowCompletionSchema),
- operations: Type.Record(Type.String(), object({ requestHash: Type.String(), revision: Type.Integer({ minimum: 0 }) })),
- lastValidation: Type.Optional(object({ revision: Type.Integer({ minimum: 0 }), valid: Type.Boolean(), diagnostics: Type.Array(DiagnosticSchema) })),
+	draftId: NonEmptyStringSchema,
+	runId: NonEmptyStringSchema,
+	revision: Type.Integer({ minimum: 0 }),
+	trustedReferences: Type.Pick(WorkflowDefinitionSchema, ["task_input_ref", "process_selection_ref"]),
+	header: Type.Optional(
+		Type.Pick(WorkflowDefinitionSchema, [
+			"schema_version",
+			"workflow_id",
+			"workflow_version",
+			"name",
+			"prerequisites",
+			"stages",
+			"requirements",
+			"decisions",
+		]),
+	),
+	nodes: Type.Array(WorkflowNodeSchema),
+	criteria: Type.Array(CriterionDefinitionSchema),
+	requirementCoverage: Type.Array(RequirementCoverageSchema),
+	completion: Type.Optional(WorkflowCompletionSchema),
+	operations: Type.Record(
+		Type.String(),
+		object({ requestHash: Type.String(), revision: Type.Integer({ minimum: 0 }) }),
+	),
+	lastValidation: Type.Optional(
+		object({
+			revision: Type.Integer({ minimum: 0 }),
+			valid: Type.Boolean(),
+			diagnostics: Type.Array(DiagnosticSchema),
+		}),
+	),
 });
 
 export const AuthoringDraftSchema = object({
-	draft_schema_version: Type.Literal(2), authoringPolicy: Type.Literal("workflow-authoring-v2.1"),
-	draftId: NonEmptyStringSchema, runId: NonEmptyStringSchema, revision: Type.Integer({ minimum: 0 }),
+	draft_schema_version: Type.Literal(2),
+	authoringPolicy: Type.Literal("workflow-authoring-v2.1"),
+	draftId: NonEmptyStringSchema,
+	runId: NonEmptyStringSchema,
+	revision: Type.Integer({ minimum: 0 }),
 	trustedReferences: Type.Pick(WorkflowDefinitionSchema, ["task_input_ref", "process_selection_ref"]),
 	metadata: MetadataSchema,
-	nodes: Type.Array(object({
-		node_id: Id, kind: Type.Union([Type.Literal("execution"), Type.Literal("review")]), name: NonEmptyStringSchema,
-		contract: Type.Optional(DraftContractSchema), agent: Type.Optional(DraftAgentSchema), environment_ref: Type.Optional(VersionedAssetRefSchema),
-		outputs: Type.Array(DraftOutputSchema), review_plan: Type.Optional(object({ ...ReviewPlanSchema.properties, explicit_subject_criteria: Type.Optional(ids) })),
-		inputs: Type.Array(Type.Union([
-			object({ kind: Type.Literal("task_material"), input_id: Id, material_id: Id, required: Type.Optional(Type.Boolean()) }),
-			object({ kind: Type.Literal("node_output"), input_id: Id, source: OutputRef, required: Type.Optional(Type.Boolean()), purpose: Type.Optional(PurposeSchema), access: Type.Optional(AccessSchema), omit_default_purpose: Type.Optional(Type.Literal(true)) }),
-		])),
-	})),
-	criteria: Type.Array(object({ criterion_id: Id, definition: DraftCriterionDefinitionSchema, output_bindings: Type.Array(OutputRef) })),
+	nodes: Type.Array(
+		object({
+			node_id: Id,
+			kind: Type.Union([Type.Literal("execution"), Type.Literal("review")]),
+			name: NonEmptyStringSchema,
+			contract: Type.Optional(DraftContractSchema),
+			agent: Type.Optional(DraftAgentSchema),
+			environment_ref: Type.Optional(VersionedAssetRefSchema),
+			outputs: Type.Array(DraftOutputSchema),
+			review_plan: Type.Optional(
+				object({ ...ReviewPlanSchema.properties, explicit_subject_criteria: Type.Optional(ids) }),
+			),
+			inputs: Type.Array(
+				Type.Union([
+					object({
+						kind: Type.Literal("task_material"),
+						input_id: Id,
+						material_id: Id,
+						required: Type.Optional(Type.Boolean()),
+					}),
+					object({
+						kind: Type.Literal("node_output"),
+						input_id: Id,
+						source: OutputRef,
+						required: Type.Optional(Type.Boolean()),
+						purpose: Type.Optional(PurposeSchema),
+						access: Type.Optional(AccessSchema),
+						omit_default_purpose: Type.Optional(Type.Literal(true)),
+					}),
+				]),
+			),
+		}),
+	),
+	criteria: Type.Array(
+		object({ criterion_id: Id, definition: DraftCriterionDefinitionSchema, output_bindings: Type.Array(OutputRef) }),
+	),
 	stage_plans: Type.Array(DraftStageSchema),
 	prerequisites: WorkflowDefinitionSchema.properties.prerequisites,
-	requirements: Type.Array(RequirementDefinitionSchema), decisions: Type.Array(DesignDecisionSchema),
-	process_coverage: Type.Array(RequirementCoverageSchema), completion: Type.Optional(partial(WorkflowCompletionSchema)),
-	editing: Type.Boolean(), closureReason: Type.Optional(Type.Union([Type.Literal("captured"), Type.Literal("control_closed")])),
-	emptyOptionalSections: Type.Optional(Type.Array(Type.Union([Type.Literal("stages"), Type.Literal("requirements"), Type.Literal("decisions")]))),
-	migration: Type.Optional(object({ sourceHash: NonEmptyStringSchema, sourceRevision: Type.Integer({ minimum: 0 }), backupFile: NonEmptyStringSchema })),
+	requirements: Type.Array(RequirementDefinitionSchema),
+	decisions: Type.Array(DesignDecisionSchema),
+	process_coverage: Type.Array(RequirementCoverageSchema),
+	completion: Type.Optional(partial(WorkflowCompletionSchema)),
+	editing: Type.Boolean(),
+	closureReason: Type.Optional(Type.Union([Type.Literal("captured"), Type.Literal("control_closed")])),
+	emptyOptionalSections: Type.Optional(
+		Type.Array(Type.Union([Type.Literal("stages"), Type.Literal("requirements"), Type.Literal("decisions")])),
+	),
+	migration: Type.Optional(
+		object({
+			sourceHash: NonEmptyStringSchema,
+			sourceRevision: Type.Integer({ minimum: 0 }),
+			backupFile: NonEmptyStringSchema,
+		}),
+	),
 	// Internal records are never writable through the designer tools.
- lastValidation: Type.Optional(object({ revision: Type.Integer({ minimum: 0 }), valid: Type.Boolean(), mode: Type.Union([Type.Literal("draft"), Type.Literal("compile")]), diagnostics: Type.Array(DiagnosticSchema) })),
- lastSubmission: Type.Optional(ReceiptSchema), operations: Type.Record(Type.String(), OperationSchema),
- legacyOperations: Type.Optional(Type.Record(Type.String(), object({ requestHash: Type.String(), revision: Type.Integer({ minimum: 0 }) }))),
+	lastValidation: Type.Optional(
+		object({
+			revision: Type.Integer({ minimum: 0 }),
+			valid: Type.Boolean(),
+			mode: Type.Union([Type.Literal("draft"), Type.Literal("compile")]),
+			diagnostics: Type.Array(DiagnosticSchema),
+		}),
+	),
+	lastSubmission: Type.Optional(ReceiptSchema),
+	operations: Type.Record(Type.String(), OperationSchema),
+	legacyOperations: Type.Optional(
+		Type.Record(Type.String(), object({ requestHash: Type.String(), revision: Type.Integer({ minimum: 0 }) })),
+	),
 });

@@ -33,19 +33,38 @@ export function projectAuthoringDraft(draft: AuthoringDraft): DashboardSnapshot[
 				writePaths: [...(node.agent?.permissions?.write_paths ?? [])],
 				externalActions: node.agent?.permissions?.external_actions ?? false,
 			},
-			inputs: node.inputs.map((input) => input.kind === "task_material"
-				? `任务材料：${input.material_id}`
-				: `${input.source.node_id}.${input.source.output_id}（${input.access?.mode ?? "待配置使用条件"}）`),
-			outputs: node.kind === "execution"
-				? node.outputs.map((output) => output.output_id)
-				: [...new Set((node.review_plan?.assignments ?? []).flatMap((assignment) => assignment.subjects.map((subject) => `${subject.node_id}.${subject.output_id}`)))],
+			inputs: node.inputs.map((input) =>
+				input.kind === "task_material"
+					? `任务材料：${input.material_id}`
+					: `${input.source.node_id}.${input.source.output_id}（${input.access?.mode ?? "待配置使用条件"}）`,
+			),
+			outputs:
+				node.kind === "execution"
+					? node.outputs.map((output) => output.output_id)
+					: [
+							...new Set(
+								(node.review_plan?.assignments ?? []).flatMap((assignment) =>
+									assignment.subjects.map((subject) => `${subject.node_id}.${subject.output_id}`),
+								),
+							),
+						],
 			roundCount: 0,
 		})),
 		edges: [
-			...topology.edges.map((edge) => ({ from: edge.from, to: edge.to, kind: "dependency" as const, label: edge.reason })),
-			...draft.nodes.flatMap((node) => (node.review_plan?.allowed_rework_node_ids ?? []).map((owner) => ({
-				from: node.node_id, to: owner, kind: "rework" as const, label: "rework",
-			}))),
+			...topology.edges.map((edge) => ({
+				from: edge.from,
+				to: edge.to,
+				kind: "dependency" as const,
+				label: edge.reason,
+			})),
+			...draft.nodes.flatMap((node) =>
+				(node.review_plan?.allowed_rework_node_ids ?? []).map((owner) => ({
+					from: node.node_id,
+					to: owner,
+					kind: "rework" as const,
+					label: "rework",
+				})),
+			),
 		],
 	};
 }

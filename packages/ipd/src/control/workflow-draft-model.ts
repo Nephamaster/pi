@@ -1,4 +1,6 @@
 // Authoring-only types. Partial drafts never constitute executable Workflows.
+
+import type { Static } from "typebox";
 import type { JsonValue } from "../contracts/primitives.ts";
 import type {
 	CriterionDefinition,
@@ -10,7 +12,6 @@ import type {
 	WorkflowDefinition,
 	WorkflowNode,
 } from "../contracts/workflow.ts";
-import type { Static } from "typebox";
 
 export const AUTHORING_VERSION = 2;
 export const AUTHORING_POLICY = "workflow-authoring-v2.1";
@@ -28,7 +29,15 @@ export type DraftAccess =
 	| { mode: "review_candidate" };
 export type DraftInput =
 	| { kind: "task_material"; input_id: string; material_id: string; required?: boolean }
-	| { kind: "node_output"; input_id: string; source: NodeOutputRef; required?: boolean; purpose?: InputPurpose; access?: DraftAccess; omit_default_purpose?: true };
+	| {
+			kind: "node_output";
+			input_id: string;
+			source: NodeOutputRef;
+			required?: boolean;
+			purpose?: InputPurpose;
+			access?: DraftAccess;
+			omit_default_purpose?: true;
+	  };
 export interface ReviewAssignment {
 	criterion_id: string;
 	mode: "single" | "composite";
@@ -133,9 +142,17 @@ export interface DraftCommands {
 	};
 	configure_nodes: { nodes: NodeEdit[] };
 	outputs: { upsert?: (DraftOutput & { node_id: string })[]; remove?: NodeOutputRef[] };
-	criteria: { upsert?: { criterion_id: string; definition?: DraftCriterionDefinition; output_bindings?: NodeOutputRef[] }[]; remove_ids?: string[] };
+	criteria: {
+		upsert?: { criterion_id: string; definition?: DraftCriterionDefinition; output_bindings?: NodeOutputRef[] }[];
+		remove_ids?: string[];
+	};
 	inputs: { upsert?: InputEdit[]; remove?: Pick<InputEdit, "consumer_node_id" | "input_id">[] };
-	reviews: { upsert: (Omit<DraftReview, "decision_policy"> & { review_node_id: string; decision_policy?: DraftReview["decision_policy"] | null })[] };
+	reviews: {
+		upsert: (Omit<DraftReview, "decision_policy"> & {
+			review_node_id: string;
+			decision_policy?: DraftReview["decision_policy"] | null;
+		})[];
+	};
 	stages: { upsert?: DraftStage[]; remove_ids?: string[] };
 	governance: {
 		metadata?: Partial<DraftMetadata>;
@@ -143,7 +160,10 @@ export interface DraftCommands {
 		requirements?: { upsert?: AuthoringDraft["requirements"]; remove_ids?: string[] };
 		decisions?: { upsert?: AuthoringDraft["decisions"]; remove_ids?: string[] };
 	};
-	coverage: { upsert?: AuthoringDraft["process_coverage"]; remove?: Pick<AuthoringDraft["process_coverage"][number], "source" | "requirement_id">[] };
+	coverage: {
+		upsert?: AuthoringDraft["process_coverage"];
+		remove?: Pick<AuthoringDraft["process_coverage"][number], "source" | "requirement_id">[];
+	};
 	completion: Partial<WorkflowDefinition["completion"]>;
 }
 export type DraftDomain = keyof DraftCommands;
