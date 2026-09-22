@@ -283,6 +283,7 @@ export function renderCurrentRoundContext(work: NodeRoundWork): string {
 		criterion_id: item.criterionId,
 		output_id: item.outputId,
 		issue: item.issue,
+		diagnostics: item.diagnostics,
 		evidence_ref: item.evidenceRef,
 		expected_correction: item.expectedCorrection,
 		finding_id: item.findingId,

@@ -27,7 +27,10 @@ import type { NodeSessionFactory } from "./node-session-adapter.ts";
 import {
 	createProviderRequestAdmissionExtension,
 	type ProviderRequestObservation,
+	type RequestViewLimits,
+	resolveRequestViewLimits,
 } from "./provider-request-admission.ts";
+import { CONTEXT_EVIDENCE_TOOL, createRequestView } from "./request-view.ts";
 import { admitTools } from "./resource-tools.ts";
 import { type IpdSessionSettings, projectIpdSessionSettings } from "./session-policy.ts";
 import { createSubmissionResultExtension } from "./structured-submissions.ts";
@@ -110,6 +113,7 @@ export interface PiNodeSessionFactoryOptions {
 	customTools?: readonly ToolDefinition[];
 	/** Trusted host policy, shared by control and execution roles; never loaded from node files. */
 	sessionSettings?: IpdSessionSettings;
+	requestViewLimits?: Partial<RequestViewLimits>;
 }
 
 export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCreateInput> {
@@ -118,6 +122,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 	private readonly modelRuntime: ModelRuntime;
 	private readonly customTools: readonly ToolDefinition[];
 	private readonly sessionSettings: IpdSessionSettings;
+	private readonly requestViewLimits?: Partial<RequestViewLimits>;
 
 	constructor(options: PiNodeSessionFactoryOptions) {
 		this.agentDir = options.agentDir;
@@ -125,6 +130,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 		this.modelRuntime = options.modelRuntime;
 		this.customTools = options.customTools ?? [];
 		this.sessionSettings = projectIpdSessionSettings(options.sessionSettings);
+		this.requestViewLimits = structuredClone(options.requestViewLimits);
 	}
 
 	async validate(input: PiNodeSessionCreateInput): Promise<void> {
@@ -203,6 +209,11 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 					`Tool ${id} requires an explicit execution backend; host fallback is disabled`,
 				);
 		}
+		if (allowedToolNames.has(CONTEXT_EVIDENCE_TOOL))
+			throw new NodeWorkerError("configuration", `${CONTEXT_EVIDENCE_TOOL} is reserved for Session evidence`);
+		allowedToolNames.add(CONTEXT_EVIDENCE_TOOL);
+		const requestViewLimits = resolveRequestViewLimits(model, this.requestViewLimits);
+		const requestView = createRequestView(requestViewLimits);
 		const settingsManager = SettingsManager.inMemory(this.sessionSettings, { projectTrusted: false });
 		const services = await createAgentSessionServices({
 			cwd: input.workspace,
@@ -237,8 +248,12 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 					{
 						name: "ipd-provider-request-admission",
 						hidden: true,
-						factory: createProviderRequestAdmissionExtension(model, () => input.getProviderRequestRecorder?.()),
+						factory: createProviderRequestAdmissionExtension(model, () => input.getProviderRequestRecorder?.(), {
+							limits: requestViewLimits,
+							onRejected: requestView.onRejected,
+						}),
 					},
+					{ name: "ipd-request-view", hidden: true, factory: requestView.extension },
 					...(legacy?.extensions ?? []),
 					...(input.getCurrentContext
 						? [
@@ -296,6 +311,7 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 		if (!input.restoreSession)
 			created.session.sessionManager.appendCustomEntry("ipd_execution_configuration", {
 				contextProtocol: "system-sections-v1",
+				requestViewLimits,
 				externalResultProtocol: "receipt-and-pdf-v1",
 				nodeId: input.nodeId,
 				model: {

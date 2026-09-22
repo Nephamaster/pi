@@ -75,11 +75,13 @@ export interface ArtifactValidationResult {
 
 export class ArtifactValidationError extends Error {
 	readonly diagnostics: IpdDiagnostic[];
+	readonly outputId?: string;
 
-	constructor(message: string, diagnostics: IpdDiagnostic[]) {
+	constructor(message: string, diagnostics: IpdDiagnostic[], outputId?: string) {
 		super(message);
 		this.name = "ArtifactValidationError";
 		this.diagnostics = diagnostics;
+		this.outputId = outputId;
 	}
 }
 
@@ -90,8 +92,9 @@ interface ResolvedArtifactPath {
 
 async function validateFileContent(path: string, mimeType: string, diagnosticPath: string): Promise<IpdDiagnostic[]> {
 	if (mimeType === "application/json" || mimeType.endsWith("+json")) {
+		const content = await readFile(path, "utf8");
 		try {
-			JSON.parse(await readFile(path, "utf8"));
+			JSON.parse(content);
 			return [];
 		} catch (error) {
 			return [
@@ -158,7 +161,8 @@ async function resolveArtifactPath(
 				{
 					code: "artifact_missing",
 					path: diagnosticPath,
-					message: error instanceof Error ? error.message : String(error),
+					message: `Cannot resolve submitted file ${JSON.stringify(normalizedPath)} (${(error as NodeJS.ErrnoException).code ?? "filesystem error"})`,
+					source: normalizedPath,
 				},
 			],
 		};
@@ -189,7 +193,8 @@ export async function createArtifactManifest(options: {
 	submission: ArtifactSubmission;
 }): Promise<ArtifactManifest> {
 	const parsed = validateSchema<ArtifactSubmission>(ArtifactSubmissionSchema, options.submission);
-	if (!parsed.ok) throw new ArtifactValidationError("Invalid Artifact submission", parsed.diagnostics);
+	if (!parsed.ok)
+		throw new ArtifactValidationError("Invalid Artifact submission", parsed.diagnostics, options.contract.id);
 	const diagnostics: IpdDiagnostic[] = [];
 	if (parsed.value.contractId !== options.contract.id) {
 		diagnostics.push({
@@ -223,7 +228,9 @@ export async function createArtifactManifest(options: {
 			continue;
 		}
 		diagnostics.push(
-			...(await validateFileContent(resolved.value.absolutePath, file.mimeType, `/files/${index}/mimeType`)),
+			...(await validateFileContent(resolved.value.absolutePath, file.mimeType, `/files/${index}/mimeType`)).map(
+				(diagnostic) => ({ ...diagnostic, source: file.path }),
+			),
 		);
 		files.push({
 			path: resolved.value.normalizedPath,
@@ -232,7 +239,8 @@ export async function createArtifactManifest(options: {
 			size: fileStat.size,
 		});
 	}
-	if (diagnostics.length > 0) throw new ArtifactValidationError("Artifact submission failed validation", diagnostics);
+	if (diagnostics.length > 0)
+		throw new ArtifactValidationError("Artifact submission failed validation", diagnostics, options.contract.id);
 	return { ...parsed.value, files };
 }
 
@@ -282,7 +290,9 @@ export async function validateArtifactManifest(options: {
 			continue;
 		}
 		diagnostics.push(
-			...(await validateFileContent(resolved.value.absolutePath, file.mimeType, `/files/${index}/mimeType`)),
+			...(await validateFileContent(resolved.value.absolutePath, file.mimeType, `/files/${index}/mimeType`)).map(
+				(diagnostic) => ({ ...diagnostic, source: file.path }),
+			),
 		);
 		if (fileStat.size !== file.size) {
 			diagnostics.push({

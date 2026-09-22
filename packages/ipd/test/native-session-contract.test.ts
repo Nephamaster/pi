@@ -1,7 +1,7 @@
 import { appendFile, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Context } from "@earendil-works/pi-ai";
+import type { Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import {
 	type AgentSessionEvent,
@@ -15,6 +15,8 @@ import Type from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { NodeSessionAdapter } from "../src/adapter/node-session-adapter.ts";
 import { PiNodeSessionFactory } from "../src/adapter/pi-node-session-factory.ts";
+import type { ProviderRequestObservation, RequestViewLimits } from "../src/adapter/provider-request-admission.ts";
+import { CONTEXT_EVIDENCE_TOOL } from "../src/adapter/request-view.ts";
 import type { IpdSessionSettings } from "../src/adapter/session-policy.ts";
 import { createSubmissionTool, SubmissionCapture } from "../src/adapter/structured-submissions.ts";
 import { compileWorkflow } from "../src/compiler/compiler.ts";
@@ -37,6 +39,7 @@ describe("IPD native session contract", () => {
 			contextWindow?: number;
 			lockedIoTools?: string[];
 			environmentTools?: readonly ToolDefinition[];
+			requestViewLimits?: Partial<RequestViewLimits>;
 		} = {},
 	) {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-native-contract-"));
@@ -112,7 +115,9 @@ describe("IPD native session contract", () => {
 			modelRuntime,
 			customTools: [unboundTool],
 			sessionSettings: options.sessionSettings,
+			requestViewLimits: options.requestViewLimits,
 		});
+		const requests: ProviderRequestObservation[] = [];
 		const input = {
 			nodeId: "produce",
 			workspace: root,
@@ -129,6 +134,10 @@ describe("IPD native session contract", () => {
 			runDefaultThinkingLevel: "off" as const,
 			controlTools: [recordWork, submission, ...(options.extraTools ?? [])],
 			getCurrentContext: options.getCurrentContext,
+			getProviderRequestRecorder: () => async (request: ProviderRequestObservation) => {
+				requests.push(request);
+				return true;
+			},
 		};
 		const session = await factory.create(input);
 		const adapter = new NodeSessionAdapter({ create: async () => session, validate: () => factory.validate(input) });
@@ -149,7 +158,20 @@ describe("IPD native session contract", () => {
 				session.dispose();
 			}
 		});
-		return { root, faux, session, prompt, capture, events, markerPath, sessionDirectory };
+		return {
+			root,
+			faux,
+			session,
+			prompt,
+			capture,
+			events,
+			markerPath,
+			sessionDirectory,
+			requests,
+			factory,
+			input,
+			adapter,
+		};
 	}
 
 	it("keeps native retry and compaction enabled in isolated default settings", () => {
@@ -205,7 +227,7 @@ describe("IPD native session contract", () => {
 						.flatMap((message) => message.toolsAdded ?? [])
 						.map((tool) => tool.name)
 						.sort(),
-				).toEqual(["record_work", "submit_contract"]);
+				).toEqual([CONTEXT_EVIDENCE_TOOL, "record_work", "submit_contract"]);
 				return fauxAssistantMessage([fauxToolCall("record_work", {})], { stopReason: "toolUse" });
 			},
 			fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
@@ -460,5 +482,319 @@ describe("IPD native session contract", () => {
 		const files = (await readdir(fixture.sessionDirectory)).filter((file) => file.endsWith(".jsonl"));
 		const entries = SessionManager.open(join(fixture.sessionDirectory, files[0])).getEntries();
 		expect(entries.some((entry) => entry.type === "compaction")).toBe(true);
+	});
+
+	it("pages large evidence without losing originals, the contract or executing its tool again", async () => {
+		let executions = 0;
+		const source = `large-source:${"x".repeat(100_000)}:exact-ending`;
+		const largeResult = defineTool({
+			name: "large_result",
+			label: "Large result",
+			description: "Return retained text",
+			parameters: Type.Object({}),
+			async execute() {
+				executions++;
+				return { content: [{ type: "text", text: source }], details: {} };
+			},
+		});
+		const fixture = await createFixture({
+			extraTools: [largeResult],
+			requestViewLimits: { maxRequestBytes: 32_000 },
+			sessionSettings: { compaction: { enabled: false } },
+			getCurrentContext: () => "frozen-input-and-unresolved-finding",
+		});
+		const identity = fixture.session.sessionId;
+		fixture.faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
+			(request) => {
+				expect(JSON.stringify(request.messages)).toContain("IPD request-view reference");
+				expect(JSON.stringify(request.messages)).not.toContain(source);
+				const entry = fixture.session.sessionManager
+					.getBranch()
+					.find(
+						(entry) =>
+							entry.type === "message" &&
+							entry.message.role === "toolResult" &&
+							entry.message.toolName === "large_result",
+					)!;
+				return fauxAssistantMessage(
+					fauxToolCall(CONTEXT_EVIDENCE_TOOL, {
+						entry_id: entry.id,
+						block: 0,
+						offset: source.length - 13,
+						limit: 13,
+					}),
+					{ stopReason: "toolUse" },
+				);
+			},
+			(request) => {
+				const text = JSON.stringify(request.messages);
+				expect(text).toContain(":exact-ending");
+				expect(text).toContain("frozen-input-and-unresolved-finding");
+				return fauxAssistantMessage(fauxToolCall("submit_contract", { result: "accepted" }), {
+					stopReason: "toolUse",
+				});
+			},
+		]);
+		await fixture.prompt("Read the evidence and submit.");
+		expect(executions).toBe(1);
+		expect(fixture.session.sessionId).toBe(identity);
+		expect(fixture.capture.value).toEqual({ result: "accepted" });
+		const raw = SessionManager.open(fixture.session.sessionFile!).getEntries();
+		expect(JSON.stringify(raw)).toContain(source);
+		expect(raw.filter((entry) => entry.type === "message" && entry.message.role === "user")).toHaveLength(1);
+		expect(raw.some((entry) => entry.type === "context_edit")).toBe(true);
+	});
+
+	it("bounds image batches and can retrieve an omitted original from the same Session", async () => {
+		const image = {
+			type: "image" as const,
+			mimeType: "image/png",
+			data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9WQAAAAASUVORK5CYII=",
+		};
+		const images = defineTool({
+			name: "pictures",
+			label: "Pictures",
+			description: "Return a batch",
+			parameters: Type.Object({}),
+			async execute() {
+				return { content: [image, image, image], details: {} };
+			},
+		});
+		const fixture = await createFixture({
+			extraTools: [images],
+			requestViewLimits: { maxImagesPerMessage: 1, maxImagesPerRequest: 1 },
+		});
+		fixture.faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("pictures", {}), { stopReason: "toolUse" }),
+			(request) => {
+				const result = request.messages.find(
+					(message) => message.role === "toolResult" && message.toolName === "pictures",
+				);
+				if (result?.role !== "toolResult") throw new Error("Image tool result is missing");
+				expect(result.content.filter((block) => block.type === "image")).toHaveLength(1);
+				const entry = fixture.session.sessionManager
+					.getBranch()
+					.find(
+						(entry) =>
+							entry.type === "message" &&
+							entry.message.role === "toolResult" &&
+							entry.message.toolName === "pictures",
+					)!;
+				return fauxAssistantMessage(fauxToolCall(CONTEXT_EVIDENCE_TOOL, { entry_id: entry.id, block: 0 }), {
+					stopReason: "toolUse",
+				});
+			},
+			(request) => {
+				const results = request.messages.filter((message) => message.role === "toolResult");
+				expect(
+					results.flatMap((message) => message.content.filter((block) => block.type === "image")),
+				).toHaveLength(1);
+				expect(results.at(-1)).toMatchObject({ toolName: CONTEXT_EVIDENCE_TOOL, content: [image] });
+				return fauxAssistantMessage("Done");
+			},
+		]);
+		await fixture.prompt("Inspect these images in batches.");
+		const raw = fixture.session.sessionManager
+			.getBranch()
+			.find(
+				(entry) =>
+					entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "pictures",
+			);
+		expect(raw).toMatchObject({ message: { content: [image, image, image] } });
+	});
+
+	it("repairs an exact wire-byte rejection inside one native run without replaying side effects", async () => {
+		let executions = 0;
+		const largeResult = defineTool({
+			name: "large_result",
+			label: "Large result",
+			description: "Return text once",
+			parameters: Type.Object({}),
+			async execute() {
+				executions++;
+				return { content: [{ type: "text", text: "x".repeat(16_000) }], details: {} };
+			},
+		});
+		const fixture = await createFixture({
+			extraTools: [largeResult],
+			requestViewLimits: { maxRequestBytes: 32_000 },
+			sessionSettings: { compaction: { enabled: false } },
+		});
+		// Faux has no HTTP serializer. This shim invokes the real Pi payload hook with measured wire overhead.
+		fixture.faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
+			...Array.from({ length: 3 }, () => async (context: Context, options: SimpleStreamOptions | undefined) => {
+				await options?.onPayload?.(
+					{ messages: context.messages, transport_padding: "p".repeat(16_000) },
+					fixture.session.model!,
+				);
+				return fauxAssistantMessage(fauxToolCall("submit_contract", { result: "accepted" }), {
+					stopReason: "toolUse",
+				});
+			}),
+		]);
+		await fixture.prompt("Read once and finish.");
+		expect(executions).toBe(1);
+		expect(fixture.capture.value).toEqual({ result: "accepted" });
+		expect(fixture.requests.map((request) => request.status)).toEqual(["rejected", "admitted"]);
+		expect(
+			fixture.session.sessionManager
+				.getBranch()
+				.filter((entry) => entry.type === "custom" && entry.customType === "ipd_request_view_repair"),
+		).toHaveLength(1);
+		expect(fixture.session.messages.filter((message) => message.role === "user")).toHaveLength(1);
+	});
+
+	it.each([false, true])(
+		"reports irreducible instructions as request_capacity (native compaction=%s)",
+		async (enabled) => {
+			const fixture = await createFixture({
+				requestViewLimits: { maxRequestBytes: 12_000 },
+				sessionSettings: { compaction: { enabled } },
+				getCurrentContext: () => `immutable-contract:${"x".repeat(16_000)}`,
+			});
+			let admitted = 0;
+			fixture.faux.setResponses([
+				async (context, options) => {
+					await options?.onPayload?.({ messages: context.messages }, fixture.session.model!);
+					admitted++;
+					return fauxAssistantMessage("Must not be reached");
+				},
+			]);
+			await expect(fixture.prompt(`immutable-task:${"x".repeat(16_000)}`)).rejects.toMatchObject({
+				kind: "request_capacity",
+				retryable: false,
+			});
+			expect(admitted).toBe(0);
+			expect(fixture.faux.state.callCount).toBe(1);
+			expect(fixture.session.messages.filter((message) => message.role === "user")).toHaveLength(1);
+		},
+	);
+
+	it("continues using retained evidence references after reopening the original Session", async () => {
+		const evidence = `saved-evidence:${"x".repeat(16_000)}`;
+		const source = defineTool({
+			name: "source",
+			label: "Source",
+			description: "Read evidence",
+			parameters: Type.Object({}),
+			async execute() {
+				return { content: [{ type: "text", text: evidence }], details: {} };
+			},
+		});
+		const fixture = await createFixture({ extraTools: [source], requestViewLimits: { maxRequestBytes: 12_000 } });
+		fixture.faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("source", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("Retained"),
+		]);
+		await fixture.prompt("Read once.");
+		const reopened = SessionManager.open(fixture.session.sessionFile!);
+		const entry = reopened
+			.getBranch()
+			.find((entry) => entry.type === "message" && entry.message.role === "toolResult")!;
+		expect(entry).toBeDefined();
+		fixture.session.dispose();
+		const restored = await fixture.factory.create({
+			...fixture.input,
+			restoreSession: {
+				sessionId: fixture.session.sessionId,
+				sessionFile: fixture.session.sessionFile!,
+				entryId: reopened.getLeafId()!,
+			},
+		});
+		cleanups.push(async () => {
+			await restored.abort();
+			restored.dispose();
+		});
+		fixture.faux.setResponses([
+			fauxAssistantMessage(fauxToolCall(CONTEXT_EVIDENCE_TOOL, { entry_id: entry.id, block: 0, limit: 15 }), {
+				stopReason: "toolUse",
+			}),
+			(request) => {
+				expect(JSON.stringify(request.messages.at(-1))).toContain("saved-evidence:");
+				return fauxAssistantMessage("Done");
+			},
+		]);
+		await restored.prompt("Read the saved reference.");
+		expect(restored.sessionId).toBe(fixture.session.sessionId);
+	});
+
+	it("repairs provider-side merging of image results without replaying either read", async () => {
+		let executions = 0;
+		const image = {
+			type: "image" as const,
+			mimeType: "image/png",
+			data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9WQAAAAASUVORK5CYII=",
+		};
+		const picture = defineTool({
+			name: "picture",
+			label: "Picture",
+			description: "Read image",
+			parameters: Type.Object({}),
+			async execute() {
+				executions++;
+				return { content: [image], details: {} };
+			},
+		});
+		const fixture = await createFixture({
+			extraTools: [picture],
+			requestViewLimits: { maxImagesPerMessage: 1, maxImagesPerRequest: 8 },
+			sessionSettings: { compaction: { enabled: false } },
+		});
+		fixture.faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("picture", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("picture", {}), { stopReason: "toolUse" }),
+			...Array.from({ length: 2 }, () => async (context: Context, options: SimpleStreamOptions | undefined) => {
+				const content = context.messages.flatMap((message) =>
+					message.role === "toolResult" ? message.content : [],
+				);
+				await options?.onPayload?.({ messages: [{ role: "user", content }] }, fixture.session.model!);
+				return fauxAssistantMessage("Finished");
+			}),
+		]);
+		await fixture.prompt("Inspect two pictures");
+		expect(executions).toBe(2);
+		expect(fixture.requests.map((request) => request.status)).toEqual(["rejected", "admitted"]);
+		expect(fixture.requests[0].reasonCode).toBe("message_images_exceeded");
+	});
+
+	it("does not continue a capacity repair after the dispatch is cancelled", async () => {
+		const result = defineTool({
+			name: "large_result",
+			label: "Result",
+			description: "Text",
+			parameters: Type.Object({}),
+			async execute() {
+				return { content: [{ type: "text", text: "x".repeat(16_000) }], details: {} };
+			},
+		});
+		const fixture = await createFixture({
+			extraTools: [result],
+			requestViewLimits: { maxRequestBytes: 32_000 },
+			sessionSettings: { compaction: { enabled: false } },
+		});
+		fixture.faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("large_result", {}), { stopReason: "toolUse" }),
+			async (context, options) => {
+				try {
+					await options?.onPayload?.(
+						{ messages: context.messages, padding: "p".repeat(16_000) },
+						fixture.session.model!,
+					);
+				} catch (error) {
+					void fixture.adapter.stop("run", "produce", fixture.input.participant.participantId, "round");
+					throw error;
+				}
+				return fauxAssistantMessage("Must not be sent");
+			},
+		]);
+		await expect(fixture.prompt("Read once")).rejects.toMatchObject({ kind: "cancelled" });
+		expect(fixture.faux.state.callCount).toBe(2);
+		expect(
+			fixture.session.sessionManager
+				.getBranch()
+				.filter((entry) => entry.type === "custom" && entry.customType === "ipd_request_view_repair"),
+		).toHaveLength(0);
 	});
 });

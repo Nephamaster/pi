@@ -9,6 +9,7 @@
 
 ### Added
 
+- Added bounded IPD request projections with retained Session evidence references, paged text/image retrieval, and native same-Session repair continuations.
 - Added StageScope candidate-use and exit validation, fixed composite ReviewBundles, criterion Assessments, persistent Findings, scoped release certificates, and source-aware requirement/decision contracts.
 - Added output-level provenance and targeted invalidation, verified preservation of unchanged outputs, release-only re-adoption, compact consumption views, and separately sealed Reviewer verification evidence.
 - Added shared cross-Run activity/tool admission, retained-participant and sealed-production storage limits, with durable resource waits and governance-aware completion diagnostics.
@@ -73,6 +74,8 @@
 
 ### Fixed
 
+- Delivered complete Artifact validation diagnostics, output identities and relative file paths to the node's correction context.
+- Preserved request-capacity failures when native compaction omits a rejected response but cannot recover; corrected counting of repeated provider image references.
 - Rejected over-byte or over-image provider payloads before network I/O, allowing native compaction to repair the request view without replaying prior tools.
 - Added stale writer-lock recovery using PID start identity and age checks, and synced parent directories after authoritative file publication.
 

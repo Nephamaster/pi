@@ -1,6 +1,7 @@
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import type { BeforeProviderRequestEvent, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolveRequestViewLimits } from "../src/adapter/provider-request-admission.ts";
 import {
 	createProviderRequestAdmissionExtension,
 	inspectProviderRequest,
@@ -24,6 +25,46 @@ function limitedModel() {
 describe("provider request admission", () => {
 	afterEach(() => {
 		for (const registration of registrations.splice(0)) registration.unregister();
+	});
+	it("uses explicit local budgets without provider metadata and never exceeds declared API limits", () => {
+		const model = limitedModel();
+		expect(resolveRequestViewLimits({ ...model, inputLimits: undefined })).toEqual({
+			maxRequestBytes: 4 * 1024 * 1024,
+			maxImagesPerRequest: 8,
+			maxImagesPerMessage: 4,
+		});
+		expect(resolveRequestViewLimits(model, { maxRequestBytes: 2048, maxImagesPerRequest: 20 })).toEqual({
+			maxRequestBytes: 256,
+			maxImagesPerRequest: 1,
+			maxImagesPerMessage: 1,
+		});
+		expect(() => resolveRequestViewLimits(model, { maxRequestBytes: 0 })).toThrow("Invalid IPD");
+	});
+
+	it("counts provider image wrappers once and detects a merged message limit", () => {
+		const model = { ...limitedModel(), inputLimits: { images: { maxPerRequest: 8, maxPerMessage: 1 } } };
+		const result = inspectProviderRequest(
+			{
+				messages: [
+					{
+						role: "user",
+						content: [
+							{ type: "image_url", image_url: { type: "image", url: "data:image/png;base64,AA==" } },
+							{ type: "image", source: { type: "base64", data: "AA==" } },
+						],
+					},
+				],
+			},
+			model,
+		);
+		expect(result).toMatchObject({ imageCount: 2, maxImagesInMessage: 2, reasonCode: "message_images_exceeded" });
+	});
+
+	it("counts repeated image object references as separate wire occurrences", () => {
+		const image = { type: "image", source: { type: "base64", data: "AA==" } };
+		expect(
+			inspectProviderRequest({ messages: [{ role: "user", content: [image, image] }] }, limitedModel()),
+		).toMatchObject({ imageCount: 2, maxImagesInMessage: 2 });
 	});
 	it("measures the serialized provider body and image totals", () => {
 		const payload = {

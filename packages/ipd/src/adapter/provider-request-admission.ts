@@ -18,6 +18,37 @@ type ModelWithInputLimits = Model<Api> & {
 	};
 };
 
+export interface RequestViewLimits {
+	maxRequestBytes: number;
+	maxImagesPerRequest: number;
+	maxImagesPerMessage: number;
+}
+
+// Local working budgets, not a claim about an unconfigured provider's API limits.
+export function resolveRequestViewLimits(
+	model: ModelWithInputLimits,
+	policy: Partial<RequestViewLimits> = {},
+): RequestViewLimits {
+	const limits = {
+		maxRequestBytes: Math.min(
+			policy.maxRequestBytes ?? 4 * 1024 * 1024,
+			model.inputLimits?.maxRequestBytes ?? Infinity,
+		),
+		maxImagesPerRequest: Math.min(
+			policy.maxImagesPerRequest ?? 8,
+			model.inputLimits?.images?.maxPerRequest ?? Infinity,
+		),
+		maxImagesPerMessage: Math.min(
+			policy.maxImagesPerMessage ?? 4,
+			model.inputLimits?.images?.maxPerMessage ?? Infinity,
+		),
+	};
+	for (const [key, value] of Object.entries(limits))
+		if (!Number.isSafeInteger(value) || value < (key === "maxRequestBytes" ? 1 : 0))
+			throw new Error(`Invalid IPD request-view limit: ${key}`);
+	return limits;
+}
+
 class ProviderRequestAdmissionError extends ProviderRequestRejection {
 	readonly code: string;
 	readonly observed: number;
@@ -36,7 +67,6 @@ function imageCount(value: unknown, seen = new Set<object>()): number {
 	if (typeof value !== "object" || value === null) return 0;
 	if (seen.has(value)) return 0;
 	seen.add(value);
-	if (Array.isArray(value)) return value.reduce((total, item) => total + imageCount(item, seen), 0);
 	const record = value as Record<string, unknown>;
 	const own =
 		(typeof record.type === "string" && IMAGE_TYPES.has(record.type)) ||
@@ -45,7 +75,10 @@ function imageCount(value: unknown, seen = new Set<object>()): number {
 		("inline_data" in record && typeof record.inline_data === "object")
 			? 1
 			: 0;
-	return own + Object.values(record).reduce<number>((total, item) => total + imageCount(item, seen), 0);
+	const count = own || Object.values(record).reduce<number>((total, item) => total + imageCount(item, seen), 0);
+	// Shared objects serialize once per occurrence; only cycles, not repeated references, are excluded.
+	seen.delete(value);
+	return count;
 }
 
 function messageCollections(payload: unknown): unknown[][] {
@@ -98,10 +131,18 @@ export function inspectProviderRequest(payload: unknown, model: ModelWithInputLi
 export function createProviderRequestAdmissionExtension(
 	model: Model<Api>,
 	getRecorder: () => ((observation: ProviderRequestObservation) => Promise<boolean>) | undefined,
+	options: { limits?: RequestViewLimits; onRejected?: (observation: ProviderRequestObservation) => void } = {},
 ): ExtensionFactory {
+	const limits = resolveRequestViewLimits(model, options.limits);
 	return (pi) => {
 		pi.on("before_provider_request", async (event) => {
-			const observation = inspectProviderRequest(event.payload, model as ModelWithInputLimits);
+			const observation = inspectProviderRequest(event.payload, {
+				...model,
+				inputLimits: {
+					maxRequestBytes: limits.maxRequestBytes,
+					images: { maxPerRequest: limits.maxImagesPerRequest, maxPerMessage: limits.maxImagesPerMessage },
+				},
+			});
 			const recorder = getRecorder();
 			if (recorder && !(await recorder(observation)))
 				throw new ProviderRequestAdmissionError(
@@ -111,17 +152,22 @@ export function createProviderRequestAdmissionExtension(
 					0,
 				);
 			if (observation.status === "rejected") {
+				options.onRejected?.(observation);
 				const byteDescription = `${observation.serializedBytes}${observation.maxRequestBytes ? `/${observation.maxRequestBytes}` : ""} bytes`;
-				const imageDescription = `${observation.imageCount}${observation.maxImagesPerRequest ? `/${observation.maxImagesPerRequest}` : ""} images`;
+				const imageDescription = `${observation.imageCount}/${limits.maxImagesPerRequest} images`;
 				throw new ProviderRequestAdmissionError(
 					`ipd_${observation.reasonCode}`,
-					`request_too_large: IPD provider request admission rejected the request (${byteDescription}, ${imageDescription}, max ${observation.maxImagesInMessage} images in one message). Compact or otherwise repair the current request view before retrying; unchanged replay is forbidden.`,
+					`request_too_large: IPD provider request admission rejected the request (${byteDescription}, ${imageDescription}, ${observation.maxImagesInMessage}/${limits.maxImagesPerMessage} images in one message). Compact or otherwise repair the current request view before retrying; unchanged replay is forbidden.`,
 					observation.reasonCode === "request_bytes_exceeded"
 						? observation.serializedBytes
-						: observation.imageCount,
+						: observation.reasonCode === "message_images_exceeded"
+							? observation.maxImagesInMessage
+							: observation.imageCount,
 					observation.reasonCode === "request_bytes_exceeded"
 						? (observation.maxRequestBytes ?? 0)
-						: (observation.maxImagesPerRequest ?? observation.maxImagesPerMessage ?? 0),
+						: observation.reasonCode === "message_images_exceeded"
+							? limits.maxImagesPerMessage
+							: limits.maxImagesPerRequest,
 				);
 			}
 			return undefined;

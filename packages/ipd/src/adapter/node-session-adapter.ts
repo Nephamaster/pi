@@ -1,4 +1,6 @@
 // 统一登记原生 Session、节点业务绑定和正在派发的轮次。
+
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { NodeWorkerError } from "../runtime/node-worker.ts";
 
@@ -56,6 +58,7 @@ interface ActiveDispatch {
 	toolCalls: number;
 	toolErrors: number;
 	limitError?: Error;
+	lastAssistant?: AssistantMessage;
 }
 
 interface BindingRecord<TState> {
@@ -129,6 +132,8 @@ export class NodeSessionAdapter<TCreateInput, TState = never> {
 					record.unsubscribe = session.subscribe((event) => {
 						const active = record.active;
 						if (active) {
+							if (event.type === "message_end" && event.message.role === "assistant")
+								active.lastAssistant = event.message;
 							if (event.type === "tool_execution_start") active.toolCalls++;
 							if (event.type === "tool_execution_end" && event.isError) active.toolErrors++;
 							if (!active.limitError) {
@@ -209,10 +214,11 @@ export class NodeSessionAdapter<TCreateInput, TState = never> {
 			if (active.limitError) throw active.limitError;
 			if (active.cancelled || record.unavailable)
 				throw new NodeWorkerError("cancelled", `Round ${roundId} was cancelled`);
-			const last = session.messages.at(-1);
+			// Native recovery may omit the failed response before compaction itself fails.
+			const last = active.lastAssistant ?? session.messages.at(-1);
 			if (last?.role === "assistant" && last.stopReason === "error")
 				throw new NodeWorkerError(
-					"transient",
+					last.errorMessage?.includes("request_too_large") ? "request_capacity" : "transient",
 					last.errorMessage ?? "Model request failed without an error message",
 				);
 			if (last?.role === "assistant" && last.stopReason === "aborted")

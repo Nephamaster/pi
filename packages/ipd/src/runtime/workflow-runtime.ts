@@ -1394,6 +1394,9 @@ export class WorkflowRuntime {
 						{
 							type: "submission_correction",
 							issue: error instanceof Error ? error.message : String(error),
+							...(error instanceof ArtifactValidationError
+								? { outputId: error.outputId, diagnostics: structuredClone(error.diagnostics) }
+								: {}),
 							expectedCorrection: "Submit a candidate that satisfies the declared submission contract.",
 						},
 					],

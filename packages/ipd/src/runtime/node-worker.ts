@@ -15,6 +15,7 @@ import type {
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
 import type { EnvironmentBinding, EnvironmentErrorCode } from "../environment/contracts.ts";
+import type { IpdDiagnostic } from "../ir/types.ts";
 import type { ExecutionStamp } from "./execution-control.ts";
 
 export interface NodeTaskContext {
@@ -29,6 +30,7 @@ export interface RoundFeedback {
 	criterionId?: string;
 	outputId?: string;
 	issue: string;
+	diagnostics?: IpdDiagnostic[];
 	evidenceRef?: string;
 	expectedCorrection?: string;
 	findingId?: string;
