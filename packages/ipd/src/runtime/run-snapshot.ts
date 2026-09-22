@@ -4,6 +4,7 @@ import { link, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RunState } from "../contracts/runtime.ts";
 import { freezeDeep, hashJson } from "../ir/hash.ts";
+import { syncDirectory } from "./durable-file.ts";
 
 const STATIC_FIELDS = [
 	"baseline",
@@ -45,6 +46,7 @@ export class RunSnapshotCodec {
 					}
 					try {
 						await link(temporary, path);
+						await syncDirectory(dirname(path));
 					} catch (error) {
 						if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 						if (hashJson(JSON.parse(await readFile(path, "utf8"))) !== hash)

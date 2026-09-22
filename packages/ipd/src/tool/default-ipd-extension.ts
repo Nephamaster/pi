@@ -50,6 +50,7 @@ const OUTER_IPD_TOOLS = new Set([
 	"ipd_resume_run",
 	"ipd_read_events",
 	"ipd_get_result",
+	"ipd_reconcile_external_operation",
 ]);
 
 function executableTools(pi: ExtensionAPI): ToolDefinition[] {
@@ -472,7 +473,7 @@ async function createDefaultService(
 				workflowAssets,
 			);
 		},
-		createRuntime: (directory) =>
+		createRuntime: (directory, controller) =>
 			new WorkflowRuntime(
 				store,
 				directory,
@@ -492,6 +493,7 @@ async function createDefaultService(
 				new SubmissionStore(),
 				new MechanicalChecker(checks),
 				{
+					controller,
 					maxConcurrentNodes: runtimeInteger("PI_IPD_MAX_CONCURRENT_NODES", 4, 1),
 					maxQualityReworkRounds: runtimeInteger("PI_IPD_MAX_QUALITY_REWORK_ROUNDS", 10, 0),
 					roundTimeoutMs: runtimeInteger("PI_IPD_ROUND_TIMEOUT_MS", DEFAULT_ROUND_TIMEOUT_MS, 0),

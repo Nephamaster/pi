@@ -23,6 +23,7 @@ import type {
 	ExtensionUIContext,
 	ProviderConfig,
 } from "../src/core/extensions/types.ts";
+import { ProviderRequestRejection } from "../src/core/extensions/types.ts";
 import { KeybindingsManager, type KeyId } from "../src/core/keybindings.ts";
 import type { ModelRegistry } from "../src/core/model-registry.ts";
 import type { ScopedModel } from "../src/core/model-resolver.ts";
@@ -1245,6 +1246,16 @@ describe("ExtensionRunner", () => {
 
 			await runner.emit({ type: "agent_end", messages: [] });
 			expect(calls).toEqual(["A", "B", "B"]);
+		});
+
+		it("propagates a trusted provider-request admission rejection", async () => {
+			const { runner } = await loadSubscriptionExtension((pi) => {
+				pi.on("before_provider_request", () => {
+					throw new ProviderRequestRejection("request exceeds the admitted byte budget");
+				});
+			});
+
+			await expect(runner.emitBeforeProviderRequest({ messages: [] })).rejects.toThrow("admitted byte budget");
 		});
 
 		it("removes duplicate registrations independently and cleans up the last handler", async () => {

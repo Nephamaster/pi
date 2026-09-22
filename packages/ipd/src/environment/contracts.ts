@@ -252,6 +252,19 @@ export interface PreparedEnvironment {
 	image?: DockerImageIdentity;
 }
 
+export interface ActiveEnvironmentReference {
+	leaseId: string;
+	providerHandle: string;
+	generation: number;
+	bindingId: string;
+}
+
+export interface QuarantinedEnvironment extends PreparedEnvironment {
+	workspace: string;
+	identity: string;
+	workspaceHash: string;
+}
+
 /** Preparation failed, but cleanup still owns a possibly live external resource. */
 export class EnvironmentPreparationError extends EnvironmentError {
 	readonly prepared: PreparedEnvironment;
@@ -270,11 +283,40 @@ export interface EnvironmentProgressReference {
 	nodeId: string;
 	participantId: string;
 	workspace: string;
-	environment: { leaseId: string; generation: number; bindingId: string; identity: string; workspaceHash: string };
+	environment: {
+		leaseId: string;
+		providerHandle: string;
+		generation: number;
+		bindingId: string;
+		identity: string;
+		workspaceHash: string;
+	};
 }
 
 export interface EnvironmentProvider {
 	readonly kind: ExecutionProfile["provider"];
+	quarantine?(
+		request: {
+			leaseId: string;
+			runId: string;
+			binding: EnvironmentBinding;
+			providerHandle: string;
+			generation: number;
+		},
+		signal?: AbortSignal,
+	): Promise<QuarantinedEnvironment>;
+	recover?(
+		request: {
+			leaseId: string;
+			runId: string;
+			binding: EnvironmentBinding;
+			providerHandle: string;
+			generation: number;
+			identity: string;
+			workspaceHash: string;
+		},
+		signal?: AbortSignal,
+	): Promise<PreparedEnvironment>;
 	suspend?(
 		lease: EnvironmentLease,
 		signal?: AbortSignal,

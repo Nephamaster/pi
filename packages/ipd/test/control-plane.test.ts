@@ -79,6 +79,29 @@ describe("IpdControlPlane", () => {
 		).toEqual(result.baseline.workflow);
 	});
 
+	it("accepts concurrent delivery of the same durable Run identity exactly once", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-control-accept-race-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		const createControl = () =>
+			new IpdControlPlane(
+				new FileRunStore(),
+				new BootstrapProcessSelector(),
+				new BootstrapWorkflowDesigner({ id: "producer", version: "1.0.0" }, { id: "reviewer", version: "1.0.0" }),
+				new FileWorkflowAssetStore({ directory: join(root, ".pi", "ipd", "workflow") }),
+			);
+		const input = {
+			projectRoot: root,
+			runId: "run-concurrent-accept",
+			taskInput: fixture.taskInput,
+			runSkill: runSkill(),
+			processSpecs: [fixture.processSpec],
+			assets: fixture.assets,
+		};
+		const [first, second] = await Promise.all([createControl().accept(input), createControl().accept(input)]);
+		expect(first.stateFile).toBe(second.stateFile);
+	});
+
 	it("rebinds and compiles a selected Workflow template without invoking control-role Agents", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-control-template-"));
 		roots.push(root);
@@ -129,6 +152,42 @@ describe("IpdControlPlane", () => {
 			"process_staffing_checked",
 			"workflow_template_selected",
 		]);
+	});
+
+	it("recompiles a durably recorded Workflow candidate without rerunning the Designer", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-control-recovered-candidate-"));
+		roots.push(root);
+		const fixture = createCompilerFixture();
+		const store = new FileRunStore();
+		const control = new IpdControlPlane(
+			store,
+			{
+				async select() {
+					throw new Error("Process Selector must not run");
+				},
+			},
+			{
+				async design() {
+					throw new Error("Workflow Designer must not run");
+				},
+			},
+			new FileWorkflowAssetStore({ directory: join(root, ".pi", "ipd", "workflow") }),
+		);
+		const result = await control.prepare({
+			projectRoot: root,
+			runId: fixture.runId,
+			taskInput: fixture.taskInput,
+			runSkill: runSkill(),
+			processSpecs: [fixture.processSpec],
+			assets: fixture.assets,
+			processSelection: fixture.processSelection,
+			selectedProcessSpec: fixture.processSpec,
+			workflowCandidate: fixture.workflow,
+		});
+		expect(result.ok).toBe(true);
+		expect(
+			(await store.read(fixture.runId)).events.some((event) => event.type === "workflow_candidate_recovered"),
+		).toBe(true);
 	});
 
 	it("records a formal selection block without starting Workflow design", async () => {

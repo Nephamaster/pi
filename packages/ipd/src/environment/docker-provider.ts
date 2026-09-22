@@ -8,6 +8,7 @@ import { hashSkillPackage } from "../registry/skill-package.ts";
 import { BRIDGE_VERSION, type BridgeRequest, encodeBridgeRequest, quoteCommand, shellArgv } from "./bridge/protocol.ts";
 import {
 	buildIsolatedEnvironment,
+	type DockerImageIdentity,
 	type EnvironmentBinding,
 	type EnvironmentDirectoryEntry,
 	EnvironmentError,
@@ -48,6 +49,7 @@ interface DockerLeaseState {
 	lost?: boolean;
 	egress?: DockerEgress;
 	containerName: string;
+	resourceOwner: string;
 	root: string;
 	contextRoot: string;
 	skillsRoot: string;
@@ -62,6 +64,16 @@ interface DockerLeaseState {
 	processes: Map<string, ProcessHandle>;
 	suspendedIdentity?: string;
 	suspendedWorkspaceHash?: string;
+}
+
+interface RetainedDockerContainer {
+	id: string;
+	image: string;
+	resourceOwner: string;
+	leaseId: string;
+	status: string;
+	paused: boolean;
+	identity: string;
 }
 
 export interface DockerEnvironmentProviderOptions {
@@ -111,6 +123,84 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		this.controllerId = options.controllerId ?? randomUUID();
 	}
 
+	async quarantine(
+		request: {
+			leaseId: string;
+			runId: string;
+			binding: EnvironmentBinding;
+			providerHandle: string;
+			generation: number;
+		},
+		signal?: AbortSignal,
+	): Promise<{
+		providerHandle: string;
+		image?: DockerImageIdentity;
+		workspace: string;
+		identity: string;
+		workspaceHash: string;
+	}> {
+		throwIfAborted(signal);
+		const inspection = await this.inspectRetainedContainer(request, signal);
+		const image = request.binding.image;
+		if (!image)
+			throw new EnvironmentError("profile_incompatible", "Docker Provider requires a locked Docker image identity");
+		if (!["created", "exited", "running"].includes(inspection.status))
+			throw new EnvironmentError(
+				"external_outcome_unknown",
+				`Interrupted Docker container is ${inspection.status || "unknown"}`,
+			);
+		const state = await this.recoveredLeaseState(request, inspection, signal);
+		if (inspection.paused)
+			await this.docker.run(["unpause", state.containerName], { signal, acceptedExitCodes: [0, 1] });
+		if (inspection.status === "running")
+			await this.docker.run(["stop", "--time", "1", state.containerName], { signal });
+		await state.egress?.suspend();
+		const workspaceHash = await hashWorkspaceState(state.workspaceRoot);
+		state.suspendedIdentity = inspection.identity;
+		state.suspendedWorkspaceHash = workspaceHash;
+		this.leases.set(request.leaseId, state);
+		return {
+			providerHandle: state.containerName,
+			image: { ...image },
+			workspace: state.workspaceRoot,
+			identity: inspection.identity,
+			workspaceHash,
+		};
+	}
+
+	async recover(
+		request: {
+			leaseId: string;
+			runId: string;
+			binding: EnvironmentBinding;
+			providerHandle: string;
+			generation: number;
+			identity: string;
+			workspaceHash: string;
+		},
+		signal?: AbortSignal,
+	): Promise<PreparedEnvironment> {
+		throwIfAborted(signal);
+		const inspection = await this.inspectRetainedContainer(request, signal);
+		const image = request.binding.image;
+		if (!image)
+			throw new EnvironmentError("profile_incompatible", "Docker Provider requires a locked Docker image identity");
+		if (inspection.identity !== request.identity)
+			throw new EnvironmentError("environment_lost", "Retained Docker container identity changed");
+		if (!["created", "exited"].includes(inspection.status))
+			throw new EnvironmentError(
+				"external_outcome_unknown",
+				`Retained Docker container is still ${inspection.status || "unknown"}`,
+			);
+		const state = await this.recoveredLeaseState(request, inspection, signal);
+		state.suspendedIdentity = request.identity;
+		state.suspendedWorkspaceHash = request.workspaceHash;
+		if ((await hashWorkspaceState(state.workspaceRoot)) !== request.workspaceHash)
+			throw new EnvironmentError("environment_lost", "Retained Docker workspace changed after its checkpoint");
+		this.leases.set(request.leaseId, state);
+		return { providerHandle: state.containerName, image: { ...image } };
+	}
+
 	async prepare(
 		request: { leaseId: string; runId: string; binding: EnvironmentBinding },
 		signal?: AbortSignal,
@@ -147,6 +237,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		const root = join(this.storageRoot, request.leaseId);
 		const state: DockerLeaseState = {
 			ready: false,
+			resourceOwner: this.controllerId,
 			egress:
 				request.binding.network.mode === "restricted"
 					? new DockerEgress(this.docker, request.leaseId, this.controllerId)
@@ -389,6 +480,10 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			await state.egress?.resume(signal);
 			await this.docker.run(["start", state.containerName], { signal });
 			state.suspendedIdentity = undefined;
+		} else if (state.currentRound) {
+			// A round boundary is also a writer boundary: stop/start kills untracked descendants before rebinding inputs.
+			await this.docker.run(["stop", "--time", "1", state.containerName], { signal });
+			await this.docker.run(["start", state.containerName], { signal });
 		}
 		await Promise.all(
 			[...state.processes.values()]
@@ -904,6 +999,99 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			throw new EnvironmentError("environment_lost", "The retained workspace changed after its checkpoint");
 	}
 
+	private async inspectRetainedContainer(
+		request: {
+			leaseId: string;
+			runId: string;
+			binding: EnvironmentBinding;
+			providerHandle: string;
+		},
+		signal?: AbortSignal,
+	): Promise<RetainedDockerContainer> {
+		requireLeaseId(request.leaseId);
+		if (request.binding.provider !== "docker" || !request.binding.image)
+			throw new EnvironmentError("profile_incompatible", "Docker Provider requires a locked Docker image identity");
+		const containerName = `pi-ipd-${request.leaseId}`;
+		if (request.providerHandle && request.providerHandle !== containerName)
+			throw new EnvironmentError("environment_lost", "Retained Docker Provider handle changed");
+		if (this.leases.has(request.leaseId))
+			throw new EnvironmentError("environment_lost", `Docker lease is already registered: ${request.leaseId}`);
+		let result: DockerRunResult;
+		try {
+			result = await this.docker.run(
+				[
+					"container",
+					"inspect",
+					containerName,
+					"--format",
+					'{{.Id}}|{{.Image}}|{{index .Config.Labels "pi.ipd.controller"}}|{{index .Config.Labels "pi.ipd.lease"}}|{{index .Config.Labels "pi.ipd.run"}}|{{.State.Status}}|{{.State.Paused}}',
+				],
+				{ signal, acceptedExitCodes: [0, 1] },
+			);
+		} catch (error) {
+			throw new EnvironmentError("environment_unavailable", "Cannot inspect interrupted Docker container", {
+				cause: error,
+			});
+		}
+		if (result.exitCode !== 0) {
+			if (!/No such (object|container)/i.test(result.stderr.toString("utf8")))
+				throw new EnvironmentError("environment_unavailable", "Cannot inspect interrupted Docker container");
+			await rm(join(this.storageRoot, request.leaseId), { recursive: true, force: true });
+			throw new EnvironmentError("path_not_found", "Allocated Docker container was never created");
+		}
+		const [id, image, resourceOwner, leaseId, runHash, status, paused] = result.stdout
+			.toString("utf8")
+			.trim()
+			.split("|");
+		if (
+			!id ||
+			image !== request.binding.image.contentId ||
+			!resourceOwner ||
+			leaseId !== request.leaseId ||
+			runHash !== hashJson(request.runId)
+		)
+			throw new EnvironmentError("environment_lost", "Retained Docker container identity changed");
+		return {
+			id,
+			image,
+			resourceOwner,
+			leaseId,
+			status: status ?? "",
+			paused: paused === "true",
+			identity: [id, image, resourceOwner, leaseId].join("|"),
+		};
+	}
+
+	private async recoveredLeaseState(
+		request: { leaseId: string; binding: EnvironmentBinding },
+		inspection: RetainedDockerContainer,
+		signal?: AbortSignal,
+	): Promise<DockerLeaseState> {
+		const root = join(this.storageRoot, request.leaseId);
+		const state: DockerLeaseState = {
+			ready: true,
+			resourceOwner: inspection.resourceOwner,
+			egress:
+				request.binding.network.mode === "restricted"
+					? await DockerEgress.recover(this.docker, request.leaseId, signal)
+					: undefined,
+			containerName: `pi-ipd-${request.leaseId}`,
+			root,
+			contextRoot: join(root, "context"),
+			skillsRoot: join(root, "skills"),
+			inputsRoot: join(root, "inputs"),
+			workspaceRoot: join(root, "workspace"),
+			scratchRoot: join(root, "scratch"),
+			cacheRoot: join(root, "cache"),
+			homeRoot: join(root, "home"),
+			binding: structuredClone(request.binding),
+			processes: new Map(),
+		};
+		if (!(await lstat(state.workspaceRoot)).isDirectory())
+			throw new EnvironmentError("environment_lost", "Retained Docker workspace is unavailable");
+		return state;
+	}
+
 	private async inspectIdentity(lease: EnvironmentLease, signal?: AbortSignal): Promise<string> {
 		const state = this.requiredState(lease);
 		const result = await this.docker.run(
@@ -921,7 +1109,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 		if (
 			!id ||
 			image !== state.binding.image?.contentId ||
-			controller !== this.controllerId ||
+			controller !== state.resourceOwner ||
 			leaseId !== lease.leaseId
 		)
 			throw new EnvironmentError(
@@ -949,7 +1137,7 @@ export class DockerEnvironmentProvider implements EnvironmentProvider {
 			{ signal, acceptedExitCodes: [0, 1] },
 		);
 		if (inspection.exitCode === 0) {
-			if (inspection.stdout.toString("utf8").trim() !== `${this.controllerId}|${leaseId}`)
+			if (inspection.stdout.toString("utf8").trim() !== `${state.resourceOwner}|${leaseId}`)
 				throw new EnvironmentError("external_outcome_unknown", "Cannot confirm container ownership for cleanup");
 			await this.docker.run(["rm", "--force", state.containerName], { signal });
 		} else if (!/No such (object|container)/i.test(inspection.stderr.toString("utf8"))) {

@@ -1,10 +1,14 @@
 // 以文件事务保存 Run 状态、幂等操作和顺序事件。
-import { type FileHandle, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { link, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { NOOP_TELEMETRY_CONTEXT, type TelemetryContext } from "@earendil-works/pi-telemetry";
 import type { JsonValue } from "../contracts/primitives.ts";
 import type { RunEvent, RunState } from "../contracts/runtime.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
+import { syncDirectory } from "./durable-file.ts";
+import { requireCurrentRunState } from "./execution-control.ts";
 import { RunSnapshotCodec } from "./run-snapshot.ts";
 
 export interface RunMutationContext {
@@ -26,6 +30,8 @@ export interface FileRunStoreOptions {
 	telemetryContext?: TelemetryContext;
 	onNotificationError?: (error: unknown, runId: string, events: readonly RunEvent[]) => void;
 	onMutationMetric?: (metric: RunMutationMetric) => void;
+	staleLockMs?: number;
+	writerLockTimeoutMs?: number;
 }
 
 export interface RunMutationMetric {
@@ -43,6 +49,74 @@ export interface RunNotificationError {
 	timestamp: number;
 }
 
+export class RunAlreadyExistsError extends Error {
+	constructor(runId: string, options?: ErrorOptions) {
+		super(`Run already exists: ${runId}`, options);
+		this.name = "RunAlreadyExistsError";
+	}
+}
+
+async function processIdentity(pid: number): Promise<string | undefined> {
+	if (process.platform === "linux") {
+		try {
+			const value = await readFile(`/proc/${pid}/stat`, "utf8");
+			const closing = value.lastIndexOf(")");
+			const fields =
+				closing < 0
+					? []
+					: value
+							.slice(closing + 2)
+							.trim()
+							.split(/\s+/);
+			const startTime = fields[19];
+			return startTime ? `linux:${pid}:${startTime}` : undefined;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+			throw error;
+		}
+	}
+	try {
+		process.kill(pid, 0);
+		return `pid:${pid}`;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ESRCH") return undefined;
+		throw error;
+	}
+}
+
+async function staleWriterLock(lockPath: string, staleLockMs: number): Promise<boolean> {
+	const before = await stat(lockPath, { bigint: true });
+	if (Date.now() - Number(before.mtimeMs) < staleLockMs) return false;
+	const content = await readFile(lockPath, "utf8");
+	let record: { pid?: unknown; processIdentity?: unknown } = {};
+	try {
+		record = JSON.parse(content) as typeof record;
+	} catch {
+		// An aged partial lock is recoverable only after the identity/age checks below.
+	}
+	const pid =
+		typeof record.pid === "number" && Number.isInteger(record.pid) && record.pid > 0 ? record.pid : undefined;
+	const expectedIdentity = typeof record.processIdentity === "string" ? record.processIdentity : undefined;
+	if (pid !== undefined && expectedIdentity !== undefined && (await processIdentity(pid)) === expectedIdentity)
+		return false;
+	const current = await stat(lockPath, { bigint: true });
+	const currentContent = await readFile(lockPath, "utf8");
+	if (
+		before.ino !== current.ino ||
+		before.mtimeNs !== current.mtimeNs ||
+		before.size !== current.size ||
+		content !== currentContent
+	)
+		return false;
+	try {
+		await unlink(lockPath);
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+		throw error;
+	}
+}
+
 export class FileRunStore implements RunStore {
 	private readonly telemetry: TelemetryContext;
 	private readonly codec = new RunSnapshotCodec();
@@ -52,11 +126,19 @@ export class FileRunStore implements RunStore {
 	private readonly onNotificationError: NonNullable<FileRunStoreOptions["onNotificationError"]>;
 	private readonly onMutationMetric: NonNullable<FileRunStoreOptions["onMutationMetric"]>;
 	private readonly notificationErrors: RunNotificationError[] = [];
+	private readonly staleLockMs: number;
+	private readonly writerLockTimeoutMs: number;
 
 	constructor(options: FileRunStoreOptions = {}) {
 		this.telemetry = options.telemetryContext ?? NOOP_TELEMETRY_CONTEXT;
 		this.onNotificationError = options.onNotificationError ?? (() => {});
 		this.onMutationMetric = options.onMutationMetric ?? (() => {});
+		this.staleLockMs = options.staleLockMs ?? 30_000;
+		this.writerLockTimeoutMs = options.writerLockTimeoutMs ?? 5000;
+		if (!Number.isFinite(this.staleLockMs) || this.staleLockMs < 0)
+			throw new Error("staleLockMs must be a non-negative number");
+		if (!Number.isFinite(this.writerLockTimeoutMs) || this.writerLockTimeoutMs < 0)
+			throw new Error("writerLockTimeoutMs must be a non-negative number");
 	}
 
 	bind(runId: string, stateFile: string): void {
@@ -75,6 +157,7 @@ export class FileRunStore implements RunStore {
 	}
 
 	async create(state: RunState): Promise<void> {
+		requireCurrentRunState(state);
 		const path = this.requirePath(state.runId);
 		try {
 			await this.withWriterLock(path, async () => {
@@ -86,16 +169,18 @@ export class FileRunStore implements RunStore {
 				} finally {
 					await file.close();
 				}
+				await syncDirectory(dirname(path));
 			});
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Run already exists: ${state.runId}`);
+			if ((error as NodeJS.ErrnoException).code === "EEXIST")
+				throw new RunAlreadyExistsError(state.runId, { cause: error });
 			throw error;
 		}
 	}
 
 	async read(runId: string): Promise<RunState> {
 		const path = this.requirePath(runId);
-		return this.codec.decode(path, await readFile(path, "utf8"));
+		return requireCurrentRunState(await this.codec.decode(path, await readFile(path, "utf8")));
 	}
 
 	async version(runId: string): Promise<string> {
@@ -193,32 +278,52 @@ export class FileRunStore implements RunStore {
 			await file.close();
 		}
 		await rename(temporary, path);
+		await syncDirectory(dirname(path));
 		return Buffer.byteLength(content);
 	}
 
 	private async withWriterLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
 		const lockPath = `${path}.writer.lock`;
-		let lock: FileHandle;
-		try {
-			lock = await open(lockPath, "wx");
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Run writer conflict: ${path}`);
-			throw error;
-		}
-		try {
-			await lock.writeFile(`${process.pid}\n`, "utf8");
-		} catch (error) {
-			await lock.close().catch(() => {});
-			await unlink(lockPath).catch(() => {});
-			throw error;
-		}
+		await this.claimWriterLock(path, lockPath);
 		try {
 			return await operation();
 		} finally {
-			await lock.close();
 			await unlink(lockPath).catch((error) => {
 				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 			});
+		}
+	}
+
+	private async claimWriterLock(path: string, lockPath: string): Promise<void> {
+		const identity = await processIdentity(process.pid);
+		if (!identity) throw new Error("Cannot determine the Run writer process identity");
+		const temporary = `${lockPath}.${process.pid}.${randomUUID()}.tmp`;
+		const lock = await open(temporary, "wx", 0o600);
+		try {
+			await lock.writeFile(
+				`${JSON.stringify({ pid: process.pid, processIdentity: identity, createdAt: Date.now() })}\n`,
+				"utf8",
+			);
+			await lock.sync();
+		} finally {
+			await lock.close();
+		}
+		const deadline = Date.now() + this.writerLockTimeoutMs;
+		try {
+			while (true) {
+				try {
+					await link(temporary, lockPath);
+					return;
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+					if (await staleWriterLock(lockPath, this.staleLockMs)) continue;
+					const remaining = deadline - Date.now();
+					if (remaining <= 0) throw new Error(`Run writer conflict: ${path}`);
+					await delay(Math.min(25, remaining));
+				}
+			}
+		} finally {
+			await unlink(temporary).catch(() => {});
 		}
 	}
 

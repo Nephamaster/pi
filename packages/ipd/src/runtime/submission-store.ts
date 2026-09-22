@@ -7,6 +7,7 @@ import type { SubmissionRecord } from "../contracts/runtime.ts";
 import type { ExecutionNode } from "../contracts/workflow.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
 import { normalizeScope, scopeContains } from "../ir/scopes.ts";
+import { syncDirectory, syncTree } from "./durable-file.ts";
 import type { RunDirectory } from "./run-directory.ts";
 
 export interface SealSubmissionInput {
@@ -14,6 +15,7 @@ export interface SealSubmissionInput {
 	runId: string;
 	node: ExecutionNode;
 	roundId: string;
+	attemptId: string;
 	submissionId: string;
 	inputSubmissionIds: string[];
 	submission: SubmitArtifact;
@@ -37,6 +39,7 @@ export class SubmissionStore {
 			runId: input.runId,
 			nodeId: input.node.node_id,
 			roundId: input.roundId,
+			attemptId: input.attemptId,
 			inputSubmissionIds: input.inputSubmissionIds,
 			submission: input.submission,
 		});
@@ -91,7 +94,7 @@ export class SubmissionStore {
 						id: `${input.submissionId}:${definition.output_id}`,
 						runId: input.runId,
 						nodeId: input.node.node_id,
-						attemptId: input.roundId,
+						attemptId: input.attemptId,
 						contractId: definition.output_id,
 						createdAt: Date.now(),
 						inputs: input.inputSubmissionIds,
@@ -119,11 +122,29 @@ export class SubmissionStore {
 				if (!validation.ok) throw new Error(`Submission changed while being sealed: ${definition.output_id}`);
 				outputs.push({ outputId: definition.output_id, sealedRoot: join(target, definition.output_id), manifest });
 			}
+			for (const output of outputs) {
+				const definition = definitions.get(output.outputId)!;
+				const sourceValidation = await validateArtifactManifest({
+					workspace: sourceWorkspace,
+					contract: {
+						id: definition.output_id,
+						artifactType: definition.artifact_type,
+						description: definition.description,
+						businessPurpose: definition.business_purpose,
+					},
+					manifest: output.manifest,
+				});
+				if (!sourceValidation.ok)
+					throw new SubmissionValidationError(
+						`Submission source changed before the complete candidate was frozen: ${output.outputId}`,
+					);
+			}
 			const record: SubmissionRecord = {
 				submissionId: input.submissionId,
 				contentHash,
 				nodeId: input.node.node_id,
 				roundId: input.roundId,
+				attemptId: input.attemptId,
 				status: "candidate",
 				inputSubmissionIds: [...input.inputSubmissionIds],
 				outputs,
@@ -158,7 +179,9 @@ export class SubmissionStore {
 				await rm(staging, { recursive: true, force: true });
 				return existing;
 			}
+			await syncTree(staging);
 			await rename(staging, target);
+			await syncDirectory(input.run.submissions);
 			return record;
 		} catch (error) {
 			await rm(staging, { recursive: true, force: true });

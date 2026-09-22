@@ -3,6 +3,7 @@ import {
 	type CompilerAssetCatalog,
 	compileAgentCard,
 	createArtifactIntegrityCheckExecutor,
+	type ExecutionStamp,
 	hashJson,
 	type ProcessSelection,
 	type ProcessSpec,
@@ -11,6 +12,32 @@ import {
 } from "../src/index.ts";
 
 const hash = "a".repeat(64);
+
+export function createExecutionStamp(roundId: string, index = 1, runGeneration = 0): ExecutionStamp {
+	const attemptId = `${roundId}:attempt:${index}:term:1:scope:1`;
+	return {
+		attemptId,
+		commandId: `${attemptId}:dispatch`,
+		runGeneration,
+		controllerId: "test-controller",
+		controllerTerm: 1,
+		scopeEpoch: 1,
+	};
+}
+
+export function createEmptyRuntimeRecords() {
+	return {
+		runtimeSchemaVersion: 2 as const,
+		attempts: [],
+		dispatchIntents: [],
+		waits: [],
+		failures: [],
+		externalOperations: [],
+		providerRequests: [],
+		completionCandidates: [],
+		activeResources: [],
+	};
+}
 
 export function createValidWorkflow(): WorkflowDefinition {
 	return {

@@ -23,6 +23,7 @@ describe("SubmissionStore", () => {
 			runId: "run-1",
 			node,
 			roundId: "round-1",
+			attemptId: "round-1:attempt:1:term:1:scope:1",
 			submissionId: "submission-1",
 			inputSubmissionIds: [],
 			submission: {
@@ -79,6 +80,7 @@ describe("SubmissionStore", () => {
 			runId: "run-1",
 			node,
 			roundId: "round-1",
+			attemptId: "round-1:attempt:1:term:1:scope:1",
 			submissionId: "submission-1",
 			inputSubmissionIds: [],
 			sourceWorkspace,
@@ -113,6 +115,7 @@ describe("SubmissionStore", () => {
 			runId: "run-1",
 			node,
 			roundId: "round-1",
+			attemptId: "round-1:attempt:1:term:1:scope:1",
 			submissionId: "submission-1",
 			inputSubmissionIds: [],
 			submission: {
@@ -155,6 +158,7 @@ describe("SubmissionStore", () => {
 			runId: "run-1",
 			node,
 			roundId: "round-1",
+			attemptId: "round-1:attempt:1:term:1:scope:1",
 			submissionId: "submission-1",
 			inputSubmissionIds: [],
 			submission: {
@@ -212,6 +216,7 @@ describe("SubmissionStore", () => {
 				runId: "run-1",
 				node,
 				roundId: "round-1",
+				attemptId: "round-1:attempt:1:term:1:scope:1",
 				submissionId: "submission-1",
 				inputSubmissionIds: [],
 				submission: {

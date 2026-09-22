@@ -9,7 +9,7 @@ import type { RunState } from "../src/contracts/runtime.ts";
 import { buildDashboardSnapshot } from "../src/visualization/dashboard-model.ts";
 import { renderDashboardPage } from "../src/visualization/dashboard-page.ts";
 import { IpdDashboardServer } from "../src/visualization/dashboard-server.ts";
-import { createCompilerFixture } from "./fixtures.ts";
+import { createCompilerFixture, createEmptyRuntimeRecords } from "./fixtures.ts";
 
 const chrome = process.env.PI_IPD_CHROME;
 describe.runIf(chrome && existsSync(chrome))("real dashboard browser", () => {
@@ -17,6 +17,7 @@ describe.runIf(chrome && existsSync(chrome))("real dashboard browser", () => {
 		const root = await mkdtemp(join(tmpdir(), "ipd-browser-"));
 		const fixture = createCompilerFixture();
 		const state: RunState = {
+			...createEmptyRuntimeRecords(),
 			runId: fixture.runId,
 			revision: 1,
 			phase: "execute",

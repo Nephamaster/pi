@@ -51,6 +51,8 @@ class FauxProvider implements EnvironmentProvider {
 	prepareCalls = 0;
 	disposeCalls = 0;
 	bindCalls = 0;
+	recoverCalls = 0;
+	verifyCalls = 0;
 	waitForAbort = false;
 
 	async prepare(request: { leaseId: string }, signal?: AbortSignal): Promise<{ providerHandle: string }> {
@@ -62,6 +64,15 @@ class FauxProvider implements EnvironmentProvider {
 				else signal?.addEventListener("abort", abort, { once: true });
 			});
 		return { providerHandle: `faux:${request.leaseId}` };
+	}
+
+	async recover(request: { providerHandle: string }): Promise<{ providerHandle: string }> {
+		this.recoverCalls++;
+		return { providerHandle: request.providerHandle };
+	}
+
+	async verifyResume(): Promise<void> {
+		this.verifyCalls++;
 	}
 
 	async bindRound(): Promise<void> {
@@ -138,6 +149,22 @@ class FauxProvider implements EnvironmentProvider {
 }
 
 describe("EnvironmentManager", () => {
+	it("persists the Lease allocation callback before the Provider creates resources", async () => {
+		const provider = new FauxProvider();
+		const manager = new EnvironmentManager([provider]);
+		let allocated = false;
+		provider.prepare = async ({ leaseId }) => {
+			expect(allocated).toBe(true);
+			return { providerHandle: `faux:${leaseId}` };
+		};
+		const lease = await manager.prepare("run", binding("node"), undefined, async (reference) => {
+			allocated = true;
+			expect(reference).toMatchObject({ state: "preparing", providerHandle: "" });
+			expect(manager.inspectRun("run")[0].leaseId).toBe(reference.leaseId);
+		});
+		expect(lease.state).toBe("ready");
+	});
+
 	it("keeps a prepared handle when cancellation cleanup fails before preparation returns", async () => {
 		const provider = new FauxProvider();
 		const controller = new AbortController();
@@ -187,7 +214,7 @@ describe("EnvironmentManager", () => {
 		expect(provider.disposeCalls).toBe(2);
 	});
 
-	it("cancels asynchronous preparation and removes the unusable lease", async () => {
+	it("cancels an allocated lease before Provider side effects and permits a clean retry", async () => {
 		const provider = new FauxProvider();
 		provider.waitForAbort = true;
 		const manager = new EnvironmentManager([provider]);
@@ -197,6 +224,30 @@ describe("EnvironmentManager", () => {
 		provider.waitForAbort = false;
 		const replacement = await manager.prepare("run-1", binding("first"));
 		expect(replacement.state).toBe("ready");
-		expect(provider.prepareCalls).toBe(2);
+		expect(provider.prepareCalls).toBe(1);
+	});
+
+	it("rebuilds an idle lease from a durable progress reference", async () => {
+		const provider = new FauxProvider();
+		const manager = new EnvironmentManager([provider]);
+		const recovered = await manager.recover("run-1", binding("first"), {
+			leaseId: "11111111-1111-4111-8111-111111111111",
+			providerHandle: "faux:retained",
+			generation: 3,
+			bindingId: "binding-first",
+			identity: "retained-identity",
+			workspaceHash: "retained-workspace",
+		});
+
+		expect(recovered).toMatchObject({ state: "idle", generation: 3, providerHandle: "faux:retained" });
+		expect(provider.recoverCalls).toBe(1);
+		expect(provider.verifyCalls).toBe(1);
+		expect((await manager.prepare("run-1", binding("first"))).leaseId).toBe(recovered.leaseId);
+		const round = await manager.bindRound(recovered.leaseId, {
+			roundId: "round-4",
+			inputs: [],
+			allowedOperations: ["read"],
+		});
+		expect(round.generation).toBe(4);
 	});
 });

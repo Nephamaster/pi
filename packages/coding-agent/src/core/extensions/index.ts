@@ -207,5 +207,6 @@ export {
 	isReadToolResult,
 	isToolCallEventType,
 	isWriteToolResult,
+	ProviderRequestRejection,
 } from "./types.ts";
 export { wrapRegisteredTool, wrapRegisteredTools } from "./wrapper.ts";

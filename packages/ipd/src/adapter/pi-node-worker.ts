@@ -6,7 +6,7 @@ import { isAbsolute, join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { RunResourceReference, WorkProgressReference } from "../contracts/runtime.ts";
+import type { RunResourceReference, RunState, WorkProgressReference } from "../contracts/runtime.ts";
 import { quoteCommand } from "../environment/bridge/protocol.ts";
 import { EnvironmentError } from "../environment/contracts.ts";
 import type { EnvironmentManager } from "../environment/manager.ts";
@@ -24,9 +24,12 @@ import { renderCurrentRoundContext, renderNodeContextFiles } from "./node-contex
 import { NodeSessionAdapter, type NodeSessionEventEnvelope } from "./node-session-adapter.ts";
 import {
 	type LegacyNodeToolAdapter,
+	openRetainedSession,
 	type PiNodeSessionCreateInput,
 	PiNodeSessionFactory,
+	type RetainedSessionReference,
 } from "./pi-node-session-factory.ts";
+import type { ProviderRequestObservation } from "./provider-request-admission.ts";
 import type { IpdSessionSettings } from "./session-policy.ts";
 import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "./structured-submissions.ts";
 import {
@@ -47,6 +50,8 @@ interface WorkerBinding {
 	additionalReadRoots: string[];
 	deniedReadRoots: string[];
 	environment?: EnvironmentToolContext;
+	providerRequestRecorder?: (observation: ProviderRequestObservation) => Promise<boolean>;
+	externalOperationRecorder?: NodeRoundWork["externalOperations"];
 }
 
 export interface PiNodeWorkerOptions {
@@ -67,9 +72,17 @@ export function classifyWorkerError(error: unknown): NodeWorkerError {
 	if (error instanceof NodeWorkerError) return error;
 	const message = error instanceof Error ? error.message : String(error);
 	if (error instanceof EnvironmentError)
-		return new NodeWorkerError(error.code, message, error.retryable, { cause: error });
+		return new NodeWorkerError(error.code, message, error.retryable, {
+			cause: error,
+			details: { environmentCode: error.code },
+		});
 	if (/abort|cancel|no longer active/i.test(message))
 		return new NodeWorkerError("cancelled", message, false, { cause: error });
+	if (/IPD provider request admission rejected|ipd_(?:request|message)_.*exceeded/i.test(message))
+		return new NodeWorkerError("request_capacity", message, false, {
+			cause: error,
+			details: { providerRequestRejected: true },
+		});
 	if (/IPD Bash sandbox requires|Required environment command is unavailable/i.test(message))
 		return new NodeWorkerError("environment_unavailable", message, false, { cause: error });
 	if (
@@ -84,6 +97,7 @@ export function classifyWorkerError(error: unknown): NodeWorkerError {
 export class PiNodeWorker implements NodeWorker {
 	private readonly options: PiNodeWorkerOptions;
 	private readonly sessions: NodeSessionAdapter<PiNodeSessionCreateInput, WorkerBinding>;
+	private readonly retainedSessions = new Map<string, RetainedSessionReference>();
 
 	constructor(options: PiNodeWorkerOptions) {
 		this.options = options;
@@ -103,7 +117,12 @@ export class PiNodeWorker implements NodeWorker {
 		if (!work.environmentBinding || !this.options.environmentManager) return;
 		const binding = this.binding(work, work.node.definition.kind);
 		const paths = work.environmentBinding.paths;
-		const lease = await this.options.environmentManager.prepare(work.runId, work.environmentBinding, signal);
+		const lease = await this.options.environmentManager.prepare(
+			work.runId,
+			work.environmentBinding,
+			signal,
+			async () => this.notifyResources(work),
+		);
 		const contextFiles = renderNodeContextFiles(work);
 		await this.options.environmentManager.bindStaticAssets(
 			lease.leaseId,
@@ -199,6 +218,7 @@ export class PiNodeWorker implements NodeWorker {
 				signal,
 			);
 		}
+		await this.notifyResources(work);
 	}
 
 	async exportSubmission(
@@ -238,6 +258,11 @@ export class PiNodeWorker implements NodeWorker {
 			);
 		}
 		const outputRoots = new Map(work.node.definition.outputs.map((output) => [output.output_id, output.path_prefix]));
+		for (const output of submission.outputs)
+			if (!outputRoots.has(output.output_id))
+				throw new NodeSubmissionProtocolError(
+					`Submission references undeclared output ${output.output_id}; declared outputs: ${[...outputRoots.keys()].join(", ")}`,
+				);
 		const destination = await mkdtemp(join(tmpdir(), "pi-ipd-export-"));
 		try {
 			const result = await binding.environment.provider.exportOutputs(
@@ -247,11 +272,7 @@ export class PiNodeWorker implements NodeWorker {
 					destination,
 					outputs: submission.outputs.flatMap((output) => {
 						const outputRoot = outputRoots.get(output.output_id);
-						if (!outputRoot)
-							throw new EnvironmentError(
-								"policy_denied",
-								`Submission references undeclared output: ${output.output_id}`,
-							);
+						if (!outputRoot) throw new NodeSubmissionProtocolError(`Undeclared output ${output.output_id}`);
 						return output.files.map((file) => ({
 							outputId: output.output_id,
 							outputRoot,
@@ -264,6 +285,7 @@ export class PiNodeWorker implements NodeWorker {
 			return result.root;
 		} catch (error) {
 			await rm(destination, { recursive: true, force: true });
+			if (error instanceof NodeSubmissionProtocolError) throw error;
 			throw classifyWorkerError(error);
 		}
 	}
@@ -311,15 +333,29 @@ export class PiNodeWorker implements NodeWorker {
 		}
 		const capture =
 			kind === "execution" ? new SubmissionCapture<SubmitArtifact>() : new SubmissionCapture<SubmitReview>();
+		const declaredOutputIds =
+			work.node.definition.kind === "execution"
+				? work.node.definition.outputs.map((output) => output.output_id)
+				: [];
 		const submissionTool =
 			kind === "execution"
 				? createSubmissionTool({
 						name: "submit_artifact",
 						label: "Submit Artifact",
-						description:
-							"Submit one complete candidate result for the current execution round. Include every output declared by the node contract and the evidence actually produced for those outputs. Successful invocation captures the candidate for Runtime validation; it does not mean the Artifact passed checks, review, or approval.",
+						description: `Submit one complete candidate result for the current execution round. Use exactly these output IDs: ${declaredOutputIds.join(", ")}. Include the evidence actually produced for those outputs. Successful invocation captures the candidate for Runtime validation; it does not mean the Artifact passed checks, review, or approval.`,
 						parameters: SubmitArtifactSchema,
 						capture: capture as SubmissionCapture<SubmitArtifact>,
+						validate: (value) => {
+							const submitted = value.outputs.map((output) => output.output_id);
+							const invalid = submitted.filter((id) => !declaredOutputIds.includes(id));
+							const missing = declaredOutputIds.filter((id) => !submitted.includes(id));
+							const duplicate = submitted.filter((id, index) => submitted.indexOf(id) !== index);
+							return invalid.length || missing.length || duplicate.length
+								? [
+										`Output IDs must match the node contract. Expected: ${declaredOutputIds.join(", ")}. Unknown: ${invalid.join(", ") || "none"}. Missing: ${missing.join(", ") || "none"}. Duplicate: ${duplicate.join(", ") || "none"}. Correct the IDs and submit again.`,
+									]
+								: [];
+						},
 					})
 				: createSubmissionTool({
 						name: "submit_review",
@@ -387,49 +423,141 @@ export class PiNodeWorker implements NodeWorker {
 	}
 
 	inspectRun(runId: string): RunResourceReference[] {
-		return [
-			...this.sessions.inspectRun(runId).map(({ nodeId, participantId, sessionId, sessionFile }) => ({
-				nodeId,
-				participantId,
-				sessionId,
-				sessionFile,
-			})),
-			...(this.options.environmentManager?.inspectRun(runId) ?? []).map(
-				({ nodeId, participantId, leaseId, providerHandle }) => ({
-					nodeId,
-					participantId,
-					leaseId,
-					providerHandle,
-				}),
-			),
-		];
+		const resources = new Map<string, RunResourceReference>();
+		const resource = (nodeId: string, participantId: string) => {
+			const key = `${nodeId}\0${participantId}`;
+			const existing = resources.get(key) ?? { nodeId, participantId };
+			resources.set(key, existing);
+			return existing;
+		};
+		for (const session of this.sessions.inspectRun(runId))
+			Object.assign(resource(session.nodeId, session.participantId), {
+				sessionId: session.sessionId,
+				sessionFile: session.sessionFile,
+				entryId: session.entryId,
+			});
+		for (const environment of this.options.environmentManager?.inspectRun(runId) ?? [])
+			Object.assign(resource(environment.nodeId, environment.participantId), {
+				leaseId: environment.leaseId,
+				providerHandle: environment.providerHandle,
+				bindingId: environment.bindingId,
+				generation: environment.generation,
+			});
+		return [...resources.values()];
 	}
 
-	async validateResume(runId: string, progress: readonly WorkProgressReference[]): Promise<void> {
+	async recoverInterrupted(state: RunState): Promise<WorkProgressReference[]> {
+		if (state.activeResources.length === 0)
+			throw new NodeWorkerError("environment_lost", "Interrupted Run has no durable resource references");
+		const progress: WorkProgressReference[] = [];
+		for (const resource of state.activeResources) {
+			const retainedSession = this.retainSessionReference(state, resource, true);
+			let saved: WorkProgressReference;
+			if (resource.leaseId) {
+				if (!resource.bindingId || resource.generation === undefined || !this.options.environmentManager)
+					throw new NodeWorkerError("environment_lost", "Interrupted environment reference is incomplete");
+				const binding = state.baseline?.environmentBindings.find(
+					(candidate) =>
+						candidate.nodeId === resource.nodeId && candidate.participantId === resource.participantId,
+				);
+				if (!binding) throw new NodeWorkerError("environment_lost", "Frozen environment binding is unavailable");
+				try {
+					saved = await this.options.environmentManager.quarantine(state.runId, binding, {
+						leaseId: resource.leaseId,
+						providerHandle: resource.providerHandle ?? "",
+						generation: resource.generation,
+						bindingId: resource.bindingId,
+					});
+				} catch (error) {
+					if (!(error instanceof EnvironmentError) || error.code !== "path_not_found") throw error;
+					saved = {
+						nodeId: resource.nodeId,
+						participantId: resource.participantId,
+						workspace: this.options.workspace,
+						workspaceHash: await hashWorkspaceState(this.options.workspace),
+					};
+				}
+			} else {
+				saved = {
+					nodeId: resource.nodeId,
+					participantId: resource.participantId,
+					workspace: this.options.workspace,
+					workspaceHash: await hashWorkspaceState(this.options.workspace),
+				};
+			}
+			if (retainedSession) Object.assign(saved, retainedSession);
+			progress.push(saved);
+		}
+		return progress;
+	}
+
+	async validateResume(state: RunState): Promise<void> {
+		const progress = state.workProgress ?? [];
 		for (const reference of progress) {
 			if (reference.workspaceHash && (await hashWorkspaceState(reference.workspace)) !== reference.workspaceHash)
 				throw new NodeWorkerError("environment_lost", "Retained work changed after the checkpoint");
-			if (reference.sessionId) {
-				const session = this.sessions.inspect(runId, reference.nodeId, reference.participantId);
-				if (
-					!session ||
-					session.status !== "idle" ||
-					session.sessionId !== reference.sessionId ||
-					session.sessionFile !== reference.sessionFile ||
-					session.entryId !== reference.entryId
-				)
-					throw new NodeWorkerError("session_lost", "Original Session or history boundary is unavailable");
-			}
+			this.retainSessionReference(state, reference);
 			if (reference.environment) {
 				if (!this.options.environmentManager)
 					throw new NodeWorkerError("environment_lost", "Environment manager is unavailable");
-				await this.options.environmentManager.verifyResume(reference.environment);
-				const binding = this.sessions.getState(runId, reference.nodeId, reference.participantId);
-				for (const input of binding?.environment?.round.inputs ?? [])
+				const environmentBinding = state.baseline?.environmentBindings.find(
+					(candidate) =>
+						candidate.nodeId === reference.nodeId && candidate.participantId === reference.participantId,
+				);
+				if (!environmentBinding)
+					throw new NodeWorkerError("environment_lost", "Frozen environment binding is unavailable");
+				await this.options.environmentManager.recover(state.runId, environmentBinding, reference.environment);
+				const sessionBinding = this.sessions.getState(state.runId, reference.nodeId, reference.participantId);
+				for (const input of sessionBinding?.environment?.round.inputs ?? [])
 					if ((await hashEnvironmentSource(input.sourcePath)) !== input.contentHash)
 						throw new NodeWorkerError("environment_lost", "An input changed while work was paused");
 			}
 		}
+	}
+
+	private retainedSessionKey(runId: string, nodeId: string, participantId: string): string {
+		return `${runId}\0${nodeId}\0${participantId}`;
+	}
+
+	private retainSessionReference(
+		state: RunState,
+		reference: Pick<WorkProgressReference, "nodeId" | "participantId" | "sessionId" | "sessionFile" | "entryId">,
+		allowAdvancedHistory = false,
+	): RetainedSessionReference | undefined {
+		if (!reference.sessionId) return undefined;
+		if (!reference.sessionFile)
+			throw new NodeWorkerError("session_lost", "Retained Session file reference is unavailable");
+		const retained = {
+			sessionId: reference.sessionId,
+			sessionFile: reference.sessionFile,
+			entryId: reference.entryId,
+		};
+		const session = this.sessions.inspect(state.runId, reference.nodeId, reference.participantId);
+		if (session) {
+			if (
+				session.status !== "idle" ||
+				session.sessionId !== retained.sessionId ||
+				session.sessionFile !== retained.sessionFile ||
+				session.entryId !== retained.entryId
+			)
+				throw new NodeWorkerError("session_lost", "Original Session or history boundary is unavailable");
+			return { ...retained, entryId: session.entryId };
+		}
+		const manager = openRetainedSession(retained, this.options.workspace, this.options.sessionDirectory, {
+			allowAdvancedHistory,
+		});
+		if (allowAdvancedHistory) retained.entryId = manager.getLeafId() ?? undefined;
+		this.retainedSessions.set(
+			this.retainedSessionKey(state.runId, reference.nodeId, reference.participantId),
+			retained,
+		);
+		return retained;
+	}
+
+	private async notifyResources(work: NodeRoundWork): Promise<void> {
+		if (!work.onResourcesChanged) return;
+		if (!(await work.onResourcesChanged(this.inspectRun(work.runId))))
+			throw new NodeWorkerError("cancelled", "Execution resources are no longer owned by the current Attempt");
 	}
 
 	requestCheckpoint(work: NodeRoundWork): Promise<void> {
@@ -458,8 +586,14 @@ export class PiNodeWorker implements NodeWorker {
 								);
 							return binding.environment;
 						},
+						getExternalOperationRecorder: () => binding.externalOperationRecorder,
 					})
 				: undefined;
+			const retainedSessionKey = this.retainedSessionKey(
+				work.runId,
+				work.node.definition.node_id,
+				participant.participantId,
+			);
 			await this.sessions.create({
 				runId: work.runId,
 				nodeId: work.node.definition.node_id,
@@ -483,8 +617,12 @@ export class PiNodeWorker implements NodeWorker {
 					environmentCwd: binding.environment?.binding.paths.workspace,
 					environmentPaths: binding.environment?.binding.paths,
 					getEnvironmentContext: binding.environment ? () => binding.environment! : undefined,
+					getProviderRequestRecorder: () => binding.providerRequestRecorder,
+					restoreSession: this.retainedSessions.get(retainedSessionKey),
 				},
 			});
+			await this.notifyResources(work);
+			this.retainedSessions.delete(retainedSessionKey);
 			work.signal?.throwIfAborted();
 			return await this.sessions.dispatch(
 				work.runId,
@@ -494,7 +632,7 @@ export class PiNodeWorker implements NodeWorker {
 				buildNodeRoundPrompt(work),
 				{
 					generation: work.generation,
-					prepare: () => {
+					prepare: async () => {
 						binding.capture.beginRound();
 						binding.blockedCapture?.beginRound();
 						binding.currentContext = renderCurrentRoundContext(work);
@@ -507,6 +645,10 @@ export class PiNodeWorker implements NodeWorker {
 							),
 						];
 						binding.deniedReadRoots = [...work.forbiddenMutableReadPaths];
+						binding.providerRequestRecorder = work.onProviderRequest;
+						binding.externalOperationRecorder = work.externalOperations;
+						await work.onDispatchDelivering?.();
+						await work.onDispatchStarted?.();
 					},
 					result: () => ({ value: binding.capture.value, blocked: binding.blockedCapture?.value }),
 				},

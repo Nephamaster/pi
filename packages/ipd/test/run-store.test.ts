@@ -4,7 +4,7 @@ import { dirname as dirnameForTest, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { compileWorkflow } from "../src/compiler/compiler.ts";
 import { FileRunStore, prepareRunDirectory, type RunState } from "../src/index.ts";
-import { createCompilerFixture } from "./fixtures.ts";
+import { createCompilerFixture, createEmptyRuntimeRecords } from "./fixtures.ts";
 
 describe("FileRunStore", () => {
 	const roots: string[] = [];
@@ -19,6 +19,7 @@ describe("FileRunStore", () => {
 		const store = new FileRunStore();
 		store.bind(fixture.runId, directory.stateFile);
 		await store.create({
+			...createEmptyRuntimeRecords(),
 			runId: fixture.runId,
 			revision: 0,
 			phase: "execute",
@@ -65,6 +66,7 @@ describe("FileRunStore", () => {
 		const store = new FileRunStore();
 		store.bind("run-1", directory.stateFile);
 		const state: RunState = {
+			...createEmptyRuntimeRecords(),
 			runId: "run-1",
 			revision: 0,
 			phase: "intake",
@@ -100,6 +102,7 @@ describe("FileRunStore", () => {
 		store.bind("run-1", join(root, "missing", "state.json"));
 		await expect(
 			store.create({
+				...createEmptyRuntimeRecords(),
 				runId: "run-1",
 				revision: 0,
 				phase: "intake",
@@ -116,6 +119,32 @@ describe("FileRunStore", () => {
 		).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
+	it("rejects old Runtime schemas instead of silently migrating prior Runs", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-run-store-old-schema-"));
+		roots.push(root);
+		const directory = await prepareRunDirectory(root, "run-old");
+		const store = new FileRunStore();
+		store.bind("run-old", directory.stateFile);
+		const state = {
+			...createEmptyRuntimeRecords(),
+			runId: "run-old",
+			revision: 0,
+			phase: "intake",
+			status: "running",
+			nodes: [],
+			rounds: [],
+			submissions: [],
+			reviews: [],
+			approvals: [],
+			mechanicalChecks: [],
+			events: [],
+			operations: {},
+		};
+		Reflect.deleteProperty(state, "runtimeSchemaVersion");
+		await writeFile(directory.stateFile, JSON.stringify(state));
+		await expect(store.read("run-old")).rejects.toThrow("Unsupported IPD Runtime schema");
+	});
+
 	it("does not reject a committed mutation when a subscriber fails", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-run-store-notify-"));
 		roots.push(root);
@@ -126,6 +155,7 @@ describe("FileRunStore", () => {
 		});
 		store.bind("run-1", directory.stateFile);
 		await store.create({
+			...createEmptyRuntimeRecords(),
 			runId: "run-1",
 			revision: 0,
 			phase: "intake",
@@ -161,9 +191,13 @@ describe("FileRunStore", () => {
 		roots.push(root);
 		const directory = await prepareRunDirectory(root, "run-1");
 		const metrics: Array<{ operationId: string; stateBytes: number; durationMs: number }> = [];
-		const store = new FileRunStore({ onMutationMetric: (metric) => metrics.push(metric) });
+		const store = new FileRunStore({
+			onMutationMetric: (metric) => metrics.push(metric),
+			writerLockTimeoutMs: 0,
+		});
 		store.bind("run-1", directory.stateFile);
 		await store.create({
+			...createEmptyRuntimeRecords(),
 			runId: "run-1",
 			revision: 0,
 			phase: "intake",
@@ -191,5 +225,35 @@ describe("FileRunStore", () => {
 		await expect(store.mutate("run-1", "conflict", { action: "conflict" }, () => true)).rejects.toThrow(
 			"Run writer conflict",
 		);
+	});
+
+	it("recovers only an aged lock whose process identity is no longer alive", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-run-store-stale-writer-"));
+		roots.push(root);
+		const directory = await prepareRunDirectory(root, "run-1");
+		const store = new FileRunStore({ staleLockMs: 0 });
+		store.bind("run-1", directory.stateFile);
+		await store.create({
+			...createEmptyRuntimeRecords(),
+			runId: "run-1",
+			revision: 0,
+			phase: "intake",
+			status: "running",
+			nodes: [],
+			rounds: [],
+			submissions: [],
+			reviews: [],
+			approvals: [],
+			mechanicalChecks: [],
+			events: [],
+			operations: {},
+		});
+		await writeFile(
+			`${directory.stateFile}.writer.lock`,
+			`${JSON.stringify({ pid: 2_147_483_647, processIdentity: "linux:2147483647:1", createdAt: 1 })}\n`,
+		);
+
+		await expect(store.mutate("run-1", "after-stale-lock", {}, () => true)).resolves.toBe(true);
+		expect((await store.read("run-1")).revision).toBe(1);
 	});
 });

@@ -14,7 +14,7 @@ import {
 	validateReplan,
 	WorkflowRuntime,
 } from "../src/index.ts";
-import { createCompilerFixture } from "./fixtures.ts";
+import { createCompilerFixture, createEmptyRuntimeRecords } from "./fixtures.ts";
 
 describe("M7 failure boundaries", () => {
 	// Pi owns model retries. Even an explicitly retryable diagnostic must not
@@ -23,6 +23,7 @@ describe("M7 failure boundaries", () => {
 		new NodeWorkerError("transient", "native retry exhausted", true),
 		new NodeWorkerError("external_outcome_unknown", "write outcome is unknown", false),
 		new NodeWorkerError("cancelled", "cancelled work", false),
+		new NodeWorkerError("request_capacity", "provider request exceeds the admitted byte budget", false),
 	])("does not replay work after $kind", async (failure) => {
 		const root = await mkdtemp(join(tmpdir(), "ipd-failure-boundary-"));
 		try {
@@ -34,8 +35,20 @@ describe("M7 failure boundaries", () => {
 			store.bind("run-1", directory.stateFile);
 			let calls = 0;
 			const worker: NodeWorker = {
-				async runExecution() {
+				async runExecution(work) {
 					calls++;
+					if (failure.kind === "request_capacity")
+						await work.onProviderRequest?.({
+							requestId: "request-capacity-1",
+							provider: "faux",
+							modelId: "faux-model",
+							serializedBytes: 1024,
+							imageCount: 0,
+							maxImagesInMessage: 0,
+							maxRequestBytes: 512,
+							status: "rejected",
+							reasonCode: "request_bytes_exceeded",
+						});
 					throw failure;
 				},
 				async runReview() {
@@ -55,6 +68,14 @@ describe("M7 failure boundaries", () => {
 			expect(state.status).toBe(failure.kind === "external_outcome_unknown" ? "blocked" : "paused");
 			expect(state.submissions).toHaveLength(0);
 			expect(state.rounds).toHaveLength(1);
+			if (failure.kind === "request_capacity")
+				expect(state.providerRequests).toEqual([
+					expect.objectContaining({
+						requestId: "request-capacity-1",
+						attemptId: state.attempts[0].attemptId,
+						status: "rejected",
+					}),
+				]);
 			if (failure.kind === "external_outcome_unknown")
 				await expect(runtime.resume()).rejects.toThrow("explicit reconciliation");
 			expect(state.events).toContainEqual(
@@ -75,12 +96,13 @@ describe("M7 failure boundaries", () => {
 		candidate.workflow.criteria[0].description = "Changed acceptance standard";
 		candidate.nodes[0].agents[0].participantId = "replacement";
 		const errors = validateReplan(compiled.baseline, candidate, {
+			...createEmptyRuntimeRecords(),
 			runId: "run-1",
 			revision: 1,
 			phase: "execute",
 			status: "running",
 			baseline: compiled.baseline,
-			nodes: [{ nodeId: "produce", kind: "execution", status: "waiting_review", nextRound: 2 }],
+			nodes: [{ nodeId: "produce", kind: "execution", status: "waiting_review", scopeEpoch: 1, nextRound: 2 }],
 			rounds: [
 				{
 					roundId: "produce:round:1",

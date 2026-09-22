@@ -29,6 +29,191 @@ export type RoundStatus =
 	| "cancelled";
 export type SubmissionStatus = "candidate" | "approved" | "rejected" | "stale";
 
+export interface RunControllerRecord {
+	controllerId: string;
+	term: number;
+	status: "active" | "released";
+	acquiredAt: number;
+	releasedAt?: number;
+}
+
+export interface RunTemplateSelectionRecord {
+	processSpecId: string;
+	processSpecVersion: string;
+	workflowId?: string;
+	workflowVersion?: string;
+}
+
+export interface RunRequestRecord {
+	requestId: string;
+	requestHash: string;
+	runId: string;
+	runSkillId: string;
+	templates?: RunTemplateSelectionRecord;
+	acceptedAt: number;
+}
+
+export type AttemptStatus =
+	| "claimed"
+	| "dispatching"
+	| "active"
+	| "paused"
+	| "completed"
+	| "failed"
+	| "cancelled"
+	| "superseded";
+
+export interface AttemptRecord {
+	attemptId: string;
+	nodeId: string;
+	participantId: string;
+	roundId: string;
+	index: number;
+	runGeneration: number;
+	controllerTerm: number;
+	scopeEpoch: number;
+	status: AttemptStatus;
+	inputBindings: RoundInputBindingRecord[];
+	claimedAt: number;
+	dispatchedAt?: number;
+	finishedAt?: number;
+	failureId?: string;
+}
+
+export type DispatchIntentStatus =
+	| "pending"
+	| "delivering"
+	| "started"
+	| "completed"
+	| "failed"
+	| "cancelled"
+	| "outcome_unknown";
+
+export type DispatchOperation =
+	| "execute"
+	| "review"
+	| "resume"
+	| "quality_rework"
+	| "mechanical_rework"
+	| "submission_correction";
+
+export interface DispatchIntentRecord {
+	commandId: string;
+	attemptId: string;
+	nodeId: string;
+	participantId: string;
+	roundId: string;
+	runGeneration: number;
+	controllerTerm: number;
+	scopeEpoch: number;
+	operation: DispatchOperation;
+	inputBindingHash: string;
+	status: DispatchIntentStatus;
+	deliveryCount: number;
+	createdAt: number;
+	startedAt?: number;
+	finishedAt?: number;
+}
+
+export type WaitConditionKind =
+	| "dependency"
+	| "business_condition"
+	| "technical_recovery"
+	| "resource"
+	| "dispatch_reconciliation"
+	| "external_operation"
+	| "cleanup";
+
+export interface WaitRecord {
+	waitId: string;
+	nodeId: string;
+	participantId: string;
+	roundId?: string;
+	attemptId?: string;
+	kind: WaitConditionKind;
+	reason: string;
+	missingConditions: string[];
+	wakeEvents: string[];
+	state: "waiting" | "satisfied" | "cancelled";
+	createdAt: number;
+	resolvedAt?: number;
+}
+
+export interface FailureRecord {
+	failureId: string;
+	nodeId?: string;
+	roundId?: string;
+	attemptId?: string;
+	phase: "prepare" | "model" | "export" | "check" | "review" | "dispatch" | "runtime";
+	classification: string;
+	message: string;
+	retryUnchanged: boolean;
+	affectedScope: "attempt" | "node" | "run";
+	details: JsonValue;
+	observedAt: number;
+}
+
+export type ExternalOperationOutcome = "pending" | "succeeded" | "failed" | "unknown" | "cancelled";
+
+export interface ExternalOperationRecord {
+	operationId: string;
+	nodeId: string;
+	participantId: string;
+	attemptId: string;
+	intentRef: string;
+	requestHash: string;
+	authorizationRef: string;
+	targetRef: string;
+	outcome: ExternalOperationOutcome;
+	receiptRef?: string;
+	createdAt: number;
+	updatedAt: number;
+}
+
+export interface ProviderRequestRecord {
+	requestId: string;
+	attemptId: string;
+	commandId: string;
+	nodeId: string;
+	provider: string;
+	modelId: string;
+	serializedBytes: number;
+	imageCount: number;
+	maxImagesInMessage: number;
+	maxRequestBytes?: number;
+	maxImagesPerRequest?: number;
+	maxImagesPerMessage?: number;
+	status: "admitted" | "rejected";
+	reasonCode?: "request_bytes_exceeded" | "request_images_exceeded" | "message_images_exceeded" | "stale_dispatch";
+	createdAt: number;
+}
+
+export interface CompletionDeliveryBinding {
+	nodeId: string;
+	outputId: string;
+	submissionId: string;
+	manifestHash: string;
+	approvalIds: string[];
+}
+
+export interface CompletionBasis {
+	baselineId: string;
+	runGeneration: number;
+	deliveryBindings: CompletionDeliveryBinding[];
+	requiredReviewIds: string[];
+}
+
+export interface CompletionCandidateRecord {
+	finalizationId: string;
+	basis: CompletionBasis;
+	basisHash: string;
+	status: "preparing" | "prepared" | "committed" | "abandoned";
+	preparedDirectory?: string;
+	createdAt: number;
+	preparedAt?: number;
+	finishedAt?: number;
+}
+
 export interface PreparationDiagnosticRecord {
 	code?: string;
 	path?: string;
@@ -55,6 +240,7 @@ export interface WorkflowDesignBlockRecord {
 export interface NodeBlockRecord {
 	blockId: string;
 	roundId: string;
+	attemptId: string;
 	reason: string;
 	missingConditions: string[];
 	attemptedActions: string[];
@@ -67,8 +253,10 @@ export interface NodeRuntimeRecord {
 	nodeId: string;
 	kind: "execution" | "review";
 	status: NodeStatus;
+	scopeEpoch: number;
 	nextRound: number;
 	activeRoundId?: string;
+	activeAttemptId?: string;
 	resumeRoundId?: string;
 	block?: NodeBlockRecord;
 }
@@ -82,6 +270,7 @@ export interface RoundRecord {
 	status: RoundStatus;
 	inputSubmissionIds: string[];
 	inputBindings: RoundInputBindingRecord[];
+	activeAttemptId?: string;
 	startedAt: number;
 	finishedAt?: number;
 }
@@ -104,6 +293,7 @@ export interface SubmissionRecord {
 	contentHash: string;
 	nodeId: string;
 	roundId: string;
+	attemptId: string;
 	status: SubmissionStatus;
 	inputSubmissionIds: string[];
 	outputs: SubmissionOutputRecord[];
@@ -128,6 +318,7 @@ export interface ReviewRecord {
 	reviewId: string;
 	reviewNodeId: string;
 	roundId: string;
+	attemptId: string;
 	submissionIds: string[];
 	decision: "PASS" | "REWORK" | "BLOCKED";
 	criteria: CriterionResultRecord[];
@@ -149,6 +340,7 @@ export interface ApprovalRecord {
 export interface MechanicalCheckRecord {
 	nodeId: string;
 	roundId: string;
+	attemptId: string;
 	submissionId: string;
 	outputId: string;
 	result: "PASS" | "FAIL" | "ERROR";
@@ -169,6 +361,8 @@ export interface FinalSubmissionFileRecord {
 }
 
 export interface FinalSubmissionRecord {
+	finalizationId: string;
+	basisHash: string;
 	directory: string;
 	files: FinalSubmissionFileRecord[];
 	createdAt: number;
@@ -189,7 +383,10 @@ export interface OperationRecord {
 }
 
 export interface RunState {
+	runtimeSchemaVersion: 2;
+	request?: RunRequestRecord;
 	generation?: number;
+	controller?: RunControllerRecord;
 	interruption?: { reason: string; timestamp: number; baselineHash?: string };
 	workProgress?: WorkProgressReference[];
 	cleanup?: { status: "pending" | "failed" | "complete"; message?: string; resources?: RunResourceReference[] };
@@ -216,6 +413,14 @@ export interface RunState {
 	reviews: ReviewRecord[];
 	approvals: ApprovalRecord[];
 	mechanicalChecks: MechanicalCheckRecord[];
+	attempts: AttemptRecord[];
+	dispatchIntents: DispatchIntentRecord[];
+	waits: WaitRecord[];
+	failures: FailureRecord[];
+	externalOperations: ExternalOperationRecord[];
+	providerRequests: ProviderRequestRecord[];
+	completionCandidates: CompletionCandidateRecord[];
+	activeResources: RunResourceReference[];
 	finalSubmission?: FinalSubmissionRecord;
 	events: RunEvent[];
 	operations: Record<string, OperationRecord>;
@@ -231,7 +436,14 @@ export interface WorkProgressReference {
 	entryId?: string;
 	workspace: string;
 	workspaceHash?: string;
-	environment?: { leaseId: string; generation: number; bindingId: string; identity: string; workspaceHash: string };
+	environment?: {
+		leaseId: string;
+		providerHandle: string;
+		generation: number;
+		bindingId: string;
+		identity: string;
+		workspaceHash: string;
+	};
 }
 
 export interface RunResourceReference {
@@ -239,6 +451,9 @@ export interface RunResourceReference {
 	participantId: string;
 	sessionId?: string;
 	sessionFile?: string;
+	entryId?: string;
 	leaseId?: string;
 	providerHandle?: string;
+	bindingId?: string;
+	generation?: number;
 }

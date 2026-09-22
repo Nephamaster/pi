@@ -10,6 +10,7 @@ import type {
 	SubmissionRecord,
 } from "../contracts/runtime.ts";
 import type { NodeInput, NodeOutputRef } from "../contracts/workflow.ts";
+import { cancelNodeWaits, incrementScopeEpoch, interruptActiveExecution } from "./execution-control.ts";
 import type { NodeTaskContext, RoundFeedback } from "./node-worker.ts";
 
 type NodeOutputInput = Extract<NodeInput, { kind: "node_output" }>;
@@ -27,6 +28,10 @@ export type InvalidatedRound = {
 export function markRunCancelled(state: RunState): void {
 	state.status = "cancelled";
 	state.phase = "closed";
+	if (state.controller?.status === "active") {
+		state.controller.status = "released";
+		state.controller.releasedAt = Date.now();
+	}
 	for (const round of state.rounds) {
 		if (round.status !== "active" && round.status !== "paused") continue;
 		round.status = "cancelled";
@@ -34,6 +39,8 @@ export function markRunCancelled(state: RunState): void {
 	}
 	for (const node of state.nodes) {
 		if (node.status === "succeeded") continue;
+		interruptActiveExecution(state, node.nodeId, "cancelled", "cancelled");
+		cancelNodeWaits(state, node.nodeId);
 		node.status = "cancelled";
 		delete node.activeRoundId;
 		delete node.resumeRoundId;
@@ -191,6 +198,42 @@ export function nodeIsReady(node: EffectiveNode, state: RunState): boolean {
 	return node.definition.targets.every((target) =>
 		bindings.some((binding) => binding.submission.nodeId === target.node_id && binding.outputId === target.output_id),
 	);
+}
+
+export function nodeWaitConditions(node: EffectiveNode, state: RunState): string[] {
+	const runtime = state.nodes.find((item) => item.nodeId === node.definition.node_id);
+	if (!runtime) return ["Runtime node state is missing"];
+	if (runtime.status === "waiting_review") return ["Required review approval is pending"];
+	if (runtime.status === "paused") return [state.failure?.message ?? "Technical recovery is required"];
+	if (runtime.status === "blocked")
+		return runtime.block?.missingConditions ?? [state.failure?.message ?? "Node is blocked"];
+	if (!["waiting", "waiting_rework"].includes(runtime.status)) return [];
+	const bindings = resolveInputBindings(node, state);
+	const resolved = new Set(bindings.map((binding) => binding.inputId));
+	const missing = node.definition.inputs.flatMap((input) => {
+		if (!input.required) return [];
+		if (input.kind === "task_material")
+			return state.taskInput?.materials.some((material) => material.material_id === input.material_id)
+				? []
+				: [`Task material ${input.material_id} is unavailable`];
+		return resolved.has(input.input_id)
+			? []
+			: [
+					`Input ${input.input_id} is waiting for ${input.source.node_id}/${input.source.output_id} (${input.availability})`,
+				];
+	});
+	if (node.definition.kind === "review") {
+		for (const target of node.definition.targets) {
+			if (
+				bindings.some(
+					(binding) => binding.submission.nodeId === target.node_id && binding.outputId === target.output_id,
+				)
+			)
+				continue;
+			missing.push(`Review target ${target.node_id}/${target.output_id} is unavailable`);
+		}
+	}
+	return missing.length > 0 ? missing : ["Node readiness conditions are not satisfied"];
 }
 
 export function readyNodes(state: RunState): EffectiveNode[] {
@@ -378,6 +421,8 @@ export function invalidateFromNode(state: RunState, nodeId: string, excludeRound
 			round.finishedAt = Date.now();
 			const consumer = state.nodes.find((item) => item.nodeId === round.nodeId);
 			if (consumer?.activeRoundId === round.roundId) {
+				interruptActiveExecution(state, consumer.nodeId, "superseded", "cancelled");
+				incrementScopeEpoch(state, consumer.nodeId);
 				consumer.activeRoundId = undefined;
 				consumer.status = consumer.kind === "execution" ? "waiting_rework" : "waiting";
 			}
@@ -465,6 +510,11 @@ export function runIsComplete(state: RunState): boolean {
 		completion.final_outputs.every(
 			(ref) => approvedSubmissionForOutput(state, ref, completion.required_review_node_ids) !== undefined,
 		) &&
-		!state.rounds.some((round) => round.status === "active")
+		!state.rounds.some((round) => round.status === "active") &&
+		!state.attempts.some((attempt) => ["claimed", "dispatching", "active"].includes(attempt.status)) &&
+		!state.dispatchIntents.some((dispatch) =>
+			["pending", "delivering", "started", "outcome_unknown"].includes(dispatch.status),
+		) &&
+		!state.externalOperations.some((operation) => ["pending", "unknown"].includes(operation.outcome))
 	);
 }

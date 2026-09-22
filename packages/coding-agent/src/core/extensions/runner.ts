@@ -86,6 +86,7 @@ import type {
 	UserBashEvent,
 	UserBashEventResult,
 } from "./types.ts";
+import { ProviderRequestRejection } from "./types.ts";
 
 // Extension shortcuts compete with canonical keybinding ids from keybindings.json.
 // Only editor-global shortcuts are reserved here. Picker-specific bindings are not.
@@ -1267,6 +1268,7 @@ export class ExtensionRunner {
 						currentPayload = handlerResult;
 					}
 				} catch (err) {
+					if (err instanceof ProviderRequestRejection) throw err;
 					const message = err instanceof Error ? err.message : String(err);
 					const stack = err instanceof Error ? err.stack : undefined;
 					this.emitError({

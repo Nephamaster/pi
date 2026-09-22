@@ -8,6 +8,11 @@
 
 ### Added
 
+- Added durable create-request receipts, controller terms, scope epochs, append-only Attempts, dispatch/wait/failure/external-operation records, provider-request admission records, and versioned completion candidates.
+- Added process-restart recovery for preserved or interrupted Pi Sessions and Docker leases. Active containers are quarantined before WIP is resumed; claimed dispatches proven not delivered are replaced by a new Attempt.
+
+- Added important-meeting PPT workflow template 1.0.4 with the eight-node parallel design graph and outcome-based, lighter design and review contracts.
+
 - Added PPT workflow template 1.0.3 with parallel storyline and visual design, a joint design Gate, and explicit visual production and review criteria.
 
 - Added explicit proxy-only public egress, authorized reuse of registered Pi read-service tools, private Docker review checks, and deferred project-dependency probes.
@@ -36,6 +41,9 @@
 
 ### Changed
 
+- Changed IPD service shutdown from Run cancellation to bounded work preservation, and isolated node-local failures so independent branches can finish before the Run settles.
+- Changed final delivery publication to use immutable version directories and an exact CompletionBasis instead of replacing one mutable final directory.
+
 - Centralized candidate/review state transitions and frozen-Baseline lookup indexes; moved PPTX task dependencies out of the host root package into the Office Profile.
 - Allowed default startup with an uninstalled unrelated Profile while retaining fail-closed Docker and capability checks.
 
@@ -59,6 +67,11 @@
 - Changed the Dashboard task panel to use 12px text and expand its scroll viewport to the full card height.
 
 ### Fixed
+
+- Rejected over-byte or over-image provider payloads before network I/O, allowing native compaction to repair the request view without replaying prior tools.
+- Added stale writer-lock recovery using PID start identity and age checks, and synced parent directories after authoritative file publication.
+
+- Rejected undeclared, missing, or duplicate IPD Artifact output IDs at submission time with model-visible correction feedback instead of blocking the Run during export.
 
 - Moved persistent round state into native system sections, distinguished real resume/rework dispatches, and recorded effective session/deadline policies. Added retrieval receipts and explicit paging dependencies with PPT workflow template 1.0.2.
 

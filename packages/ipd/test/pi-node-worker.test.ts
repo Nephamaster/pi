@@ -5,8 +5,14 @@ import type { Context } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
-import { compileWorkflow, type NodeRoundWork, NodeSubmissionProtocolError, PiNodeWorker } from "../src/index.ts";
-import { createCompilerFixture } from "./fixtures.ts";
+import {
+	compileWorkflow,
+	type NodeRoundWork,
+	NodeSubmissionProtocolError,
+	PiNodeWorker,
+	type RunResourceReference,
+} from "../src/index.ts";
+import { createCompilerFixture, createExecutionStamp } from "./fixtures.ts";
 
 describe("PiNodeWorker", () => {
 	const roots: string[] = [];
@@ -47,6 +53,23 @@ describe("PiNodeWorker", () => {
 				contexts.push(JSON.stringify(context));
 				return fauxAssistantMessage("I finished but forgot the submission tool.");
 			},
+			(context) => {
+				contexts.push(JSON.stringify(context));
+				return fauxAssistantMessage(
+					fauxToolCall("submit_artifact", {
+						summary: "wrong output ID",
+						outputs: [
+							{
+								output_id: "production-deck",
+								files: [{ path: "outputs/produce/result.txt", media_type: "text/plain" }],
+							},
+						],
+						evidence: [],
+						metadata: {},
+					}),
+					{ stopReason: "toolUse" },
+				);
+			},
 			response("first"),
 			response("revised"),
 			(context) => {
@@ -75,6 +98,7 @@ describe("PiNodeWorker", () => {
 			const compiled = compileWorkflow(createCompilerFixture());
 			if (!compiled.ok) throw new Error("Fixture did not compile");
 			const node = compiled.baseline.nodes.find((item) => item.definition.node_id === "produce")!;
+			const resourceSnapshots: RunResourceReference[][] = [];
 			let overlap: Promise<unknown> | undefined;
 			const worker = new PiNodeWorker({
 				agentDir: root,
@@ -94,6 +118,7 @@ describe("PiNodeWorker", () => {
 				},
 			});
 			const firstRound: NodeRoundWork = {
+				stamp: createExecutionStamp("round-1"),
 				runId: "run-1",
 				roundId: "round-1",
 				node,
@@ -102,11 +127,16 @@ describe("PiNodeWorker", () => {
 				taskContext: { materials: [], unresolvedFacts: [] },
 				forbiddenMutableReadPaths: [],
 				feedback: [],
+				async onResourcesChanged(resources) {
+					resourceSnapshots.push(resources.map((resource) => structuredClone(resource)));
+					return true;
+				},
 			};
 			await expect(worker.runExecution(firstRound)).rejects.toBeInstanceOf(NodeSubmissionProtocolError);
 			const first = await worker.runExecution(firstRound);
 			expect(await overlap).toMatchObject({ message: expect.stringContaining("active round") });
 			const second = await worker.runExecution({
+				stamp: createExecutionStamp("round-2"),
 				runId: "run-1",
 				roundId: "round-2",
 				node,
@@ -118,10 +148,15 @@ describe("PiNodeWorker", () => {
 			});
 			const blocked = await worker.runExecution({
 				...firstRound,
+				stamp: createExecutionStamp("round-3"),
 				roundId: "round-3",
 			});
 			if ("report" in first || "report" in second) throw new Error("Expected Artifact submissions");
 			expect([first.summary, second.summary]).toEqual(["first", "revised"]);
+			expect(contexts[2]).toContain("submission_validation_result");
+			expect(contexts[2]).toContain("Expected: content-output");
+			expect(contexts[2]).toContain("Unknown: production-deck");
+			expect(contexts[2]).toContain('"isError":true');
 			expect(first.outputs[0].files[0].path).toBe("outputs/produce/result.txt");
 			expect(second.outputs[0].files[0].path).toBe("outputs/produce/result.txt");
 			expect(blocked).toMatchObject({
@@ -131,13 +166,16 @@ describe("PiNodeWorker", () => {
 					needed_to_resume: ["Provide source credentials"],
 				},
 			});
-			expect(faux.state.callCount).toBe(4);
+			expect(faux.state.callCount).toBe(5);
+			expect(resourceSnapshots[0]).toEqual([
+				expect.objectContaining({ sessionId: expect.any(String), sessionFile: expect.any(String) }),
+			]);
 			expect(contexts[0]).toContain("Authoritative Node Contract");
 			expect(contexts[0]).toContain("ipd_current_round");
 			expect(contexts[0]).toContain("<node_round_dispatch>");
 			expect(contexts[0]).toContain("round-1");
-			expect(contexts[2]).toContain("round-2");
-			expect(contexts[2]).toContain("revise");
+			expect(contexts[3]).toContain("round-2");
+			expect(contexts[3]).toContain("revise");
 			const taskScope = contexts[0].indexOf("TASK_SCOPE.md");
 			const contract = contexts[0].indexOf("NODE_CONTRACT.md");
 			const role = contexts[0].indexOf("PROFESSIONAL_ROLE.md");

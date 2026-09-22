@@ -1,6 +1,7 @@
 // 执行可注册的确定性质量检查并汇总逐项结果。
-import Type from "typebox";
+
 import { extname } from "node:path";
+import Type from "typebox";
 import { validateArtifactManifest } from "../artifact/manifest.ts";
 import type { JsonValue } from "../contracts/primitives.ts";
 import type { CriterionDefinition } from "../contracts/workflow.ts";
@@ -141,7 +142,8 @@ export function createArtifactFileSetCheckExecutor() {
 				const allowed = new Set(parameters.extensions.map((extension) => extension.toLowerCase()));
 				for (const file of files) {
 					const extension = extname(file).toLowerCase();
-					if (!allowed.has(extension)) diagnostics.push(`File ${file} has disallowed extension ${extension || "(none)"}`);
+					if (!allowed.has(extension))
+						diagnostics.push(`File ${file} has disallowed extension ${extension || "(none)"}`);
 				}
 			}
 			if (parameters.file_names) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDashboardSnapshot, renderDashboardPage } from "../src/index.ts";
 import { renderMarkdown } from "../src/visualization/dashboard-markdown.ts";
-import { createCompilerFixture } from "./fixtures.ts";
+import { createCompilerFixture, createEmptyRuntimeRecords } from "./fixtures.ts";
 
 function inlineScript(page: string): string {
 	const match = /<script>([\s\S]*?)<\/script>/.exec(page);
@@ -14,6 +14,7 @@ describe("IPD visualization generated script", () => {
 		const fixture = createCompilerFixture();
 		const snapshot = buildDashboardSnapshot(
 			{
+				...createEmptyRuntimeRecords(),
 				runId: fixture.runId,
 				revision: 3,
 				phase: "compile",

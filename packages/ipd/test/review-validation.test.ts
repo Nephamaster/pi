@@ -26,6 +26,7 @@ const submission: SubmissionRecord = {
 	contentHash: "a".repeat(64),
 	nodeId: "produce",
 	roundId: "produce:round:1",
+	attemptId: "produce:round:1:attempt:1:term:1:scope:1",
 	status: "candidate",
 	inputSubmissionIds: [],
 	outputs: [

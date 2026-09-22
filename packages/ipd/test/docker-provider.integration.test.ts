@@ -31,7 +31,7 @@ import {
 	parseSkillEnvironmentRequirements,
 	verifyEnvironmentProbes,
 } from "../src/workspace.ts";
-import { createCompilerFixture } from "./fixtures.ts";
+import { createCompilerFixture, createExecutionStamp } from "./fixtures.ts";
 
 const integrationEnabled = process.env.PI_IPD_DOCKER_INTEGRATION === "1";
 const environmentsRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "environments");
@@ -101,7 +101,16 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 			inputs: [],
 			allowedOperations: ["read", "write", "exec", "process", "export"],
 		});
-		return { manager, provider, lease, round, registered, skillRoot, skillPath: `/ipd/skills/smoke/${skillHash}` };
+		return {
+			manager,
+			provider,
+			lease,
+			round,
+			binding,
+			registered,
+			skillRoot,
+			skillPath: `/ipd/skills/smoke/${skillHash}`,
+		};
 	}
 
 	it("lets the real node Session repair a project dependency before export without failing preparation", async () => {
@@ -167,6 +176,7 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 				environmentManager: current.manager,
 			});
 			const work: NodeRoundWork = {
+				stamp: createExecutionStamp("project-round"),
 				runId: "run-code-node24",
 				roundId: "project-round",
 				node: compiled.baseline.nodes[0],
@@ -936,4 +946,60 @@ describe.runIf(integrationEnabled)("Docker environment integration", () => {
 		},
 		120_000,
 	);
+
+	it("quarantines and recovers an active Docker lease after the host controller is replaced", async () => {
+		const runId = "run-code-node24";
+		const current = await environment("code-node24");
+		let recoveredManager: EnvironmentManager | undefined;
+		try {
+			await current.provider.writeFile(
+				current.lease,
+				current.round,
+				"/workspace/progress.txt",
+				Buffer.from("durable work in progress\n"),
+			);
+			await current.provider.startProcess(current.lease, current.round, {
+				command: "sleep 60",
+				cwd: "/workspace",
+			});
+			const recoveredProvider = new DockerEnvironmentProvider({
+				docker,
+				storageRoot: join(root, "leases"),
+				controllerId: "replacement-test-controller",
+			});
+			recoveredManager = new EnvironmentManager([recoveredProvider]);
+			const saved = await recoveredManager.quarantine(runId, current.binding, {
+				leaseId: current.lease.leaseId,
+				providerHandle: current.lease.providerHandle,
+				generation: current.round.generation,
+				bindingId: current.binding.bindingId,
+			});
+			const recoveredLease = recoveredManager.inspectRun(runId)[0]!;
+			expect(saved.workspace).toContain(current.lease.leaseId);
+			expect(recoveredLease.leaseId).toBe(current.lease.leaseId);
+			expect(recoveredLease.providerHandle).toBe(current.lease.providerHandle);
+			expect(recoveredLease.generation).toBe(current.round.generation);
+
+			const recoveredRound = await recoveredManager.bindRound(recoveredLease.leaseId, {
+				roundId: "round-after-controller-restart",
+				inputs: [],
+				allowedOperations: ["read", "write", "exec", "process", "export"],
+			});
+			const context = recoveredManager.context(recoveredLease.leaseId, recoveredRound.roundId);
+			expect(recoveredRound.generation).toBe(current.round.generation + 1);
+			expect(
+				(await recoveredProvider.readFile(context.lease, recoveredRound, "/workspace/progress.txt")).toString(),
+			).toBe("durable work in progress\n");
+			expect(
+				(
+					await recoveredProvider.exec(context.lease, recoveredRound, {
+						command: "pgrep -f '^sleep 60$' >/dev/null",
+						cwd: "/workspace",
+					})
+				).exitCode,
+			).not.toBe(0);
+		} finally {
+			await (recoveredManager ?? current.manager).releaseRun(runId);
+		}
+	}, 120_000);
 });

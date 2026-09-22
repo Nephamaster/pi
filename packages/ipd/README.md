@@ -46,6 +46,10 @@ evaluate assigned quality criteria against the preserved original task, includin
 - Per-node controlled execution leases with non-overlapping output roots and independently sealed, hashed output views.
 - Bounded ready-node scheduling, exact input-version binding, local and cross-node rework invalidation, and final
   delivery projection.
+- Durable create-request identity, controller terms, append-only Attempts, dispatch/wait/failure records, provider
+  request byte/image admission, and immutable CompletionBasis-bound final delivery versions.
+- Process-restart recovery at verified pause/block boundaries or after quarantining an interrupted active Docker lease,
+  using the original Pi Session history and WIP. A claimed command proven not delivered is replaced by a new Attempt.
 - Run control through `ipd_cancel_run`, plus query-only `ipd_get_run`, `ipd_read_events`, and `ipd_get_result` tools.
 - Zero-dependency local visualization for TaskInput, ProcessSpec selection, live Workflow draft/compiled graph, node
   execution state, review/rework routes, Runtime events, and downloadable self-contained HTML snapshots.
@@ -209,8 +213,8 @@ temporary directory without workspace dependency links. Private packages are not
 - No node-internal multi-Agent collaboration, budget governance, HITL, asset self-evolution, or complete replan flow.
 - Docker egress is optional and public HTTP/HTTPS only, enforced through per-lease proxy networking. Arbitrary host-bound
   extensions are not sandboxed by rebinding native Pi tools and must not be admitted as external read services.
-- State mutation has cross-process conflict detection, but active Runs cannot resume their original
-  AgentSessions after process loss.
+- Process-loss recovery requires a verified preserved boundary. A provider request, tool, or external action whose
+  outcome may already have occurred remains blocked for reconciliation and is never blindly replayed.
 - The visualization server is process-local and intentionally read-only; it does not provide remote control, approval,
   Run mutation, or authentication.
 - `packages/ipd/docs/develop/` contains retired V1 documentation and is not the V2 capability reference.

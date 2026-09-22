@@ -6,6 +6,10 @@
 
 - Changed the default xAI model to Grok 4.7.
 
+### Added
+
+- Added `ProviderRequestRejection` so trusted request-admission extensions can stop an oversized provider payload before network I/O while ordinary extension errors remain isolated.
+
 ## [0.87.0] - 2026-09-21
 
 ### New Features

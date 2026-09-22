@@ -9,7 +9,7 @@ import {
 } from "../src/index.ts";
 import { buildNodeRoundPrompt, nodeDispatchKind } from "../src/runtime/node-prompts.ts";
 import type { NodeRoundWork, RoundFeedback } from "../src/runtime/node-worker.ts";
-import { createCompilerFixture } from "./fixtures.ts";
+import { createCompilerFixture, createExecutionStamp } from "./fixtures.ts";
 
 describe("node round system section", () => {
 	it("updates only at dispatch and does not register a per-request context mutation", async () => {
@@ -47,6 +47,7 @@ describe("node prompt projections", () => {
 			? [{ type: feedbackType, sourceId: "review-1", issue: "Keep the exact source" }]
 			: [];
 		const work: NodeRoundWork = {
+			stamp: createExecutionStamp("produce:round:2", 1, 3),
 			runId: "run-1",
 			roundId: "produce:round:2",
 			generation: 3,
@@ -76,6 +77,7 @@ describe("node prompt projections", () => {
 		const node = compiled.baseline.nodes.find((item) => item.definition.kind === "execution");
 		if (!node) throw new Error("Execution node is missing");
 		const files = renderNodeContextFiles({
+			stamp: createExecutionStamp("produce:round:1"),
 			runId: "run-1",
 			roundId: "produce:round:1",
 			node,
@@ -108,6 +110,7 @@ describe("node prompt projections", () => {
 		const reviewNode = compiled.baseline.nodes.find((item) => item.definition.kind === "review");
 		if (!reviewNode) throw new Error("Review node is missing");
 		const reviewFiles = renderNodeContextFiles({
+			stamp: createExecutionStamp("review-produce:round:1"),
 			runId: "run-1",
 			roundId: "review-produce:round:1",
 			inputSubmissions: [],
@@ -143,6 +146,7 @@ describe("node prompt projections", () => {
 			contentHash: "a".repeat(64),
 			nodeId: "produce",
 			roundId: "produce:round:1",
+			attemptId: "produce:round:1:attempt:1:term:1:scope:1",
 			status: "candidate",
 			inputSubmissionIds: [],
 			outputs: [
@@ -173,6 +177,7 @@ describe("node prompt projections", () => {
 			createdAt: 1,
 		};
 		const context = renderCurrentRoundContext({
+			stamp: createExecutionStamp("review-produce:round:1"),
 			runId: "run-1",
 			roundId: "review-produce:round:1",
 			node,

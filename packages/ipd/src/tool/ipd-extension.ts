@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import Type, { type Static } from "typebox";
 import { NonEmptyStringSchema } from "../contracts/primitives.ts";
+import type { RunState } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import { wrapPromptBlock } from "../prompt/block.ts";
 import type { IpdService } from "../runtime/ipd-service.ts";
@@ -55,6 +56,23 @@ function taskInput(input: CreateRunInput): TaskInput {
 
 const AUTOMATIC_PROCESS = "由 IPD 自动选择流程规范";
 const AUTOMATIC_WORKFLOW = "由 IPD 设计工作流";
+
+function runControlView(state: RunState) {
+	return {
+		controller: state.controller,
+		active_attempts: (state.attempts ?? []).filter((attempt) =>
+			["claimed", "dispatching", "active", "paused"].includes(attempt.status),
+		),
+		pending_dispatches: (state.dispatchIntents ?? []).filter((dispatch) =>
+			["pending", "delivering", "started", "outcome_unknown"].includes(dispatch.status),
+		),
+		waits: (state.waits ?? []).filter((wait) => wait.state === "waiting"),
+		external_operations: (state.externalOperations ?? []).filter((operation) =>
+			["pending", "unknown"].includes(operation.outcome),
+		),
+		active_resources: state.activeResources ?? [],
+	};
+}
 
 async function collectMaterials(
 	context: ExtensionCommandContext,
@@ -223,6 +241,7 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 						generation: state.generation,
 						interruption: state.interruption,
 						cleanup: state.cleanup,
+						...runControlView(state),
 					};
 					return {
 						content: [{ type: "text", text: wrapPromptBlock("ipd_run_status", JSON.stringify(view)) }],
@@ -275,6 +294,42 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 	);
 	pi.registerTool(
 		defineTool({
+			name: "ipd_reconcile_external_operation",
+			label: "Reconcile IPD External Operation",
+			description:
+				"Record a verified succeeded/failed outcome for one previously unknown external operation. Use only after the user or an authorized operator has obtained reliable evidence; this never replays the action.",
+			parameters: Type.Object(
+				{
+					run_id: NonEmptyStringSchema,
+					operation_id: NonEmptyStringSchema,
+					outcome: Type.Union([Type.Literal("succeeded"), Type.Literal("failed")]),
+					receipt_ref: Type.Optional(NonEmptyStringSchema),
+				},
+				{ additionalProperties: false },
+			),
+			async execute(_toolCallId, input, _signal, _onUpdate, context) {
+				const state = await (await serviceProvider(context, input.run_id)).reconcileExternalOperation(
+					input.run_id,
+					input.operation_id,
+					input.outcome,
+					input.receipt_ref,
+				);
+				const view = {
+					run_id: state.runId,
+					status: state.status,
+					operation: state.externalOperations.find((operation) => operation.operationId === input.operation_id),
+				};
+				return {
+					content: [
+						{ type: "text", text: wrapPromptBlock("ipd_external_operation_reconciled", JSON.stringify(view)) },
+					],
+					details: view,
+				};
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
 			name: "ipd_get_run",
 			label: "Get IPD Run",
 			description: "Read the current registered state of one IPD Run without advancing it.",
@@ -293,6 +348,7 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 					interruption: state.interruption,
 					work_progress: state.workProgress,
 					cleanup: state.cleanup,
+					...runControlView(state),
 				};
 				return {
 					content: [{ type: "text", text: wrapPromptBlock("ipd_run_status", JSON.stringify(view)) }],

@@ -149,4 +149,45 @@ describe("important meeting PPT 1.0.3", () => {
 				expect.objectContaining({ code: "tool_dependency_missing", nodeId: "research-and-evidence" }),
 			);
 	});
+
+	it("compiles the lean 1.0.4 variant with the same governance graph and a single broad visual criterion", async () => {
+		const lean = JSON.parse(
+			await readFile(new URL("../assets/workflows/important-meeting-ppt/1.0.4.json", import.meta.url), "utf8"),
+		) as WorkflowDefinition;
+		const result = compileWorkflow(input(lean));
+		expect(result.ok, !result.ok ? JSON.stringify(result.report.diagnostics) : "").toBe(true);
+		if (!result.ok) return;
+		const previousResult = compileWorkflow(input());
+		if (!previousResult.ok) throw new Error("Previous template did not compile");
+		expect(result.baseline.graph.reverse).toEqual(previousResult.baseline.graph.reverse);
+		expect(lean.nodes.map((node) => node.node_id)).toEqual(workflow.nodes.map((node) => node.node_id));
+		for (const node of lean.nodes) {
+			const previous = workflow.nodes.find((candidate) => candidate.node_id === node.node_id)!;
+			expect(
+				node.agents.map((agent) => ({
+					agent_ref: agent.agent_ref,
+					tools: agent.tools,
+					skills: agent.skills,
+					permissions: agent.permissions,
+				})),
+			).toEqual(
+				previous.agents.map((agent) => ({
+					agent_ref: agent.agent_ref,
+					tools: agent.tools,
+					skills: agent.skills,
+					permissions: agent.permissions,
+				})),
+			);
+		}
+		expect(lean.nodes.reduce((count, node) => count + node.contract.work_requirements.length, 0)).toBeLessThan(
+			workflow.nodes.reduce((count, node) => count + node.contract.work_requirements.length, 0),
+		);
+		expect(lean.criteria.filter((item) => item.criterion_id.startsWith("visual."))).toHaveLength(1);
+		expect(result.baseline.graph.reviewsByOutput["visual-design/presentation-visual-system"]).toEqual([
+			"design-gate",
+		]);
+		expect(lean.completion.delivery_outputs).toEqual([
+			{ node_id: "produce-and-finalize", output_id: "final-presentation-package" },
+		]);
+	});
 });

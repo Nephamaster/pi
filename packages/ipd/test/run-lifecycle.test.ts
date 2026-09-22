@@ -6,6 +6,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PiNodeWorker } from "../src/adapter/pi-node-worker.ts";
 import {
+	claimRunController,
 	compileWorkflow,
 	FileRunStore,
 	FileWorkflowAssetStore,
@@ -130,8 +131,8 @@ describe("managed Run lifecycle", () => {
 					];
 					return retained;
 				},
-				async validateResume(_run, refs) {
-					expect(refs).toEqual(retained);
+				async validateResume(state) {
+					expect(state.workProgress).toEqual(retained);
 				},
 			}),
 			{ maxQualityReworkRounds: 0 },
@@ -434,6 +435,102 @@ describe("managed Run lifecycle", () => {
 			await f.runtime.release();
 		} finally {
 			await native?.releaseRun("run-1");
+			faux.unregister();
+		}
+	});
+
+	it("reopens the same logical Pi Session after the Runtime process is replaced", async () => {
+		const faux = registerFauxProvider();
+		let originalWorker: PiNodeWorker | undefined;
+		let recoveredWorker: PiNodeWorker | undefined;
+		try {
+			const model = faux.getModel();
+			const root = await mkdtemp(join(tmpdir(), "ipd-native-process-recovery-"));
+			roots.push(root);
+			const modelRuntime = await ModelRuntime.create({ modelsPath: null, refreshOnCreate: false });
+			modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: model.api, models: [model] });
+			await modelRuntime.setRuntimeApiKey(model.provider, "faux-key");
+			const f = await fixture((directory) => {
+				originalWorker = new PiNodeWorker({
+					agentDir: root,
+					workspace: directory.workspace,
+					sessionDirectory: directory.sessions,
+					modelRuntime,
+					model,
+					thinkingLevel: "off",
+				});
+				return {
+					runExecution: originalWorker.runExecution.bind(originalWorker),
+					runReview: review,
+					pauseRun: originalWorker.pauseRun.bind(originalWorker),
+					validateResume: originalWorker.validateResume.bind(originalWorker),
+					releaseRun: originalWorker.releaseRun.bind(originalWorker),
+				};
+			});
+			const submitted = await candidate(f.directory);
+			faux.setResponses([
+				fauxAssistantMessage(
+					fauxToolCall("report_node_blocked", {
+						reason: "Access unavailable",
+						missing_conditions: ["Access"],
+						attempted_actions: [],
+						evidence: [],
+						needed_to_resume: ["Restore access"],
+					}),
+					{ stopReason: "toolUse" },
+				),
+				(context) => {
+					expect(JSON.stringify(context.messages)).toContain("report_node_blocked");
+					expect(JSON.stringify(context.messages)).toContain("Continue IPD work round produce:round:1");
+					return fauxAssistantMessage(fauxToolCall("submit_artifact", submitted), { stopReason: "toolUse" });
+				},
+			]);
+
+			const blocked = await f.runtime.run();
+			const original = blocked.workProgress?.find((item) => item.nodeId === "produce");
+			if (!original?.sessionId || !original.sessionFile)
+				throw new Error("Original logical Session checkpoint is missing");
+			await originalWorker!.releaseRun("run-1");
+			const controller = await f.store.mutate("run-1", "test-controller-takeover", {}, (draft) => {
+				const claimed = claimRunController(draft, "recovered-controller", { allowTakeover: true });
+				return { controllerId: claimed.controllerId, term: claimed.term };
+			});
+			recoveredWorker = new PiNodeWorker({
+				agentDir: root,
+				workspace: f.directory.workspace,
+				sessionDirectory: f.directory.sessions,
+				modelRuntime,
+				model,
+				thinkingLevel: "off",
+			});
+			const worker: NodeWorker = {
+				runExecution: recoveredWorker.runExecution.bind(recoveredWorker),
+				runReview: review,
+				pauseRun: recoveredWorker.pauseRun.bind(recoveredWorker),
+				validateResume: recoveredWorker.validateResume.bind(recoveredWorker),
+				releaseRun: recoveredWorker.releaseRun.bind(recoveredWorker),
+			};
+			const recovered = new WorkflowRuntime(
+				f.store,
+				f.directory,
+				worker,
+				new SubmissionStore(),
+				new MechanicalChecker(f.input.assets.checks),
+				{ controller },
+			);
+			await recovered.recover();
+			await recovered.resume();
+			expect((await recovered.run()).status).toBe("succeeded");
+			const current = await recoveredWorker.pauseRun("run-1");
+			expect(current.find((item) => item.nodeId === "produce")).toMatchObject({
+				sessionId: original.sessionId,
+				sessionFile: original.sessionFile,
+			});
+			expect(faux.state.callCount).toBe(2);
+			await recovered.release();
+		} finally {
+			await originalWorker?.releaseRun("run-1");
+			await recoveredWorker?.releaseRun("run-1");
 			faux.unregister();
 		}
 	});

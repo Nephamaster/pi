@@ -7,7 +7,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import { hashJson, registerIpdCreateRunTool } from "../src/index.ts";
 import type { IpdService } from "../src/runtime/ipd-service.ts";
-import { createCompilerFixture } from "./fixtures.ts";
+import { createCompilerFixture, createEmptyRuntimeRecords } from "./fixtures.ts";
 
 describe("IPD create-run tool", () => {
 	it.each(["pause", "resume"] as const)("routes %s to the owning Run service", async (action) => {
@@ -195,6 +195,7 @@ describe("IPD create-run tool", () => {
 			},
 		} as unknown as ExtensionAPI;
 		const cancelled = {
+			...createEmptyRuntimeRecords(),
 			runId: "run-1",
 			revision: 4,
 			phase: "closed" as const,

@@ -276,6 +276,7 @@ export function renderCurrentRoundContext(work: NodeRoundWork): string {
 		node_id: work.node.definition.node_id,
 		round_id: work.roundId,
 		generation: work.generation ?? 0,
+		attempt_id: work.stamp.attemptId,
 		dispatch: nodeDispatchKind(work),
 		inputs,
 		feedback,

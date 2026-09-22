@@ -1,4 +1,5 @@
 // 根据冻结参与者配置创建受限的 Pi AgentSession。
+import { isAbsolute, relative, resolve } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
@@ -22,6 +23,10 @@ import { createControlReadTool } from "./control-read.ts";
 import { createExternalReadResultAdapter } from "./external-read-results.ts";
 import { createCurrentRoundContextExtension, type VirtualContextFile } from "./node-context.ts";
 import type { NodeSessionFactory } from "./node-session-adapter.ts";
+import {
+	createProviderRequestAdmissionExtension,
+	type ProviderRequestObservation,
+} from "./provider-request-admission.ts";
 import { type IpdSessionSettings, projectIpdSessionSettings } from "./session-policy.ts";
 import { createSubmissionResultExtension } from "./structured-submissions.ts";
 
@@ -35,6 +40,32 @@ export const BUILTIN_IO_TOOLS: ReadonlySet<string> = new Set([
 	"bash",
 	"powershell",
 ]);
+
+export interface RetainedSessionReference {
+	sessionId: string;
+	sessionFile: string;
+	entryId?: string;
+}
+
+export function openRetainedSession(
+	reference: RetainedSessionReference,
+	workspace: string,
+	sessionDirectory: string,
+	options: { allowAdvancedHistory?: boolean } = {},
+): SessionManager {
+	const sessionFile = resolve(reference.sessionFile);
+	const sessionRoot = resolve(sessionDirectory);
+	const child = relative(sessionRoot, sessionFile);
+	if (child.startsWith("..") || isAbsolute(child))
+		throw new NodeWorkerError("session_lost", "Retained Session file is outside the Run Session directory");
+	const manager = SessionManager.open(sessionFile, sessionDirectory, workspace);
+	if (
+		manager.getSessionId() !== reference.sessionId ||
+		(!options.allowAdvancedHistory && manager.getLeafId() !== (reference.entryId ?? null))
+	)
+		throw new NodeWorkerError("session_lost", "Retained Session identity or history boundary changed");
+	return manager;
+}
 
 export interface PiNodeSessionCreateInput {
 	controlRole?: boolean;
@@ -56,6 +87,8 @@ export interface PiNodeSessionCreateInput {
 	environmentCwd?: string;
 	environmentPaths?: EnvironmentPaths;
 	getEnvironmentContext?: () => EnvironmentToolContext;
+	getProviderRequestRecorder?: () => ((observation: ProviderRequestObservation) => Promise<boolean>) | undefined;
+	restoreSession?: RetainedSessionReference;
 }
 
 export type LegacyNodeToolAdapter = (
@@ -194,6 +227,11 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 						hidden: true,
 						factory: createSubmissionResultExtension(input.controlTools ?? []),
 					},
+					{
+						name: "ipd-provider-request-admission",
+						hidden: true,
+						factory: createProviderRequestAdmissionExtension(model, () => input.getProviderRequestRecorder?.()),
+					},
 					...(legacy?.extensions ?? []),
 					...(input.getCurrentContext
 						? [
@@ -229,29 +267,34 @@ export class PiNodeSessionFactory implements NodeSessionFactory<PiNodeSessionCre
 			if (existing >= 0) customTools.splice(existing, 1);
 			customTools.push(tool);
 		}
+		let sessionManager: SessionManager;
+		if (input.restoreSession)
+			sessionManager = openRetainedSession(input.restoreSession, input.workspace, input.sessionDirectory);
+		else sessionManager = SessionManager.create(input.workspace, input.sessionDirectory);
 		const created = await createAgentSessionFromServices({
 			services: input.environmentCwd ? { ...services, cwd: input.environmentCwd } : services,
-			sessionManager: SessionManager.create(input.workspace, input.sessionDirectory),
+			sessionManager,
 			model,
 			thinkingLevel,
 			tools: [...allowedToolNames],
 			customTools,
 		});
-		created.session.sessionManager.appendCustomEntry("ipd_execution_configuration", {
-			contextProtocol: "system-sections-v1",
-			externalResultProtocol: "receipt-and-pdf-v1",
-			nodeId: input.nodeId,
-			model: {
-				provider: model.provider,
-				id: model.id,
-				contextWindow: model.contextWindow,
-				maxTokens: model.maxTokens,
-			},
-			thinkingLevel,
-			compaction: settingsManager.getCompactionSettings(model),
-			retry: settingsManager.getRetrySettings(),
-			httpIdleTimeoutMs: settingsManager.getHttpIdleTimeoutMs(),
-		});
+		if (!input.restoreSession)
+			created.session.sessionManager.appendCustomEntry("ipd_execution_configuration", {
+				contextProtocol: "system-sections-v1",
+				externalResultProtocol: "receipt-and-pdf-v1",
+				nodeId: input.nodeId,
+				model: {
+					provider: model.provider,
+					id: model.id,
+					contextWindow: model.contextWindow,
+					maxTokens: model.maxTokens,
+				},
+				thinkingLevel,
+				compaction: settingsManager.getCompactionSettings(model),
+				retry: settingsManager.getRetrySettings(),
+				httpIdleTimeoutMs: settingsManager.getHttpIdleTimeoutMs(),
+			});
 		return created.session;
 	}
 }

@@ -1,25 +1,46 @@
 // 调度冻结工作流并实施提交、检查、评审、返工和收口。
+import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { ReportNodeBlocked, SubmitReview } from "../adapter/structured-submissions.ts";
 import { ArtifactValidationError } from "../artifact/manifest.ts";
 import { baselineIndex } from "../compiler/baseline-index.ts";
 import type { EffectiveNode, ExecutionBaseline } from "../contracts/baseline.ts";
-import type { MechanicalCheckRecord, RunState, SubmissionRecord } from "../contracts/runtime.ts";
+import type { MechanicalCheckRecord, RunControllerRecord, RunState, SubmissionRecord } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { ExecutionNode, ReviewNode } from "../contracts/workflow.ts";
 import type { MechanicalChecker } from "../gate/mechanical-checker.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
-import { materializeFinalSubmission } from "./final-submission.ts";
+import {
+	claimExecution,
+	claimRunController,
+	type ExecutionStamp,
+	executionIsCurrent,
+	finishExecution,
+	incrementScopeEpoch,
+	interruptActiveExecution,
+	markDispatchDelivering,
+	markDispatchStarted,
+	recordFailure,
+	registerExternalOperation,
+	registerNodeWait,
+	requireCurrentController,
+	settleExternalOperation,
+} from "./execution-control.ts";
+import type { materializeFinalSubmission } from "./final-submission.ts";
+import { RunFinalizer } from "./finalization-coordinator.ts";
 import { applyCandidateSubmission, applyReviewDecision } from "./governance-transitions.ts";
 import { bounded, isTerminal } from "./lifecycle.ts";
+import { dispatchKindFor } from "./node-prompts.ts";
 import { type NodeRoundWork, NodeSubmissionProtocolError, type NodeWorker, NodeWorkerError } from "./node-worker.ts";
 import { validateReviewSubmission } from "./review-validation.ts";
 import type { RunDirectory } from "./run-directory.ts";
+import { classifyRunRecovery } from "./run-recovery.ts";
 import type { RunStore } from "./run-store.ts";
 import {
 	markRunCancelled,
 	nodeIsReady,
+	nodeWaitConditions,
 	projectInputSubmissions,
 	readyNodes,
 	requireBaseline,
@@ -42,6 +63,8 @@ export interface WorkflowRuntimeMetric {
 }
 
 export interface WorkflowRuntimeOptions {
+	controller?: Pick<RunControllerRecord, "controllerId" | "term">;
+	finalizer?: typeof materializeFinalSubmission;
 	maxConcurrentNodes?: number;
 	maxQualityReworkRounds?: number;
 	/** Disabled by default (0); a positive value explicitly opts into a whole-round deadline. */
@@ -68,6 +91,7 @@ export class WorkflowRuntime {
 	private readonly maxQualityReworkRounds: number;
 	private readonly roundTimeoutMs: number;
 	private readonly onMetric: NonNullable<WorkflowRuntimeOptions["onMetric"]>;
+	private readonly finalizer: RunFinalizer;
 	private abortController = new AbortController();
 	private readonly stopTimeoutMs: number;
 	private readonly softRoundTimeoutMs?: number;
@@ -79,6 +103,9 @@ export class WorkflowRuntime {
 	private suspension?: Promise<RunState>;
 	private readonly running = new Map<string, Promise<void>>();
 	private stopping?: Promise<void>;
+	private controllerId?: string;
+	private controllerTerm?: number;
+	private recoveryValidated = false;
 
 	constructor(
 		store: RunStore,
@@ -108,6 +135,9 @@ export class WorkflowRuntime {
 		)
 			throw new Error("softRoundTimeoutMs must be positive and less than roundTimeoutMs");
 		this.onMetric = options.onMetric ?? (() => {});
+		this.finalizer = new RunFinalizer(store, directory, { materialize: options.finalizer });
+		this.controllerId = options.controller?.controllerId;
+		this.controllerTerm = options.controller?.term;
 		if (!Number.isInteger(this.maxConcurrentNodes) || this.maxConcurrentNodes < 1)
 			throw new Error("maxConcurrentNodes must be a positive integer");
 		if (!Number.isInteger(this.maxQualityReworkRounds) || this.maxQualityReworkRounds < 0)
@@ -119,6 +149,7 @@ export class WorkflowRuntime {
 	async activate(baseline: ExecutionBaseline, taskInput?: TaskInput): Promise<void> {
 		this.baselineHash = hashJson(baseline);
 		const state: RunState = {
+			runtimeSchemaVersion: 2,
 			runId: baseline.runId,
 			revision: 0,
 			phase: "execute",
@@ -129,6 +160,7 @@ export class WorkflowRuntime {
 				nodeId: node.node_id,
 				kind: node.kind,
 				status: "waiting",
+				scopeEpoch: 1,
 				nextRound: 1,
 			})),
 			rounds: [],
@@ -136,29 +168,162 @@ export class WorkflowRuntime {
 			reviews: [],
 			approvals: [],
 			mechanicalChecks: [],
+			attempts: [],
+			dispatchIntents: [],
+			waits: [],
+			failures: [],
+			externalOperations: [],
+			providerRequests: [],
+			completionCandidates: [],
+			activeResources: [],
 			events: [],
 			operations: {},
 		};
 		try {
-			await this.store.read(baseline.runId);
-			await this.store.mutate(
+			const existing = await this.store.read(baseline.runId);
+			const controllerId = this.controllerId ?? existing.controller?.controllerId ?? randomUUID();
+			const controller = await this.store.mutate(
 				baseline.runId,
 				`activate:${baseline.baselineId}`,
-				{ baselineId: baseline.baselineId },
+				{ baselineId: baseline.baselineId, controllerId, controllerTerm: this.controllerTerm ?? null },
 				(draft, event) => {
-					if (draft.status !== "running") return false;
+					if (draft.status !== "running") throw new Error("Run is not active during Baseline activation");
+					const claimed = claimRunController(draft, controllerId, { expectedTerm: this.controllerTerm });
 					draft.phase = "execute";
 					draft.baseline = baseline;
 					draft.nodes = state.nodes;
-					event.emit("baseline_activated", { baselineId: baseline.baselineId });
-					return true;
+					event.emit("baseline_activated", {
+						baselineId: baseline.baselineId,
+						controllerId: claimed.controllerId,
+						controllerTerm: claimed.term,
+					});
+					return { controllerId: claimed.controllerId, term: claimed.term };
 				},
 			);
+			this.controllerId = controller.controllerId;
+			this.controllerTerm = controller.term;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 			if (!taskInput) throw new Error("Cannot activate a new Run without its TaskInput");
+			const claimed = claimRunController(state, this.controllerId ?? randomUUID(), {
+				expectedTerm: this.controllerTerm,
+			});
+			this.controllerId = claimed.controllerId;
+			this.controllerTerm = claimed.term;
 			await this.store.create(state);
 		}
+	}
+
+	async recover(): Promise<void> {
+		let state = await this.store.read(this.directory.runId);
+		let boundary = classifyRunRecovery(state);
+		if (boundary.kind === "unsupported") throw new Error(boundary.reason);
+		if (boundary.kind === "pending_dispatch")
+			throw new Error("Pending dispatches must be fenced by the service controller before Runtime recovery");
+		if (boundary.kind === "interrupted_execution") {
+			await this.recoverInterruptedExecution(state);
+			state = await this.store.read(this.directory.runId);
+			boundary = { kind: "paused_execution" };
+		}
+		const recoverableFinalization = boundary.kind === "finalization";
+		if (!state.baseline) throw new Error("Cannot recover a Run without its frozen Baseline");
+		const controller = state.controller;
+		if (!controller || controller.status !== "active") throw new Error("Recovered Run has no active controller");
+		if (this.controllerId && this.controllerId !== controller.controllerId)
+			throw new Error("Recovered Runtime controller identity does not match the Run");
+		if (this.controllerTerm !== undefined && this.controllerTerm !== controller.term)
+			throw new Error("Recovered Runtime controller term does not match the Run");
+		this.controllerId = controller.controllerId;
+		this.controllerTerm = controller.term;
+		this.baselineHash = hashJson(state.baseline);
+		if (!recoverableFinalization) {
+			await this.worker.validateResume?.(state);
+			this.recoveryValidated = true;
+		}
+	}
+
+	private async recoverInterruptedExecution(state: RunState): Promise<void> {
+		const controller = this.controller();
+		requireCurrentController(state, controller.controllerId, controller.term);
+		if (!this.worker.recoverInterrupted)
+			throw new Error("Node Worker cannot quarantine resources from an interrupted execution");
+		const progress = await this.worker.recoverInterrupted(state);
+		await this.store.mutate(
+			state.runId,
+			`interrupted-execution-recovered:${controller.term}`,
+			toJsonValue(progress),
+			(draft, event) => {
+				requireCurrentController(draft, controller.controllerId, controller.term);
+				if (draft.status !== "running") throw new Error("Interrupted Run changed before recovery was committed");
+				const activeAttemptIds = new Set(
+					draft.attempts
+						.filter((attempt) => ["claimed", "dispatching", "active"].includes(attempt.status))
+						.map((attempt) => attempt.attemptId),
+				);
+				for (const operation of draft.externalOperations) {
+					if (operation.outcome !== "pending" || !activeAttemptIds.has(operation.attemptId)) continue;
+					operation.outcome = "unknown";
+					operation.updatedAt = Date.now();
+				}
+				for (const node of draft.nodes.filter((candidate) => candidate.activeAttemptId)) {
+					const attemptId = node.activeAttemptId!;
+					const attempt = draft.attempts.find((candidate) => candidate.attemptId === attemptId);
+					if (!attempt) throw new Error(`Interrupted Attempt record is missing: ${attemptId}`);
+					const roundId = attempt.roundId;
+					interruptActiveExecution(draft, node.nodeId, "paused", "outcome_unknown");
+					incrementScopeEpoch(draft, node.nodeId);
+					node.resumeRoundId = roundId;
+					node.activeRoundId = undefined;
+					node.status = "paused";
+					const round = draft.rounds.find((candidate) => candidate.roundId === roundId);
+					if (round) round.status = "paused";
+					if (
+						draft.externalOperations.some(
+							(operation) => operation.attemptId === attemptId && operation.outcome === "unknown",
+						)
+					)
+						registerNodeWait({
+							state: draft,
+							nodeId: node.nodeId,
+							participantId: attempt.participantId,
+							roundId,
+							attemptId,
+							kind: "external_operation",
+							reason: "A network-capable tool was interrupted before its outcome receipt was durable",
+							missingConditions: ["Reconcile every unknown external operation outcome"],
+							wakeEvents: ["external_operation_reconciled"],
+						});
+				}
+				draft.generation = (draft.generation ?? 0) + 1;
+				draft.status = "paused";
+				draft.cleanup = { status: "complete", resources: structuredClone(draft.activeResources) };
+				draft.workProgress = progress.map((reference) => structuredClone(reference));
+				draft.interruption = {
+					reason: "Recovered after the previous execution controller stopped unexpectedly",
+					timestamp: Date.now(),
+					baselineHash: this.baselineHash,
+				};
+				if (draft.externalOperations.some((operation) => operation.outcome === "unknown"))
+					draft.failure = {
+						code: "external_outcome_unknown",
+						message: "Interrupted external operations require reconciliation before execution can resume",
+					};
+				event.emit("interrupted_execution_recovered", {
+					controllerTerm: controller.term,
+					progressCount: progress.length,
+					unknownExternalOperations: draft.externalOperations.filter(
+						(operation) => operation.outcome === "unknown",
+					).length,
+				});
+				return true;
+			},
+		);
+	}
+
+	private controller(): Pick<RunControllerRecord, "controllerId" | "term"> {
+		if (!this.controllerId || this.controllerTerm === undefined)
+			throw new Error("Workflow Runtime has not acquired execution control");
+		return { controllerId: this.controllerId, term: this.controllerTerm };
 	}
 
 	run(): Promise<RunState> {
@@ -172,34 +337,11 @@ export class WorkflowRuntime {
 		while (true) {
 			const state = await this.store.read(this.directory.runId);
 			if (state.status !== "running") return state;
+			const controller = this.controller();
+			requireCurrentController(state, controller.controllerId, controller.term);
 			if (this.running.size === 0 && runIsComplete(state)) {
-				const finalSubmission = await materializeFinalSubmission(
-					this.directory,
-					state,
-					this.abortController.signal,
-				);
-				await this.store.mutate(
-					state.runId,
-					`complete:${state.revision}`,
-					toJsonValue({ action: "complete", files: finalSubmission.files }),
-					(draft, event) => {
-						if (
-							draft.status !== "running" ||
-							(draft.generation ?? 0) !== (state.generation ?? 0) ||
-							!runIsComplete(draft)
-						)
-							throw new Error("Run changed before final delivery projection completed");
-						draft.finalSubmission = finalSubmission;
-						draft.status = "succeeded";
-						draft.phase = "closed";
-						event.emit("final_submission_materialized", {
-							directory: finalSubmission.directory,
-							files: finalSubmission.files.map((file) => file.path),
-						});
-						event.emit("run_succeeded");
-						return true;
-					},
-				);
+				const committed = await this.finalizer.finalize(state, controller, this.abortController.signal);
+				if (!committed) continue;
 				return this.store.read(state.runId);
 			}
 			for (const node of readyNodes(state)) {
@@ -214,14 +356,52 @@ export class WorkflowRuntime {
 				this.running.set(nodeId, operation);
 			}
 			if (this.running.size === 0) {
+				await this.recordDependencyWaits(state);
 				const current = await this.store.read(state.runId);
+				const blockedNode = current.nodes.find((node) => node.status === "blocked" && node.block);
 				return this.suspend(
 					current.nodes.some((node) => node.status === "paused") ? "paused" : "blocked",
-					current.failure?.message ?? "No ready nodes",
+					current.failure?.message ?? blockedNode?.block?.reason ?? "No ready nodes",
 				);
 			}
 			await Promise.race(this.running.values());
 		}
+	}
+
+	private async recordDependencyWaits(state: RunState): Promise<void> {
+		const baseline = requireBaseline(state);
+		await this.store.mutate(
+			state.runId,
+			`wait-snapshot:${state.revision}`,
+			{ revision: state.revision },
+			(draft, event) => {
+				let count = 0;
+				for (const node of baseline.nodes) {
+					const runtime = draft.nodes.find((item) => item.nodeId === node.definition.node_id);
+					if (
+						!runtime ||
+						["active", "succeeded", "cancelled"].includes(runtime.status) ||
+						nodeIsReady(node, draft)
+					)
+						continue;
+					if (draft.waits.some((wait) => wait.nodeId === runtime.nodeId && wait.state === "waiting")) continue;
+					registerNodeWait({
+						state: draft,
+						nodeId: runtime.nodeId,
+						participantId: node.agents[0].participantId,
+						roundId: runtime.activeRoundId ?? runtime.resumeRoundId,
+						attemptId: runtime.activeAttemptId,
+						kind: runtime.status === "blocked" ? "business_condition" : "dependency",
+						reason: runtime.block?.reason ?? "Node readiness conditions are not satisfied",
+						missingConditions: nodeWaitConditions(node, draft),
+						wakeEvents: ["submission_recorded", "review_recorded", "run_resumed"],
+					});
+					count++;
+				}
+				event.emit("run_waiting", { count });
+				return count;
+			},
+		);
 	}
 
 	async pause(reason = "Paused by user"): Promise<RunState> {
@@ -238,8 +418,11 @@ export class WorkflowRuntime {
 	private async performSuspend(status: "paused" | "blocked", reason: string, code?: string): Promise<RunState> {
 		const before = await this.store.read(this.directory.runId);
 		if (isTerminal(before.status)) return before;
+		const controller = this.controller();
+		requireCurrentController(before, controller.controllerId, controller.term);
 		await this.store.mutate(before.runId, `suspend:${before.revision}`, { status, reason }, (draft, event) => {
 			if (isTerminal(draft.status)) return false;
+			requireCurrentController(draft, controller.controllerId, controller.term);
 			if (draft.status === "running") draft.generation = (draft.generation ?? 0) + 1;
 			draft.status = status;
 			draft.cleanup = { status: "pending", resources: this.inspectResources() };
@@ -247,6 +430,7 @@ export class WorkflowRuntime {
 			draft.interruption = { reason, timestamp: Date.now(), baselineHash: this.baselineHash };
 			for (const node of draft.nodes) {
 				if (node.status !== "active") continue;
+				interruptActiveExecution(draft, node.nodeId, "paused", "cancelled");
 				node.resumeRoundId = node.activeRoundId;
 				const round = draft.rounds.find((item) => item.roundId === node.activeRoundId);
 				if (round) round.status = "paused";
@@ -312,6 +496,8 @@ export class WorkflowRuntime {
 			throw new Error("Previous execution or cleanup has not settled");
 		const state = await this.store.read(this.directory.runId);
 		if (!["paused", "blocked"].includes(state.status)) throw new Error("Only paused or blocked Runs can resume");
+		const controller = this.controller();
+		requireCurrentController(state, controller.controllerId, controller.term);
 		if (!this.baselineHash || hashJson(requireBaseline(state)) !== this.baselineHash)
 			throw new Error("Frozen Baseline changed or execution ownership was lost");
 		if (
@@ -322,6 +508,8 @@ export class WorkflowRuntime {
 		if (state.cleanup?.status !== "complete") throw new Error("Work preservation has not completed");
 		if (["external_outcome_unknown", "quality_rework_exhausted"].includes(state.failure?.code ?? ""))
 			throw new Error("The recorded failure requires explicit reconciliation before resume");
+		if (state.externalOperations.some((operation) => operation.outcome === "unknown"))
+			throw new Error("An external operation outcome requires explicit reconciliation before resume");
 		for (const node of state.nodes.filter((item) => ["paused", "blocked"].includes(item.status))) {
 			const round = state.rounds.filter((item) => item.nodeId === node.nodeId).at(-1);
 			const effective = baselineIndex(requireBaseline(state)).nodes.get(node.nodeId)!;
@@ -335,7 +523,7 @@ export class WorkflowRuntime {
 			)
 				throw new Error(`Inputs or approvals changed for ${node.nodeId}`);
 		}
-		await this.worker.validateResume?.(state.runId, state.workProgress ?? []);
+		if (!this.recoveryValidated) await this.worker.validateResume?.(state);
 		await this.store.mutate(
 			state.runId,
 			`resume:${state.revision}`,
@@ -343,6 +531,7 @@ export class WorkflowRuntime {
 			(draft, event) => {
 				if (draft.revision !== state.revision || !["paused", "blocked"].includes(draft.status))
 					throw new Error("Run changed during resume validation");
+				requireCurrentController(draft, controller.controllerId, controller.term);
 				draft.generation = (draft.generation ?? 0) + 1;
 				draft.status = "running";
 				delete draft.interruption;
@@ -357,6 +546,7 @@ export class WorkflowRuntime {
 			},
 		);
 		this.abortController = new AbortController();
+		this.recoveryValidated = false;
 	}
 
 	async cancel(reason = "Run cancelled"): Promise<RunState> {
@@ -364,6 +554,8 @@ export class WorkflowRuntime {
 		if (!isTerminal(state.status))
 			await this.store.mutate(state.runId, `cancel:${state.revision}`, { reason }, (draft, event) => {
 				if (isTerminal(draft.status)) return false;
+				const controller = this.controller();
+				requireCurrentController(draft, controller.controllerId, controller.term);
 				draft.generation = (draft.generation ?? 0) + 1;
 				markRunCancelled(draft);
 				event.emit("run_cancelled", { reason });
@@ -423,33 +615,34 @@ export class WorkflowRuntime {
 
 	private async assertCurrent(work: NodeRoundWork, lateEvent?: string): Promise<void> {
 		const state = await this.store.read(work.runId);
-		if (
-			work.signal?.aborted ||
-			state.status !== "running" ||
-			(state.generation ?? 0) !== (work.generation ?? 0) ||
-			state.nodes.find((node) => node.nodeId === work.node.definition.node_id)?.activeRoundId !== work.roundId
-		) {
+		if (work.signal?.aborted || !executionIsCurrent(state, work.node.definition.node_id, work.roundId, work.stamp)) {
 			if (lateEvent)
 				await this.store.mutate(
 					work.runId,
-					`${lateEvent}:${work.roundId}:${work.generation ?? 0}`,
-					{ generation: work.generation ?? 0 },
+					`${lateEvent}:${work.stamp.attemptId}`,
+					{ attemptId: work.stamp.attemptId, commandId: work.stamp.commandId },
 					(_draft, event) => {
 						event.emit(
 							lateEvent,
-							{ generation: work.generation ?? 0 },
+							{
+								attemptId: work.stamp.attemptId,
+								controllerTerm: work.stamp.controllerTerm,
+								scopeEpoch: work.stamp.scopeEpoch,
+							},
 							work.node.definition.node_id,
 							work.roundId,
 						);
 						return false;
 					},
 				);
-			throw new NodeWorkerError("cancelled", "Execution generation is no longer eligible to submit");
+			throw new NodeWorkerError("cancelled", "Execution Attempt is no longer eligible to submit");
 		}
 	}
 
 	private async runNode(runId: string, node: EffectiveNode): Promise<void> {
 		const state = await this.store.read(runId);
+		const controller = this.controller();
+		requireCurrentController(state, controller.controllerId, controller.term);
 		const record = state.nodes.find((item) => item.nodeId === node.definition.node_id)!;
 		if (record.status === "waiting_rework" && record.nextRound > this.maxQualityReworkRounds + 1) {
 			await this.store.mutate(
@@ -462,6 +655,23 @@ export class WorkflowRuntime {
 					if (!current || current.status !== "waiting_rework") return false;
 					current.status = "blocked";
 					draft.failure = { code: "quality_rework_exhausted", message: "Quality rework limit reached" };
+					recordFailure(draft, undefined, {
+						nodeId: current.nodeId,
+						phase: "runtime",
+						classification: "quality_rework_exhausted",
+						message: "Quality rework limit reached",
+						retryUnchanged: false,
+						affectedScope: "node",
+					});
+					registerNodeWait({
+						state: draft,
+						nodeId: current.nodeId,
+						participantId: node.agents[0].participantId,
+						kind: "business_condition",
+						reason: "Quality rework limit reached",
+						missingConditions: ["Explicit quality-policy reconciliation"],
+						wakeEvents: ["quality_policy_reconciled"],
+					});
 					event.emit(
 						"quality_rework_exhausted",
 						{ maxQualityReworkRounds: this.maxQualityReworkRounds },
@@ -476,68 +686,126 @@ export class WorkflowRuntime {
 		const generation = state.generation ?? 0;
 		const signal = this.abortController.signal;
 		const startedAt = Date.now();
-		let started = false;
-		let bindings = resolveInputBindings(node, state);
-		await this.store.mutate(runId, `start:${roundId}:${generation}`, { roundId }, (draft, event) => {
-			if (draft.status !== "running" || (draft.generation ?? 0) !== generation || !nodeIsReady(node, draft))
-				return false;
-			const current = draft.nodes.find((item) => item.nodeId === node.definition.node_id)!;
-			bindings = resolveInputBindings(node, draft);
-			const submissionIds = [...new Set(bindings.map((item) => item.submissionId))];
-			delete current.block;
-			current.status = "active";
-			current.activeRoundId = roundId;
-			const continuing = draft.rounds.find((round) => round.roundId === current.resumeRoundId);
-			delete current.resumeRoundId;
-			if (continuing) {
-				continuing.status = "active";
-				continuing.generation = generation;
-				continuing.attempt = (continuing.attempt ?? 1) + 1;
-				delete continuing.finishedAt;
-			} else {
-				current.nextRound++;
-				draft.rounds.push({
-					generation,
-					attempt: 1,
-					roundId,
+		const resuming = record.resumeRoundId !== undefined;
+		const proposedAttempt = state.attempts.filter((attempt) => attempt.roundId === roundId).length + 1;
+		const claim = await this.store.mutate(
+			runId,
+			`claim:${roundId}:${controller.term}:${record.scopeEpoch}:${proposedAttempt}`,
+			{ roundId, controllerTerm: controller.term, scopeEpoch: record.scopeEpoch, attempt: proposedAttempt },
+			(draft, event) => {
+				requireCurrentController(draft, controller.controllerId, controller.term);
+				if (draft.status !== "running" || (draft.generation ?? 0) !== generation || !nodeIsReady(node, draft))
+					return { started: false as const, stamp: null, bindings: [] };
+				const current = draft.nodes.find((item) => item.nodeId === node.definition.node_id)!;
+				if (current.scopeEpoch !== record.scopeEpoch) return { started: false as const, stamp: null, bindings: [] };
+				const bindings = resolveInputBindings(node, draft);
+				const bindingRecords = bindings.map(({ submission: _submission, ...binding }) => structuredClone(binding));
+				const submissionIds = [...new Set(bindings.map((item) => item.submissionId))];
+				delete current.block;
+				current.status = "active";
+				current.activeRoundId = roundId;
+				const continuing = draft.rounds.find((round) => round.roundId === current.resumeRoundId);
+				delete current.resumeRoundId;
+				if (continuing) {
+					continuing.status = "active";
+					continuing.generation = generation;
+					continuing.attempt = proposedAttempt;
+					delete continuing.finishedAt;
+				} else {
+					current.nextRound++;
+					draft.rounds.push({
+						generation,
+						attempt: 1,
+						roundId,
+						nodeId: current.nodeId,
+						index: current.nextRound - 1,
+						status: "active",
+						inputSubmissionIds: submissionIds,
+						inputBindings: bindingRecords,
+						startedAt: Date.now(),
+					});
+				}
+				const feedback = reworkFeedback(node, draft);
+				const stamp = claimExecution({
+					state: draft,
+					controllerId: controller.controllerId,
+					controllerTerm: controller.term,
 					nodeId: current.nodeId,
-					index: current.nextRound - 1,
-					status: "active",
-					inputSubmissionIds: submissionIds,
-					inputBindings: bindings.map(({ submission: _submission, ...binding }) => structuredClone(binding)),
-					startedAt: Date.now(),
+					participantId: node.agents[0].participantId,
+					roundId,
+					operation: dispatchKindFor(node.definition.kind, resuming, feedback),
+					inputBindings: bindingRecords,
+					inputBindingHash: hashJson(bindingRecords),
 				});
-			}
-			event.emit(
-				"round_started",
-				{
-					generation,
-					attempt: continuing?.attempt ?? 1,
-					executionPolicy: {
-						roundTimeoutMs: this.roundTimeoutMs,
-						softRoundTimeoutMs: this.softRoundTimeoutMs ?? 0,
-						stopTimeoutMs: this.stopTimeoutMs,
+				event.emit(
+					"round_started",
+					{
+						generation,
+						attempt: stamp.attemptIndex,
+						attemptId: stamp.attemptId,
+						commandId: stamp.commandId,
+						controllerTerm: stamp.controllerTerm,
+						scopeEpoch: stamp.scopeEpoch,
+						executionPolicy: {
+							roundTimeoutMs: this.roundTimeoutMs,
+							softRoundTimeoutMs: this.softRoundTimeoutMs ?? 0,
+							stopTimeoutMs: this.stopTimeoutMs,
+						},
 					},
-				},
-				current.nodeId,
-				roundId,
+					current.nodeId,
+					roundId,
+				);
+				return { started: true as const, stamp, bindings: bindingRecords };
+			},
+		);
+		if (!claim.started) return;
+		const claimedState = await this.store.read(runId);
+		const bindings = claim.bindings.map((binding) => {
+			const submission = claimedState.submissions.find(
+				(candidate) => candidate.submissionId === binding.submissionId,
 			);
-			started = true;
-			return true;
+			if (!submission) throw new Error(`Claimed input Submission is unavailable: ${binding.submissionId}`);
+			return { ...structuredClone(binding), submission };
 		});
-		if (!started) return;
 		const inputs = projectInputSubmissions(bindings);
 		const work: NodeRoundWork = {
+			stamp: claim.stamp,
 			generation,
-			resuming: record.resumeRoundId !== undefined,
+			resuming,
 			signal,
+			onDispatchDelivering: () => this.recordDispatchDelivering(work),
+			onDispatchStarted: () => this.recordDispatchStarted(runId, node.definition.node_id, roundId, claim.stamp),
+			onProviderRequest: (observation) =>
+				this.recordProviderRequest(runId, node.definition.node_id, roundId, claim.stamp, observation),
+			externalOperations: {
+				begin: (intent) =>
+					this.recordExternalOperationStart(
+						runId,
+						node.definition.node_id,
+						node.agents[0].participantId,
+						roundId,
+						claim.stamp,
+						intent,
+					),
+				settle: (operationId, outcome, receiptRef) =>
+					this.recordExternalOperationOutcome(
+						runId,
+						node.definition.node_id,
+						roundId,
+						operationId,
+						outcome,
+						receiptRef,
+					),
+			},
+			onResourcesChanged: (resources) =>
+				this.recordActiveResources(runId, node.definition.node_id, roundId, claim.stamp, resources),
 			runId,
 			roundId,
 			node,
 			inputSubmissions: inputs,
 			inputBindings: bindings.map(({ submission: _submission, ...binding }) => structuredClone(binding)),
-			taskContext: taskContextForNode(node, state),
-			forbiddenMutableReadPaths: requireBaseline(state)
+			taskContext: taskContextForNode(node, claimedState),
+			forbiddenMutableReadPaths: requireBaseline(claimedState)
 				.nodes.filter(
 					(candidate) =>
 						candidate.definition.kind === "execution" && candidate.definition.node_id !== node.definition.node_id,
@@ -547,18 +815,14 @@ export class WorkflowRuntime {
 						? candidate.definition.outputs.map((output) => output.path_prefix)
 						: [],
 				),
-			feedback: reworkFeedback(node, state),
-			environmentBinding: requireBaseline(state).environmentBindings.find(
+			feedback: reworkFeedback(node, claimedState),
+			environmentBinding: requireBaseline(claimedState).environmentBindings.find(
 				(binding) =>
 					binding.nodeId === node.definition.node_id && binding.participantId === node.agents[0].participantId,
 			),
 		};
 		try {
 			await this.runRoundWithTimeout(work, node.definition);
-			const current = await this.store.read(runId);
-			const completedNode = current.nodes.find((item) => item.nodeId === node.definition.node_id);
-			if (current.status === "running" && completedNode?.status === "blocked")
-				await this.suspend("blocked", completedNode.block?.reason ?? "Node requires an external condition");
 		} catch (error) {
 			await this.blockRound(work, error);
 		} finally {
@@ -574,6 +838,176 @@ export class WorkflowRuntime {
 				// Telemetry cannot affect Runtime state.
 			}
 		}
+	}
+
+	private async recordDispatchDelivering(work: NodeRoundWork): Promise<void> {
+		const applied = await this.store.mutate(
+			work.runId,
+			`dispatch-delivering:${work.stamp.commandId}`,
+			{ attemptId: work.stamp.attemptId, commandId: work.stamp.commandId },
+			(draft, event) => {
+				if (!executionIsCurrent(draft, work.node.definition.node_id, work.roundId, work.stamp)) return false;
+				markDispatchDelivering(draft, work.node.definition.node_id, work.roundId, work.stamp);
+				event.emit(
+					"dispatch_delivering",
+					{ attemptId: work.stamp.attemptId, commandId: work.stamp.commandId },
+					work.node.definition.node_id,
+					work.roundId,
+				);
+				return true;
+			},
+		);
+		if (!applied) throw new NodeWorkerError("cancelled", `Dispatch is no longer current: ${work.stamp.commandId}`);
+	}
+
+	private async recordActiveResources(
+		runId: string,
+		nodeId: string,
+		roundId: string,
+		stamp: ExecutionStamp,
+		resources: readonly RunState["activeResources"][number][],
+	): Promise<boolean> {
+		const snapshot = resources.map((resource) => structuredClone(resource));
+		return this.store.mutate(
+			runId,
+			`active-resources:${stamp.attemptId}:${hashJson(snapshot)}`,
+			toJsonValue(snapshot),
+			(draft, event) => {
+				if (!executionIsCurrent(draft, nodeId, roundId, stamp)) return false;
+				draft.activeResources = snapshot;
+				event.emit(
+					"active_resources_recorded",
+					{ attemptId: stamp.attemptId, count: snapshot.length },
+					nodeId,
+					roundId,
+				);
+				return true;
+			},
+		);
+	}
+
+	private async recordDispatchStarted(
+		runId: string,
+		nodeId: string,
+		roundId: string,
+		stamp: ExecutionStamp,
+	): Promise<void> {
+		const applied = await this.store.mutate(
+			runId,
+			`dispatch-started:${stamp.commandId}`,
+			{ attemptId: stamp.attemptId, commandId: stamp.commandId },
+			(draft, event) => {
+				if (!executionIsCurrent(draft, nodeId, roundId, stamp)) return false;
+				markDispatchStarted(draft, nodeId, roundId, stamp);
+				event.emit("dispatch_started", { attemptId: stamp.attemptId, commandId: stamp.commandId }, nodeId, roundId);
+				return true;
+			},
+		);
+		if (!applied) throw new NodeWorkerError("cancelled", `Dispatch is no longer current: ${stamp.commandId}`);
+	}
+
+	private async recordProviderRequest(
+		runId: string,
+		nodeId: string,
+		roundId: string,
+		stamp: ExecutionStamp,
+		observation: Parameters<NonNullable<NodeRoundWork["onProviderRequest"]>>[0],
+	): Promise<boolean> {
+		return this.store.mutate(
+			runId,
+			`provider-request:${observation.requestId}`,
+			toJsonValue(observation),
+			(draft, event) => {
+				const current = executionIsCurrent(draft, nodeId, roundId, stamp);
+				const record = {
+					...structuredClone(observation),
+					attemptId: stamp.attemptId,
+					commandId: stamp.commandId,
+					nodeId,
+					createdAt: Date.now(),
+					...(current ? {} : { status: "rejected" as const, reasonCode: "stale_dispatch" as const }),
+				};
+				draft.providerRequests.push(record);
+				event.emit(
+					current && record.status === "admitted" ? "provider_request_admitted" : "provider_request_rejected",
+					{
+						requestId: record.requestId,
+						attemptId: record.attemptId,
+						serializedBytes: record.serializedBytes,
+						imageCount: record.imageCount,
+						reasonCode: record.reasonCode ?? null,
+					},
+					nodeId,
+					roundId,
+				);
+				return current;
+			},
+		);
+	}
+
+	private async recordExternalOperationStart(
+		runId: string,
+		nodeId: string,
+		participantId: string,
+		roundId: string,
+		stamp: ExecutionStamp,
+		intent: Parameters<NonNullable<NodeRoundWork["externalOperations"]>["begin"]>[0],
+	): Promise<string> {
+		const operationId = `${stamp.attemptId}:external:${intent.operationKey}`;
+		const registered = await this.store.mutate(
+			runId,
+			`external-operation-start:${operationId}`,
+			toJsonValue(intent),
+			(draft, event) => {
+				if (!executionIsCurrent(draft, nodeId, roundId, stamp)) return false;
+				registerExternalOperation({
+					state: draft,
+					stamp,
+					nodeId,
+					participantId,
+					operationId,
+					intentRef: intent.intentRef,
+					requestHash: intent.requestHash,
+					authorizationRef: intent.authorizationRef,
+					targetRef: intent.targetRef,
+				});
+				event.emit(
+					"external_operation_started",
+					{ operationId, attemptId: stamp.attemptId, intentRef: intent.intentRef },
+					nodeId,
+					roundId,
+				);
+				return true;
+			},
+		);
+		if (!registered)
+			throw new NodeWorkerError("cancelled", `External operation is no longer authorized: ${operationId}`);
+		return operationId;
+	}
+
+	private async recordExternalOperationOutcome(
+		runId: string,
+		nodeId: string,
+		roundId: string,
+		operationId: string,
+		outcome: Parameters<NonNullable<NodeRoundWork["externalOperations"]>["settle"]>[1],
+		receiptRef?: string,
+	): Promise<void> {
+		await this.store.mutate(
+			runId,
+			`external-operation-outcome:${operationId}:${outcome}`,
+			{ operationId, outcome, receiptRef: receiptRef ?? null },
+			(draft, event) => {
+				settleExternalOperation(draft, operationId, outcome, receiptRef);
+				event.emit(
+					"external_operation_settled",
+					{ operationId, outcome, receiptRef: receiptRef ?? null },
+					nodeId,
+					roundId,
+				);
+				return true;
+			},
+		);
 	}
 
 	private async runRoundWithTimeout(work: NodeRoundWork, node: ExecutionNode | ReviewNode): Promise<void> {
@@ -611,10 +1045,6 @@ export class WorkflowRuntime {
 						);
 				}),
 			]);
-		} catch (error) {
-			if (error instanceof NodeWorkerError && error.kind === "timeout")
-				await this.suspend("paused", error.message, "timeout");
-			throw error;
 		} finally {
 			if (timeout) clearTimeout(timeout);
 			if (soft) clearTimeout(soft);
@@ -623,28 +1053,26 @@ export class WorkflowRuntime {
 	}
 
 	private async recordExecutionBlock(work: NodeRoundWork, report: ReportNodeBlocked): Promise<void> {
-		const blockId = `${work.roundId}:block`;
+		const blockId = `${work.stamp.attemptId}:block`;
 		await this.store.mutate(
 			work.runId,
-			`business-blocked:${work.roundId}:${work.generation ?? 0}`,
+			`business-blocked:${work.stamp.attemptId}`,
 			toJsonValue(report),
 			(draft, event) => {
 				const node = draft.nodes.find((item) => item.nodeId === work.node.definition.node_id)!;
 				const round = draft.rounds.find((item) => item.roundId === work.roundId)!;
 				if (
-					draft.status !== "running" ||
-					(draft.generation ?? 0) !== (work.generation ?? 0) ||
-					node.activeRoundId !== work.roundId ||
+					!executionIsCurrent(draft, work.node.definition.node_id, work.roundId, work.stamp) ||
 					!roundInputsAreValid(work.node, round, draft)
 				) {
 					event.emit("late_block_ignored", { blockId }, node.nodeId, work.roundId);
 					return false;
 				}
 				node.status = "blocked";
-				node.activeRoundId = undefined;
 				node.block = {
 					blockId,
 					roundId: work.roundId,
+					attemptId: work.stamp.attemptId,
 					reason: report.reason,
 					missingConditions: [...report.missing_conditions],
 					attemptedActions: [...report.attempted_actions],
@@ -652,8 +1080,21 @@ export class WorkflowRuntime {
 					neededToResume: [...report.needed_to_resume],
 					createdAt: Date.now(),
 				};
+				finishExecution(draft, node.nodeId, work.roundId, work.stamp, "completed", "completed");
+				node.activeRoundId = undefined;
 				round.status = "blocked";
 				round.finishedAt = Date.now();
+				registerNodeWait({
+					state: draft,
+					nodeId: node.nodeId,
+					participantId: work.node.agents[0].participantId,
+					roundId: work.roundId,
+					attemptId: work.stamp.attemptId,
+					kind: "business_condition",
+					reason: report.reason,
+					missingConditions: report.missing_conditions,
+					wakeEvents: ["business_condition_updated", "run_resumed"],
+				});
 				event.emit("node_blocked", toJsonValue({ blockId, ...report }), node.nodeId, work.roundId);
 				return true;
 			},
@@ -665,17 +1106,15 @@ export class WorkflowRuntime {
 			error instanceof NodeWorkerError
 				? error
 				: new NodeWorkerError("configuration", error instanceof Error ? error.message : String(error), false);
+		const execution = this.inFlight.get(work.roundId);
+		const phase = execution?.phase ?? "runtime";
 		const applied = await this.store.mutate(
 			work.runId,
-			`round-failed:${work.roundId}:${work.generation ?? 0}`,
-			{ kind: failure.kind, message: failure.message },
+			`round-failed:${work.stamp.attemptId}`,
+			{ kind: failure.kind, message: failure.message, attemptId: work.stamp.attemptId },
 			(draft, event) => {
 				const node = draft.nodes.find((item) => item.nodeId === work.node.definition.node_id)!;
-				if (
-					draft.status !== "running" ||
-					(draft.generation ?? 0) !== (work.generation ?? 0) ||
-					node.activeRoundId !== work.roundId
-				) {
+				if (!executionIsCurrent(draft, work.node.definition.node_id, work.roundId, work.stamp)) {
 					event.emit(
 						"late_failure_ignored",
 						{ kind: failure.kind, message: failure.message },
@@ -684,23 +1123,100 @@ export class WorkflowRuntime {
 					);
 					return false;
 				}
-				node.status = ["transient", "timeout", "cancelled"].includes(failure.kind) ? "paused" : "blocked";
+				const paused = ["transient", "timeout", "cancelled", "request_capacity"].includes(failure.kind);
+				node.status = paused ? "paused" : "blocked";
 				draft.failure = { code: failure.kind, message: failure.message };
 				node.resumeRoundId = work.roundId;
-				node.activeRoundId = undefined;
 				const round = draft.rounds.find((item) => item.roundId === work.roundId)!;
-				round.status = node.status === "paused" ? "paused" : "failed";
+				const failureRecord = recordFailure(draft, work.stamp, {
+					nodeId: node.nodeId,
+					roundId: work.roundId,
+					phase,
+					classification: failure.kind,
+					message: failure.message,
+					retryUnchanged: failure.retryable,
+					affectedScope: "node",
+					details: failure.details ?? { retryable: failure.retryable },
+				});
+				finishExecution(
+					draft,
+					node.nodeId,
+					work.roundId,
+					work.stamp,
+					paused ? "paused" : "failed",
+					failure.kind === "external_outcome_unknown" ? "outcome_unknown" : "failed",
+				);
+				node.activeRoundId = undefined;
+				incrementScopeEpoch(draft, node.nodeId);
+				round.status = paused ? "paused" : "failed";
 				round.finishedAt = Date.now();
-				event.emit("round_blocked", { kind: failure.kind, message: failure.message }, node.nodeId, work.roundId);
+				registerNodeWait({
+					state: draft,
+					nodeId: node.nodeId,
+					participantId: work.node.agents[0].participantId,
+					roundId: work.roundId,
+					attemptId: work.stamp.attemptId,
+					kind: failure.kind === "external_outcome_unknown" ? "external_operation" : "technical_recovery",
+					reason: failure.message,
+					missingConditions: [
+						failure.kind === "external_outcome_unknown"
+							? "Reconcile the external operation outcome"
+							: "Repair or verify the failed execution condition",
+					],
+					wakeEvents: ["run_resumed", "recovery_condition_updated"],
+				});
+				event.emit(
+					"round_blocked",
+					{ kind: failure.kind, message: failure.message, failureId: failureRecord.failureId },
+					node.nodeId,
+					work.roundId,
+				);
 				return true;
 			},
 		);
-		if (applied)
-			await this.suspend(
-				["transient", "timeout", "cancelled"].includes(failure.kind) ? "paused" : "blocked",
-				failure.message,
-				failure.kind,
+		if (!applied) return;
+		execution?.controller.abort(failure.message);
+		try {
+			await bounded(
+				Promise.all([
+					this.worker.stopRound?.(
+						work.runId,
+						work.node.definition.node_id,
+						work.node.agents[0].participantId,
+						work.roundId,
+					),
+					execution?.operation.catch(() => {}),
+				]),
+				this.stopTimeoutMs,
+				`Stopping failed Attempt ${work.stamp.attemptId}`,
 			);
+		} catch (stopError) {
+			await this.store.mutate(
+				work.runId,
+				`attempt-stop-failed:${work.stamp.attemptId}`,
+				{ message: stopError instanceof Error ? stopError.message : String(stopError) },
+				(draft, event) => {
+					registerNodeWait({
+						state: draft,
+						nodeId: work.node.definition.node_id,
+						participantId: work.node.agents[0].participantId,
+						roundId: work.roundId,
+						attemptId: work.stamp.attemptId,
+						kind: "cleanup",
+						reason: stopError instanceof Error ? stopError.message : String(stopError),
+						missingConditions: ["Confirm the previous Attempt has stopped or is isolated"],
+						wakeEvents: ["attempt_stop_confirmed"],
+					});
+					event.emit(
+						"attempt_stop_failed",
+						{ attemptId: work.stamp.attemptId },
+						work.node.definition.node_id,
+						work.roundId,
+					);
+					return true;
+				},
+			);
+		}
 	}
 
 	private async runExecution(work: NodeRoundWork, node: ExecutionNode): Promise<void> {
@@ -726,7 +1242,8 @@ export class WorkflowRuntime {
 						runId: work.runId,
 						node,
 						roundId: work.roundId,
-						submissionId: `${work.roundId}:generation:${work.generation ?? 0}:submission`,
+						attemptId: work.stamp.attemptId,
+						submissionId: `${work.stamp.attemptId}:submission`,
 						inputSubmissionIds: work.inputSubmissions.map((item) => item.submissionId),
 						submission: submitted,
 						sourceWorkspace,
@@ -804,6 +1321,7 @@ export class WorkflowRuntime {
 			mechanicalChecks.push({
 				nodeId: node.node_id,
 				roundId: work.roundId,
+				attemptId: work.stamp.attemptId,
 				submissionId: record.submissionId,
 				outputId: output.outputId,
 				result: outcome.result,
@@ -818,7 +1336,7 @@ export class WorkflowRuntime {
 		}
 		const accepted = await this.store.mutate(
 			work.runId,
-			`submit:${work.roundId}:${work.generation ?? 0}`,
+			`submit:${work.stamp.attemptId}`,
 			{ submissionId: record.submissionId },
 			(draft, event) => applyCandidateSubmission(draft, event, work, record, mechanicalChecks, result),
 		);
@@ -855,7 +1373,7 @@ export class WorkflowRuntime {
 		if (!report) throw new NodeWorkerError("configuration", "Review submission correction limit reached", false);
 		const invalidatedRounds = await this.store.mutate(
 			work.runId,
-			`review:${work.roundId}:${work.generation ?? 0}`,
+			`review:${work.stamp.attemptId}`,
 			{ decision: report.decision },
 			(draft, event) => applyReviewDecision(draft, event, work, report),
 		);

@@ -5,7 +5,13 @@ import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earen
 import { defineTool, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import Type from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
-import { compileWorkflow, hashSkillPackage, NodeSessionAdapter, PiNodeSessionFactory } from "../src/index.ts";
+import {
+	compileWorkflow,
+	hashSkillPackage,
+	NodeSessionAdapter,
+	openRetainedSession,
+	PiNodeSessionFactory,
+} from "../src/index.ts";
 import { createCompilerFixture } from "./fixtures.ts";
 
 describe("PiNodeSessionFactory", () => {
@@ -180,7 +186,22 @@ describe("PiNodeSessionFactory", () => {
 		expect(observedSystemPrompt).toContain("Execute the supplied work round.");
 		expect(observedSystemPrompt).toContain("analysis-skill");
 		expect(observedSystemPrompt).toContain(join(skillDir, "SKILL.md"));
-		expect(adapter.inspect("run-1", "produce", "producer")?.sessionFile).toBeDefined();
+		const current = adapter.inspect("run-1", "produce", "producer");
+		expect(current?.sessionFile).toBeDefined();
+		expect(() =>
+			openRetainedSession(
+				{ sessionId: binding.sessionId, sessionFile: binding.sessionFile!, entryId: binding.entryId },
+				root,
+				join(root, "sessions"),
+			),
+		).toThrow("history boundary changed");
+		const interrupted = openRetainedSession(
+			{ sessionId: binding.sessionId, sessionFile: binding.sessionFile!, entryId: binding.entryId },
+			root,
+			join(root, "sessions"),
+			{ allowAdvancedHistory: true },
+		);
+		expect(interrupted.getLeafId()).toBe(current?.entryId);
 		await writeFile(join(skillDir, "SKILL.md"), "changed after binding");
 		await expect(adapter.dispatch("run-1", "produce", "producer", "round-4", "continue")).rejects.toMatchObject({
 			kind: "configuration",

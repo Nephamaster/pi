@@ -5,15 +5,16 @@ import { validateProcessSpecStaffing } from "../compiler/validate-process-spec.t
 import type { ExecutionBaseline, LockedSkill } from "../contracts/baseline.ts";
 import type { JsonValue } from "../contracts/primitives.ts";
 import type { ProcessSelection, ProcessSpec } from "../contracts/process-spec.ts";
-import type { RunState } from "../contracts/runtime.ts";
+import type { RunControllerRecord, RunRequestRecord, RunState } from "../contracts/runtime.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
 import type { WorkflowAssetRecord } from "../ir/types.ts";
 import type { WorkflowAssetStore } from "../registry/workflow-asset-store.ts";
 import { WorkflowAssetWriteError } from "../registry/workflow-asset-store.ts";
+import { requireCurrentController } from "../runtime/execution-control.ts";
 import { prepareRunDirectory, type RunDirectory } from "../runtime/run-directory.ts";
-import type { FileRunStore } from "../runtime/run-store.ts";
+import { type FileRunStore, RunAlreadyExistsError } from "../runtime/run-store.ts";
 
 export interface ProcessSelector {
 	select(runId: string, task: TaskInput, specs: readonly ProcessSpec[]): Promise<ProcessSelection>;
@@ -68,8 +69,12 @@ export interface PrepareRunInput {
 	processSpecs: readonly ProcessSpec[];
 	assets: CompilerAssetCatalog;
 	executionIdentity?: JsonValue;
+	processSelection?: ProcessSelection;
 	selectedProcessSpec?: ProcessSpec;
+	workflowCandidate?: WorkflowDefinition;
 	workflowTemplate?: WorkflowAssetRecord;
+	request?: RunRequestRecord;
+	controller?: Pick<RunControllerRecord, "controllerId" | "term">;
 }
 
 export type PrepareRunResult =
@@ -113,10 +118,12 @@ export class IpdControlPlane {
 		const directory = await prepareRunDirectory(input.projectRoot, input.runId);
 		this.store.bind(input.runId, directory.stateFile);
 		const initial: RunState = {
+			runtimeSchemaVersion: 2,
 			runId: input.runId,
 			revision: 0,
 			phase: "intake",
 			status: "running",
+			...(input.request ? { request: structuredClone(input.request) } : {}),
 			taskInput: input.taskInput,
 			runSkill: input.runSkill,
 			nodes: [],
@@ -125,19 +132,35 @@ export class IpdControlPlane {
 			reviews: [],
 			approvals: [],
 			mechanicalChecks: [],
+			attempts: [],
+			dispatchIntents: [],
+			waits: [],
+			failures: [],
+			externalOperations: [],
+			providerRequests: [],
+			completionCandidates: [],
+			activeResources: [],
 			events: [],
 			operations: {},
 		};
-		try {
-			const existing = await this.store.read(input.runId);
+		const assertCompatible = (existing: RunState) => {
 			if (
 				hashJson(existing.taskInput) !== hashJson(input.taskInput) ||
-				existing.runSkill?.hash !== input.runSkill.hash
+				existing.runSkill?.hash !== input.runSkill.hash ||
+				(input.request !== undefined && existing.request?.requestHash !== input.request.requestHash)
 			)
 				throw new Error(`Run ${input.runId} was already accepted with different input`);
+		};
+		try {
+			assertCompatible(await this.store.read(input.runId));
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-			await this.store.create(initial);
+			try {
+				await this.store.create(initial);
+			} catch (createError) {
+				if (!(createError instanceof RunAlreadyExistsError)) throw createError;
+				assertCompatible(await this.store.read(input.runId));
+			}
 		}
 		return directory;
 	}
@@ -145,34 +168,51 @@ export class IpdControlPlane {
 	async prepareAccepted(input: PrepareRunInput, directory: RunDirectory): Promise<PrepareRunResult> {
 		let selection: ProcessSelection;
 		let spec: ProcessSpec;
-		if (input.selectedProcessSpec) {
+		if (input.processSelection && input.selectedProcessSpec) {
+			selection = structuredClone(input.processSelection);
+			spec = structuredClone(input.selectedProcessSpec);
+		} else if (input.selectedProcessSpec) {
 			spec = input.selectedProcessSpec;
 			selection = explicitProcessSelection(input.runId, input.taskInput, spec);
 		} else {
-			await this.setPreparationPhase(input.runId, "selection", "selection");
+			await this.setPreparationPhase(input.runId, "selection", "selection", input.controller);
 			try {
 				selection = await this.selector.select(input.runId, input.taskInput, input.processSpecs);
 			} catch (error) {
 				if (!(error instanceof ProcessSelectionBlockedError)) throw error;
-				return this.block(input.runId, directory, [
-					`Process selection blocked: ${error.message}`,
-					...error.unresolvedFactRefs.map((id) => `Unresolved fact: ${id}`),
-				]);
+				return this.block(
+					input.runId,
+					directory,
+					[
+						`Process selection blocked: ${error.message}`,
+						...error.unresolvedFactRefs.map((id) => `Unresolved fact: ${id}`),
+					],
+					undefined,
+					input.controller,
+				);
 			}
-			if (!(await this.isRunning(input.runId))) return { ok: false, directory, diagnostics: ["Run cancelled"] };
+			if (!(await this.isRunning(input.runId, input.controller)))
+				return { ok: false, directory, diagnostics: ["Run cancelled or controller replaced"] };
 			const selected = input.processSpecs.find(
 				(item) =>
 					item.process_spec_id === selection.process_spec_ref.id &&
 					item.version === selection.process_spec_ref.version,
 			);
 			if (!selected || hashJson(selected) !== selection.process_spec_ref.hash)
-				return this.block(input.runId, directory, ["Selected ProcessSpec is unavailable or changed"]);
+				return this.block(
+					input.runId,
+					directory,
+					["Selected ProcessSpec is unavailable or changed"],
+					undefined,
+					input.controller,
+				);
 			spec = selected;
 		}
 
 		const staffingDiagnostics = validateProcessSpecStaffing(spec, input.assets.agentCards);
 		await this.store.mutate(input.runId, "process-selected", { selection: hashJson(selection) }, (draft, event) => {
 			if (draft.status !== "running") return false;
+			this.requireController(draft, input.controller);
 			draft.processSelection = selection;
 			draft.selectedProcessSpec = structuredClone(spec);
 			draft.staffingReport = {
@@ -197,14 +237,18 @@ export class IpdControlPlane {
 				directory,
 				staffingDiagnostics.map((item) => `${item.path}: ${item.message}`),
 				"process_spec_unstaffable",
+				input.controller,
 			);
+		if (input.workflowCandidate)
+			return this.prepareRecoveredWorkflow(input, directory, selection, spec, input.workflowCandidate);
 		if (input.workflowTemplate)
 			return this.prepareWorkflowTemplate(input, directory, selection, spec, input.workflowTemplate);
 
 		let diagnostics: string[] = [];
 		for (let revision = 1; revision <= 10; revision++) {
-			await this.setPreparationPhase(input.runId, "design", `design:${revision}`);
-			if (!(await this.isRunning(input.runId))) return { ok: false, directory, diagnostics: ["Run cancelled"] };
+			await this.setPreparationPhase(input.runId, "design", `design:${revision}`, input.controller);
+			if (!(await this.isRunning(input.runId, input.controller)))
+				return { ok: false, directory, diagnostics: ["Run cancelled or controller replaced"] };
 			let workflow: WorkflowDefinition;
 			try {
 				workflow = await this.designer.design(input.runId, input.taskInput, selection, spec, diagnostics);
@@ -217,6 +261,7 @@ export class IpdControlPlane {
 					{ block: blockJson },
 					(draft, event) => {
 						if (draft.status !== "running") return false;
+						this.requireController(draft, input.controller);
 						draft.workflowDesignBlock = structuredClone(error.block);
 						event.emit("workflow_design_blocked", blockJson);
 						return true;
@@ -231,9 +276,11 @@ export class IpdControlPlane {
 						...error.block.diagnostics.map((item) => item.message),
 					],
 					"workflow_design_blocked",
+					input.controller,
 				);
 			}
-			if (!(await this.isRunning(input.runId))) return { ok: false, directory, diagnostics: ["Run cancelled"] };
+			if (!(await this.isRunning(input.runId, input.controller)))
+				return { ok: false, directory, diagnostics: ["Run cancelled or controller replaced"] };
 			const workflowHash = hashJson(workflow);
 			await this.store.mutate(
 				input.runId,
@@ -241,6 +288,7 @@ export class IpdControlPlane {
 				{ workflow: workflowHash },
 				(draft, event) => {
 					if (draft.status !== "running") return false;
+					this.requireController(draft, input.controller);
 					draft.phase = "compile";
 					draft.workflowCandidate = workflow;
 					event.emit("workflow_designed", { workflowId: workflow.workflow_id, revision });
@@ -258,8 +306,8 @@ export class IpdControlPlane {
 			});
 			if (compiled.ok) {
 				try {
-					if (!(await this.isRunning(input.runId)))
-						return { ok: false, directory, diagnostics: ["Run cancelled"] };
+					if (!(await this.isRunning(input.runId, input.controller)))
+						return { ok: false, directory, diagnostics: ["Run cancelled or controller replaced"] };
 					const saved = await this.workflowAssets.save(workflow, compiled.baseline.workflowHash);
 					await this.store.mutate(
 						input.runId,
@@ -267,6 +315,7 @@ export class IpdControlPlane {
 						{ source: saved.record.source },
 						(draft, event) => {
 							if (draft.status !== "running") return false;
+							this.requireController(draft, input.controller);
 							event.emit("workflow_asset_saved", {
 								source: saved.record.source,
 								reused: saved.reused,
@@ -283,7 +332,54 @@ export class IpdControlPlane {
 			}
 			diagnostics = compiled.report.diagnostics.map((item) => `${item.path}: ${item.message}`);
 		}
-		return this.block(input.runId, directory, diagnostics);
+		return this.block(input.runId, directory, diagnostics, undefined, input.controller);
+	}
+
+	private async prepareRecoveredWorkflow(
+		input: PrepareRunInput,
+		directory: RunDirectory,
+		selection: ProcessSelection,
+		spec: ProcessSpec,
+		candidate: WorkflowDefinition,
+	): Promise<PrepareRunResult> {
+		const workflow = structuredClone(candidate);
+		const compiled = compileWorkflow({
+			runId: input.runId,
+			workflow,
+			taskInput: input.taskInput,
+			processSelection: selection,
+			processSpec: spec,
+			assets: input.assets,
+			executionIdentity: input.executionIdentity,
+		});
+		if (!compiled.ok)
+			return this.block(
+				input.runId,
+				directory,
+				compiled.report.diagnostics.map((item) => `${item.path}: ${item.message}`),
+				"workflow_recovery_invalid",
+				input.controller,
+			);
+		const saved = await this.workflowAssets.save(workflow, compiled.baseline.workflowHash);
+		await this.store.mutate(
+			input.runId,
+			`workflow-recovered:${compiled.baseline.workflowHash}`,
+			{ source: saved.record.source },
+			(draft, event) => {
+				if (draft.status !== "running") return false;
+				this.requireController(draft, input.controller);
+				draft.phase = "compile";
+				draft.workflowCandidate = workflow;
+				event.emit("workflow_candidate_recovered", {
+					workflowId: workflow.workflow_id,
+					workflowVersion: workflow.workflow_version,
+					source: saved.record.source,
+					reused: saved.reused,
+				});
+				return true;
+			},
+		);
+		return { ok: true, baseline: compiled.baseline, directory };
 	}
 
 	private async prepareWorkflowTemplate(
@@ -294,7 +390,13 @@ export class IpdControlPlane {
 		template: WorkflowAssetRecord,
 	): Promise<PrepareRunResult> {
 		if (hashJson(template.workflow) !== template.hash)
-			return this.block(input.runId, directory, ["Selected Workflow template content Hash is invalid"]);
+			return this.block(
+				input.runId,
+				directory,
+				["Selected Workflow template content Hash is invalid"],
+				undefined,
+				input.controller,
+			);
 		const workflow: WorkflowDefinition = {
 			...structuredClone(template.workflow),
 			task_input_ref: { id: input.taskInput.task_input_id, hash: hashJson(input.taskInput) },
@@ -306,6 +408,7 @@ export class IpdControlPlane {
 			{ source: template.source },
 			(draft, event) => {
 				if (draft.status !== "running") return false;
+				this.requireController(draft, input.controller);
 				draft.phase = "compile";
 				draft.workflowCandidate = structuredClone(workflow);
 				event.emit("workflow_template_selected", {
@@ -331,19 +434,36 @@ export class IpdControlPlane {
 			directory,
 			compiled.report.diagnostics.map((item) => `${item.path}: ${item.message}`),
 			"workflow_template_invalid",
+			input.controller,
 		);
 	}
 
-	private async setPreparationPhase(runId: string, phase: "selection" | "design", operationId: string): Promise<void> {
+	private async setPreparationPhase(
+		runId: string,
+		phase: "selection" | "design",
+		operationId: string,
+		controller?: Pick<RunControllerRecord, "controllerId" | "term">,
+	): Promise<void> {
 		await this.store.mutate(runId, `prepare-phase:${operationId}`, { phase }, (draft) => {
 			if (draft.status !== "running") return false;
+			this.requireController(draft, controller);
 			draft.phase = phase;
 			return true;
 		});
 	}
 
-	private async isRunning(runId: string): Promise<boolean> {
-		return (await this.store.read(runId)).status === "running";
+	private async isRunning(
+		runId: string,
+		controller?: Pick<RunControllerRecord, "controllerId" | "term">,
+	): Promise<boolean> {
+		const state = await this.store.read(runId);
+		if (state.status !== "running") return false;
+		if (!controller) return true;
+		return (
+			state.controller?.status === "active" &&
+			state.controller.controllerId === controller.controllerId &&
+			state.controller.term === controller.term
+		);
 	}
 
 	private async block(
@@ -351,13 +471,15 @@ export class IpdControlPlane {
 		directory: RunDirectory,
 		diagnostics: string[],
 		failureCode = "preparation_blocked",
+		controller?: Pick<RunControllerRecord, "controllerId" | "term">,
 	): Promise<PrepareRunResult> {
 		await this.store.mutate(
 			runId,
-			`prepare-blocked:${hashJson({ failureCode, diagnostics })}`,
-			{ diagnostics },
+			`prepare-blocked:${controller?.term ?? 0}:${hashJson({ failureCode, diagnostics })}`,
+			{ diagnostics, controllerTerm: controller?.term ?? 0 },
 			(draft, event) => {
 				if (draft.status !== "running") return false;
+				this.requireController(draft, controller);
 				draft.status = "blocked";
 				draft.failure = { code: failureCode, message: diagnostics.join("\n") };
 				event.emit("preparation_blocked", { code: failureCode, diagnostics });
@@ -365,6 +487,10 @@ export class IpdControlPlane {
 			},
 		);
 		return { ok: false, directory, diagnostics };
+	}
+
+	private requireController(state: RunState, controller?: Pick<RunControllerRecord, "controllerId" | "term">): void {
+		if (controller) requireCurrentController(state, controller.controllerId, controller.term);
 	}
 }
 

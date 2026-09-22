@@ -1,7 +1,8 @@
 // 提供节点稳定系统规则和最小轮次启动消息。
 import { loadPrompt } from "../adapter/prompt-loader.ts";
+import type { DispatchOperation } from "../contracts/runtime.ts";
 import { wrapPromptBlock } from "../prompt/block.ts";
-import type { NodeRoundWork } from "./node-worker.ts";
+import type { NodeRoundWork, RoundFeedback } from "./node-worker.ts";
 
 const common = loadPrompt("common");
 
@@ -9,12 +10,20 @@ export function buildNodeSystemPrompt(): string {
 	return common;
 }
 
-export function nodeDispatchKind(work: NodeRoundWork): string {
-	if (work.feedback.some((item) => item.type === "submission_correction")) return "submission_correction";
-	if (work.resuming) return "resume";
-	if (work.feedback.some((item) => item.type === "quality_rework")) return "quality_rework";
-	if (work.feedback.some((item) => item.type === "mechanical_failure")) return "mechanical_rework";
-	return work.node.definition.kind === "review" ? "review" : "execute";
+export function dispatchKindFor(
+	nodeKind: "execution" | "review",
+	resuming: boolean,
+	feedback: readonly RoundFeedback[],
+): DispatchOperation {
+	if (feedback.some((item) => item.type === "submission_correction")) return "submission_correction";
+	if (resuming) return "resume";
+	if (feedback.some((item) => item.type === "quality_rework")) return "quality_rework";
+	if (feedback.some((item) => item.type === "mechanical_failure")) return "mechanical_rework";
+	return nodeKind === "review" ? "review" : "execute";
+}
+
+export function nodeDispatchKind(work: NodeRoundWork): DispatchOperation {
+	return dispatchKindFor(work.node.definition.kind, work.resuming === true, work.feedback);
 }
 
 export function buildNodeRoundPrompt(work: NodeRoundWork): string {

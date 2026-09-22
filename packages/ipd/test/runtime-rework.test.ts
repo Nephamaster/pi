@@ -161,8 +161,14 @@ describe("WorkflowRuntime local rework", () => {
 		expect(executionRounds.get("produce")).toBe(2);
 		expect(executionRounds.get("produce-two")).toBe(1);
 		expect(reviewInputs).toEqual([
-			["produce-two:round:1:generation:0:submission", "produce:round:1:generation:0:submission"],
-			["produce-two:round:1:generation:0:submission", "produce:round:2:generation:0:submission"],
+			[
+				"produce-two:round:1:attempt:1:term:1:scope:1:submission",
+				"produce:round:1:attempt:1:term:1:scope:1:submission",
+			],
+			[
+				"produce-two:round:1:attempt:1:term:1:scope:1:submission",
+				"produce:round:2:attempt:1:term:1:scope:1:submission",
+			],
 		]);
 		expect(result.submissions.find((submission) => submission.nodeId === "produce-two")?.status).toBe("approved");
 	});

@@ -775,6 +775,8 @@ Fired after the provider-specific payload is built, right before the request is 
 
 This hook can rewrite provider-level system instructions or remove them entirely. Those payload-level changes are not reflected by `ctx.getSystemPrompt()`, which reports Pi's system prompt string rather than the final serialized provider payload.
 
+Request-admission extensions may throw `ProviderRequestRejection` to stop the request before network I/O. Other handler errors remain isolated and do not reject the provider call.
+
 ```typescript
 pi.on("before_provider_request", (event, ctx) => {
   console.log(JSON.stringify(event.payload, null, 2));

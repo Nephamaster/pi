@@ -1,11 +1,18 @@
 // 把已完整批准的交付输出投影到最终交付目录。
 import { copyFile, mkdir, rename, rm } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { hashFile } from "../artifact/hash-file.ts";
-import type { FinalSubmissionFileRecord, FinalSubmissionRecord, RunState } from "../contracts/runtime.ts";
+import type {
+	CompletionBasis,
+	FinalSubmissionFileRecord,
+	FinalSubmissionRecord,
+	RunState,
+} from "../contracts/runtime.ts";
+import { hashJson } from "../ir/hash.ts";
 import { normalizeScope } from "../ir/scopes.ts";
+import { syncDirectory, syncTree } from "./durable-file.ts";
 import type { RunDirectory } from "./run-directory.ts";
-import { approvedSubmissionForOutput, requireBaseline } from "./runtime-state.ts";
+import { approvedSubmissionForOutput, requireBaseline, runIsComplete } from "./runtime-state.ts";
 
 function deliveryPath(outputRoot: string, sourcePath: string): string {
 	const relativePath = relative(outputRoot, sourcePath).replaceAll("\\", "/");
@@ -18,27 +25,30 @@ function deliveryPath(outputRoot: string, sourcePath: string): string {
 export async function materializeFinalSubmission(
 	directory: RunDirectory,
 	state: RunState,
+	finalizationId: string,
+	basis: CompletionBasis,
 	signal?: AbortSignal,
 ): Promise<FinalSubmissionRecord> {
 	const baseline = requireBaseline(state);
-	const staging = `${directory.finalSubmission}.${process.pid}.${Date.now()}.tmp`;
+	if (baseline.baselineId !== basis.baselineId) throw new Error("Final delivery Baseline changed");
+	if (!completionBasisMatchesState(state, basis)) throw new Error("Final delivery basis is no longer current");
+	const target = join(directory.finalSubmissions, finalizationId);
+	const staging = join(directory.finalSubmissions, `.${finalizationId}.${process.pid}.${Date.now()}.tmp`);
 	const files: FinalSubmissionFileRecord[] = [];
 	const destinations = new Set<string>();
 	await mkdir(staging, { recursive: false });
 	try {
-		for (const ref of baseline.workflow.completion.delivery_outputs) {
+		for (const ref of basis.deliveryBindings) {
 			signal?.throwIfAborted();
-			const submission = approvedSubmissionForOutput(
-				state,
-				ref,
-				baseline.workflow.completion.required_review_node_ids,
-			);
-			if (!submission) throw new Error(`Delivery output is not approved: ${ref.node_id}:${ref.output_id}`);
-			const output = submission.outputs.find((item) => item.outputId === ref.output_id);
-			const node = baseline.workflow.nodes.find((item) => item.node_id === ref.node_id);
+			const submission = state.submissions.find((item) => item.submissionId === ref.submissionId);
+			if (!submission) throw new Error(`Delivery Submission is unavailable: ${ref.submissionId}`);
+			const output = submission.outputs.find((item) => item.outputId === ref.outputId);
+			const node = baseline.workflow.nodes.find((item) => item.node_id === ref.nodeId);
 			const definition =
-				node?.kind === "execution" ? node.outputs.find((item) => item.output_id === ref.output_id) : undefined;
-			if (!output || !definition) throw new Error(`Delivery output is missing: ${ref.node_id}:${ref.output_id}`);
+				node?.kind === "execution" ? node.outputs.find((item) => item.output_id === ref.outputId) : undefined;
+			if (!output || !definition) throw new Error(`Delivery output is missing: ${ref.nodeId}:${ref.outputId}`);
+			if (hashJson(output.manifest) !== ref.manifestHash)
+				throw new Error(`Delivery output Manifest changed: ${ref.nodeId}:${ref.outputId}`);
 			for (const file of output.manifest.files) {
 				signal?.throwIfAborted();
 				const path = deliveryPath(definition.path_prefix, file.path);
@@ -57,19 +67,75 @@ export async function materializeFinalSubmission(
 					sha256: file.sha256,
 					size: file.size,
 					submissionId: submission.submissionId,
-					nodeId: ref.node_id,
-					outputId: ref.output_id,
+					nodeId: ref.nodeId,
+					outputId: ref.outputId,
 					sourcePath: file.path,
 				});
 			}
 		}
 		signal?.throwIfAborted();
-		await rm(directory.finalSubmission, { recursive: true, force: true });
-		signal?.throwIfAborted();
-		await rename(staging, directory.finalSubmission);
+		await syncTree(staging);
+		try {
+			await rename(staging, target);
+			await syncDirectory(directory.finalSubmissions);
+		} catch (error) {
+			if (!["EEXIST", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+			await rm(staging, { recursive: true, force: true });
+			for (const file of files)
+				if ((await hashFile(resolve(target, file.path))) !== file.sha256)
+					throw new Error(`Existing final delivery version is corrupt: ${file.path}`);
+		}
 	} catch (error) {
 		await rm(staging, { recursive: true, force: true });
 		throw error;
 	}
-	return { directory: directory.finalSubmission, files, createdAt: Date.now() };
+	return {
+		finalizationId,
+		basisHash: hashJson(basis),
+		directory: target,
+		files,
+		createdAt: Date.now(),
+	};
+}
+
+export function completionBasisForState(state: RunState): CompletionBasis | undefined {
+	if (!runIsComplete(state)) return undefined;
+	const baseline = requireBaseline(state);
+	const completion = baseline.workflow.completion;
+	const deliveryBindings = completion.delivery_outputs.flatMap((ref) => {
+		const submission = approvedSubmissionForOutput(state, ref, completion.required_review_node_ids);
+		const output = submission?.outputs.find((item) => item.outputId === ref.output_id);
+		if (!submission || !output) return [];
+		const approvalIds = state.approvals
+			.filter(
+				(approval) =>
+					approval.status === "active" &&
+					approval.submissionId === submission.submissionId &&
+					approval.outputId === ref.output_id &&
+					completion.required_review_node_ids.includes(approval.reviewNodeId),
+			)
+			.map((approval) => approval.approvalId)
+			.sort();
+		return [
+			{
+				nodeId: ref.node_id,
+				outputId: ref.output_id,
+				submissionId: submission.submissionId,
+				manifestHash: hashJson(output.manifest),
+				approvalIds,
+			},
+		];
+	});
+	if (deliveryBindings.length !== completion.delivery_outputs.length) return undefined;
+	return {
+		baselineId: baseline.baselineId,
+		runGeneration: state.generation ?? 0,
+		deliveryBindings,
+		requiredReviewIds: [...completion.required_review_node_ids].sort(),
+	};
+}
+
+export function completionBasisMatchesState(state: RunState, expected: CompletionBasis): boolean {
+	const current = completionBasisForState(state);
+	return current !== undefined && hashJson(current) === hashJson(expected);
 }

@@ -32,6 +32,25 @@ function clonedLease(lease: EnvironmentLease): EnvironmentLease {
 	return structuredClone(lease);
 }
 
+function progressReference(
+	managed: ManagedLease,
+	saved: { workspace: string; identity: string; workspaceHash: string },
+): EnvironmentProgressReference {
+	return {
+		nodeId: managed.lease.nodeId,
+		participantId: managed.lease.participantId,
+		workspace: saved.workspace,
+		environment: {
+			leaseId: managed.lease.leaseId,
+			providerHandle: managed.lease.providerHandle,
+			generation: managed.lease.generation,
+			bindingId: managed.binding.bindingId,
+			identity: saved.identity,
+			workspaceHash: saved.workspaceHash,
+		},
+	};
+}
+
 export class EnvironmentManager {
 	private readonly providers = new Map<EnvironmentProvider["kind"], EnvironmentProvider>();
 	private readonly leasesByKey = new Map<string, ManagedLease>();
@@ -45,7 +64,12 @@ export class EnvironmentManager {
 		}
 	}
 
-	prepare(runId: string, binding: EnvironmentBinding, signal?: AbortSignal): Promise<EnvironmentLease> {
+	prepare(
+		runId: string,
+		binding: EnvironmentBinding,
+		signal?: AbortSignal,
+		onAllocated?: (lease: EnvironmentLease) => Promise<void>,
+	): Promise<EnvironmentLease> {
 		throwIfAborted(signal);
 		const key = leaseKey(runId, binding);
 		const existing = this.leasesByKey.get(key);
@@ -89,9 +113,13 @@ export class EnvironmentManager {
 			prepareController: controller,
 			preparePromise: Promise.resolve(lease),
 		} satisfies ManagedLease;
+		this.leasesByKey.set(key, managed);
+		this.leasesById.set(lease.leaseId, managed);
 		managed.preparePromise = (async () => {
 			let prepared = false;
 			try {
+				throwIfAborted(controller.signal);
+				await onAllocated?.(clonedLease(lease));
 				throwIfAborted(controller.signal);
 				const preparedEnvironment = await provider.prepare(
 					{ leaseId: lease.leaseId, runId, binding },
@@ -123,8 +151,6 @@ export class EnvironmentManager {
 				signal?.removeEventListener("abort", abort);
 			}
 		})();
-		this.leasesByKey.set(key, managed);
-		this.leasesById.set(lease.leaseId, managed);
 		return managed.preparePromise.then(clonedLease);
 	}
 
@@ -161,6 +187,153 @@ export class EnvironmentManager {
 		managed.lease.generation = generation;
 		managed.lease.state = "active";
 		return structuredClone(round);
+	}
+
+	async recover(
+		runId: string,
+		binding: EnvironmentBinding,
+		reference: EnvironmentProgressReference["environment"],
+		signal?: AbortSignal,
+	): Promise<EnvironmentLease> {
+		throwIfAborted(signal);
+		const key = leaseKey(runId, binding);
+		const existing = this.leasesByKey.get(key);
+		if (existing) {
+			if (
+				existing.lease.leaseId !== reference.leaseId ||
+				existing.binding.bindingId !== reference.bindingId ||
+				existing.lease.generation !== reference.generation
+			)
+				throw new EnvironmentError("environment_lost", "Retained environment identity changed");
+			await this.verifyResume(reference);
+			return clonedLease(existing.lease);
+		}
+		if (binding.bindingId !== reference.bindingId)
+			throw new EnvironmentError("environment_lost", "Retained environment binding changed");
+		const provider = this.providers.get(binding.provider);
+		if (!provider?.recover)
+			throw new EnvironmentError("environment_lost", `Environment Provider cannot recover: ${binding.provider}`);
+		const prepared = await provider.recover(
+			{
+				leaseId: reference.leaseId,
+				runId,
+				binding,
+				providerHandle: reference.providerHandle,
+				generation: reference.generation,
+				identity: reference.identity,
+				workspaceHash: reference.workspaceHash,
+			},
+			signal,
+		);
+		const controller = new AbortController();
+		const lease: EnvironmentLease = {
+			leaseId: reference.leaseId,
+			runId,
+			nodeId: binding.nodeId,
+			participantId: binding.participantId,
+			provider: provider.kind,
+			providerHandle: prepared.providerHandle,
+			generation: reference.generation,
+			state: "idle",
+			image: prepared.image ? { ...prepared.image } : binding.image ? { ...binding.image } : undefined,
+			createdAt: new Date().toISOString(),
+		};
+		const managed: ManagedLease = {
+			binding: structuredClone(binding),
+			provider,
+			lease,
+			prepareController: controller,
+			preparePromise: Promise.resolve(lease),
+		};
+		this.leasesByKey.set(key, managed);
+		this.leasesById.set(lease.leaseId, managed);
+		try {
+			await this.verifyResume(reference);
+			return clonedLease(lease);
+		} catch (error) {
+			this.leasesByKey.delete(key);
+			this.leasesById.delete(lease.leaseId);
+			throw error;
+		}
+	}
+
+	async quarantine(
+		runId: string,
+		binding: EnvironmentBinding,
+		reference: { leaseId: string; providerHandle: string; generation: number; bindingId: string },
+		signal?: AbortSignal,
+	): Promise<EnvironmentProgressReference> {
+		throwIfAborted(signal);
+		const key = leaseKey(runId, binding);
+		const existing = this.leasesByKey.get(key);
+		if (existing) {
+			if (
+				existing.lease.leaseId !== reference.leaseId ||
+				existing.lease.providerHandle !== reference.providerHandle ||
+				existing.lease.generation !== reference.generation ||
+				existing.binding.bindingId !== reference.bindingId ||
+				!existing.provider.suspend
+			)
+				throw new EnvironmentError("environment_lost", "Interrupted environment identity changed");
+			return progressReference(existing, await existing.provider.suspend(clonedLease(existing.lease), signal));
+		}
+		if (this.leasesById.has(reference.leaseId))
+			throw new EnvironmentError("environment_lost", "Interrupted environment lease identity collides");
+		if (binding.bindingId !== reference.bindingId)
+			throw new EnvironmentError("environment_lost", "Interrupted environment binding changed");
+		const provider = this.providers.get(binding.provider);
+		if (!provider?.quarantine)
+			throw new EnvironmentError(
+				"environment_lost",
+				`Environment Provider cannot quarantine interrupted work: ${binding.provider}`,
+			);
+		const saved = await provider.quarantine(
+			{
+				leaseId: reference.leaseId,
+				runId,
+				binding,
+				providerHandle: reference.providerHandle,
+				generation: reference.generation,
+			},
+			signal,
+		);
+		const controller = new AbortController();
+		const lease: EnvironmentLease = {
+			leaseId: reference.leaseId,
+			runId,
+			nodeId: binding.nodeId,
+			participantId: binding.participantId,
+			provider: provider.kind,
+			providerHandle: saved.providerHandle,
+			generation: reference.generation,
+			state: "idle",
+			image: saved.image ? { ...saved.image } : binding.image ? { ...binding.image } : undefined,
+			createdAt: new Date().toISOString(),
+		};
+		const managed: ManagedLease = {
+			binding: structuredClone(binding),
+			provider,
+			lease,
+			prepareController: controller,
+			preparePromise: Promise.resolve(lease),
+		};
+		this.leasesByKey.set(key, managed);
+		this.leasesById.set(lease.leaseId, managed);
+		try {
+			await this.verifyResume({
+				leaseId: lease.leaseId,
+				providerHandle: lease.providerHandle,
+				generation: lease.generation,
+				bindingId: binding.bindingId,
+				identity: saved.identity,
+				workspaceHash: saved.workspaceHash,
+			});
+			return progressReference(managed, saved);
+		} catch (error) {
+			this.leasesByKey.delete(key);
+			this.leasesById.delete(lease.leaseId);
+			throw error;
+		}
 	}
 
 	async bindStaticAssets(
@@ -214,26 +387,15 @@ export class EnvironmentManager {
 				throw new EnvironmentError("environment_unavailable", "Provider does not support retaining paused work");
 			const saved = await managed.provider.suspend(clonedLease(managed.lease));
 			managed.lease.state = "idle";
-			progress.push({
-				nodeId: managed.lease.nodeId,
-				participantId: managed.lease.participantId,
-				workspace: saved.workspace,
-				environment: {
-					leaseId: managed.lease.leaseId,
-					generation: managed.lease.generation,
-					bindingId: managed.binding.bindingId,
-					identity: saved.identity,
-					workspaceHash: saved.workspaceHash,
-				},
-			});
+			progress.push(progressReference(managed, saved));
 		}
 		return progress;
 	}
 
-	inspectRun(runId: string): EnvironmentLease[] {
+	inspectRun(runId: string): Array<EnvironmentLease & { bindingId: string }> {
 		return [...this.leasesById.values()]
 			.filter((managed) => managed.lease.runId === runId)
-			.map((managed) => clonedLease(managed.lease));
+			.map((managed) => ({ ...clonedLease(managed.lease), bindingId: managed.binding.bindingId }));
 	}
 
 	async verifyResume(reference: EnvironmentProgressReference["environment"]): Promise<void> {

@@ -198,6 +198,7 @@ export {
 	isReadToolResult,
 	isToolCallEventType,
 	isWriteToolResult,
+	ProviderRequestRejection,
 	wrapRegisteredTool,
 	wrapRegisteredTools,
 } from "./core/extensions/index.ts";

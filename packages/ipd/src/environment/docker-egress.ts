@@ -8,12 +8,18 @@ export class DockerEgress {
 	readonly network: string;
 	readonly container: string;
 	readonly environment: Record<string, string>;
-	private readonly token = randomBytes(24).toString("hex");
+	private readonly token: string;
 	private readonly docker: DockerCommandRunner;
 	private readonly owner: string;
-	constructor(docker: DockerCommandRunner, leaseId: string, controllerId: string) {
+	constructor(
+		docker: DockerCommandRunner,
+		leaseId: string,
+		controllerId: string,
+		token = randomBytes(24).toString("hex"),
+	) {
 		this.docker = docker;
 		this.owner = `${controllerId}:${leaseId}`;
+		this.token = token;
 		this.network = `pi-ipd-net-${leaseId}`;
 		this.container = `pi-ipd-egress-${leaseId}`;
 		const proxy = `http://ipd:${this.token}@egress:8080`;
@@ -26,6 +32,62 @@ export class DockerEgress {
 			no_proxy: "localhost,127.0.0.1,::1",
 			NODE_USE_ENV_PROXY: "1",
 		};
+	}
+
+	static async recover(docker: DockerCommandRunner, leaseId: string, signal?: AbortSignal): Promise<DockerEgress> {
+		const container = `pi-ipd-egress-${leaseId}`;
+		const inspection = await docker.run(
+			[
+				"container",
+				"inspect",
+				container,
+				"--format",
+				'{{json .Config.Env}}|{{index .Config.Labels "pi.ipd.egress-owner"}}',
+			],
+			{ signal },
+		);
+		const value = inspection.stdout.toString("utf8").trim();
+		const separator = value.lastIndexOf("|");
+		if (separator < 0) throw new EnvironmentError("environment_lost", "Retained egress metadata is invalid");
+		let environment: unknown;
+		try {
+			environment = JSON.parse(value.slice(0, separator));
+		} catch (error) {
+			throw new EnvironmentError("environment_lost", "Retained egress environment is invalid", { cause: error });
+		}
+		const owner = value.slice(separator + 1);
+		if (!Array.isArray(environment) || !owner.endsWith(`:${leaseId}`))
+			throw new EnvironmentError("environment_lost", "Retained egress ownership is invalid");
+		const proxy = environment
+			.filter((item): item is string => typeof item === "string")
+			.find((item) => item.startsWith("HTTP_PROXY="))
+			?.slice("HTTP_PROXY=".length);
+		if (!proxy) throw new EnvironmentError("environment_lost", "Retained egress credential is unavailable");
+		let url: URL;
+		try {
+			url = new URL(proxy);
+		} catch (error) {
+			throw new EnvironmentError("environment_lost", "Retained egress credential is invalid", { cause: error });
+		}
+		if (url.username !== "ipd" || !/^[a-f0-9]{48}$/.test(url.password))
+			throw new EnvironmentError("environment_lost", "Retained egress credential is invalid");
+		const controllerId = owner.slice(0, -leaseId.length - 1);
+		const recovered = new DockerEgress(docker, leaseId, controllerId, url.password);
+		if (recovered.owner !== owner)
+			throw new EnvironmentError("environment_lost", "Retained egress identity does not match its owner");
+		const network = await docker.run(
+			[
+				"network",
+				"inspect",
+				recovered.network,
+				"--format",
+				'{{.Internal}}|{{index .Options "com.docker.network.bridge.gateway_mode_ipv4"}}|{{index .Labels "pi.ipd.egress-owner"}}',
+			],
+			{ signal },
+		);
+		if (network.stdout.toString("utf8").trim() !== `true|isolated|${owner}`)
+			throw new EnvironmentError("environment_lost", "Retained egress network identity changed");
+		return recovered;
 	}
 	async prepare(binding: EnvironmentBinding, signal?: AbortSignal): Promise<void> {
 		if (binding.network.mode !== "restricted" || !binding.image)

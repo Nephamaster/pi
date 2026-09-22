@@ -2,6 +2,7 @@
 import type { SubmitReview } from "../adapter/structured-submissions.ts";
 import type { JsonValue } from "../contracts/primitives.ts";
 import type { MechanicalCheckRecord, RunState, SubmissionRecord } from "../contracts/runtime.ts";
+import { executionIsCurrent, finishExecution } from "./execution-control.ts";
 import type { NodeRoundWork } from "./node-worker.ts";
 import type { RunMutationContext } from "./run-store.ts";
 import {
@@ -29,9 +30,7 @@ export function applyCandidateSubmission(
 	const current = draft.nodes.find((item) => item.nodeId === node.node_id)!;
 	const round = draft.rounds.find((item) => item.roundId === work.roundId)!;
 	if (
-		draft.status !== "running" ||
-		(draft.generation ?? 0) !== (work.generation ?? 0) ||
-		current.activeRoundId !== work.roundId ||
+		!executionIsCurrent(draft, node.node_id, work.roundId, work.stamp) ||
 		!roundInputsAreValid(work.node, round, draft)
 	) {
 		event.emit("late_submission_ignored", { submissionId: record.submissionId }, node.node_id, work.roundId);
@@ -41,6 +40,7 @@ export function applyCandidateSubmission(
 	draft.submissions.push(record);
 	draft.mechanicalChecks.push(...mechanicalChecks);
 	if (result === "PASS") markReworkAddressed(draft, node.node_id);
+	finishExecution(draft, node.node_id, work.roundId, work.stamp, "completed", "completed");
 	current.activeRoundId = undefined;
 	current.status = result === "PASS" ? "waiting_review" : result === "FAIL" ? "waiting_rework" : "blocked";
 	round.status = "submitted";
@@ -61,15 +61,13 @@ export function applyReviewDecision(
 	const current = draft.nodes.find((item) => item.nodeId === node.node_id)!;
 	const round = draft.rounds.find((item) => item.roundId === work.roundId)!;
 	if (
-		draft.status !== "running" ||
-		(draft.generation ?? 0) !== (work.generation ?? 0) ||
-		current.activeRoundId !== work.roundId ||
+		!executionIsCurrent(draft, node.node_id, work.roundId, work.stamp) ||
 		!roundInputsAreValid(work.node, round, draft)
 	) {
 		event.emit("late_review_ignored", { decision: report.decision }, node.node_id, work.roundId);
 		return [];
 	}
-	const reviewId = `${work.roundId}:generation:${work.generation ?? 0}:review`;
+	const reviewId = `${work.stamp.attemptId}:review`;
 	const submissionIds = [...new Set(work.inputSubmissions.map((item) => item.submissionId))];
 	const reworkNodeIds = [
 		...new Set(report.criteria.flatMap((criterion) => criterion.rework_targets.map((target) => target.node_id))),
@@ -79,6 +77,7 @@ export function applyReviewDecision(
 		reviewId,
 		reviewNodeId: node.node_id,
 		roundId: work.roundId,
+		attemptId: work.stamp.attemptId,
 		submissionIds,
 		decision: report.decision,
 		criteria: report.criteria.map((item) => ({
@@ -121,6 +120,7 @@ export function applyReviewDecision(
 		for (const targetId of reworkNodeIds)
 			invalidatedRounds.push(...invalidateFromNode(draft, targetId, work.roundId));
 	}
+	finishExecution(draft, node.node_id, work.roundId, work.stamp, "completed", "completed");
 	current.activeRoundId = undefined;
 	current.status = report.decision === "PASS" ? "succeeded" : report.decision === "REWORK" ? "waiting" : "blocked";
 	round.status = "completed";

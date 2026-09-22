@@ -8,6 +8,7 @@ export interface RunDirectory {
 	workspace: string;
 	submissions: string;
 	sessions: string;
+	finalSubmissions: string;
 	finalSubmission: string;
 	stateFile: string;
 }
@@ -21,11 +22,14 @@ export async function prepareRunDirectory(projectRoot: string, runId: string): P
 		workspace: join(root, "workspace"),
 		submissions: join(root, "submissions"),
 		sessions: join(root, "sessions"),
+		finalSubmissions: join(root, "final_submissions"),
 		finalSubmission: join(root, "final_submission"),
 		stateFile: join(root, "state.json"),
 	};
 	await Promise.all(
-		[directory.workspace, directory.submissions, directory.sessions].map((path) => mkdir(path, { recursive: true })),
+		[directory.workspace, directory.submissions, directory.sessions, directory.finalSubmissions].map((path) =>
+			mkdir(path, { recursive: true }),
+		),
 	);
 	return directory;
 }

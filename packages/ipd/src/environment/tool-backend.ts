@@ -36,6 +36,18 @@ export interface EnvironmentToolContext {
 export interface EnvironmentToolBackendOptions {
 	hostWorkspace: string;
 	getContext(): EnvironmentToolContext;
+	getExternalOperationRecorder?(): EnvironmentExternalOperationRecorder | undefined;
+}
+
+export interface EnvironmentExternalOperationRecorder {
+	begin(intent: {
+		operationKey: string;
+		intentRef: string;
+		requestHash: string;
+		authorizationRef: string;
+		targetRef: string;
+	}): Promise<string>;
+	settle(operationId: string, outcome: "succeeded" | "failed" | "unknown", receiptRef?: string): Promise<void>;
 }
 
 const emptySchema = Type.Object({}, { additionalProperties: false });
@@ -53,7 +65,66 @@ function jsonResult(value: unknown) {
 	return { content: [{ type: "text" as const, text: JSON.stringify(value) }], details: undefined };
 }
 
-function createEnvironmentProcessTools(getContext: () => EnvironmentToolContext): ToolDefinition[] {
+function contentDigest(value: unknown): string {
+	return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
+}
+
+function failedOutcomeIsKnown(error: unknown): boolean {
+	if (error instanceof EnvironmentError)
+		return ["policy_denied", "profile_incompatible", "path_not_found", "command_failed", "output_limit"].includes(
+			error.code,
+		);
+	return error instanceof Error && /Command exited with code \d+/.test(error.message);
+}
+
+async function observeExternalOperation<T>(
+	options: Pick<EnvironmentToolBackendOptions, "getContext" | "getExternalOperationRecorder">,
+	input: { operationKey: string; intentRef: string; request: unknown },
+	execute: () => Promise<T>,
+): Promise<T> {
+	const current = options.getContext();
+	const recorder = options.getExternalOperationRecorder?.();
+	if (current.binding.network.mode === "none" || !recorder) return execute();
+	const operationId = await recorder.begin({
+		operationKey: input.operationKey,
+		intentRef: input.intentRef,
+		requestHash: contentDigest(input.request),
+		authorizationRef: `environment:${current.binding.bindingId}:${current.binding.policyHash}`,
+		targetRef: `network:${[...current.binding.network.allowedEndpoints].sort().join(",")}`,
+	});
+	try {
+		const result = await execute();
+		await recorder.settle(operationId, "succeeded", contentDigest(result));
+		return result;
+	} catch (error) {
+		const outcome = failedOutcomeIsKnown(error) ? "failed" : "unknown";
+		try {
+			await recorder.settle(
+				operationId,
+				outcome,
+				contentDigest({ error: error instanceof Error ? error.message : String(error) }),
+			);
+		} catch (settlementError) {
+			throw new EnvironmentError(
+				"external_outcome_unknown",
+				`External operation ${operationId} finished without a durable outcome receipt`,
+				{ cause: new AggregateError([error, settlementError]) },
+			);
+		}
+		if (outcome === "unknown")
+			throw new EnvironmentError(
+				"external_outcome_unknown",
+				`External operation ${operationId} may have affected its remote target`,
+				{ cause: error },
+			);
+		throw error;
+	}
+}
+
+function createEnvironmentProcessTools(
+	getContext: () => EnvironmentToolContext,
+	getExternalOperationRecorder?: () => EnvironmentExternalOperationRecorder | undefined,
+): ToolDefinition[] {
 	const handles = new Map<string, ProcessHandle>();
 	return [
 		defineTool({
@@ -72,13 +143,22 @@ function createEnvironmentProcessTools(getContext: () => EnvironmentToolContext)
 			description:
 				"Start a long-running process inside the current environment and return an opaque process handle.",
 			parameters: processStartSchema,
-			async execute(_toolCallId, input, signal) {
+			async execute(toolCallId, input, signal) {
 				const current = getContext();
-				const process = await current.provider.startProcess(
-					current.lease,
-					current.round,
-					{ command: input.command, cwd: input.cwd ?? current.binding.paths.workspace },
-					signal,
+				const process = await observeExternalOperation(
+					{ getContext, getExternalOperationRecorder },
+					{
+						operationKey: `process-start:${toolCallId}`,
+						intentRef: "environment:managed-process-start",
+						request: input,
+					},
+					() =>
+						current.provider.startProcess(
+							current.lease,
+							current.round,
+							{ command: input.command, cwd: input.cwd ?? current.binding.paths.workspace },
+							signal,
+						),
 				);
 				handles.set(process.processId, process);
 				return jsonResult(process);
@@ -357,9 +437,22 @@ export function createEnvironmentToolDefinitions(options: EnvironmentToolBackend
 				},
 			}),
 		),
-		defineTool(createBashToolDefinition(options.hostWorkspace, environmentBashOptions(options))),
-		...createEnvironmentProcessTools(options.getContext),
+		observedBashTool(options),
+		...createEnvironmentProcessTools(options.getContext, options.getExternalOperationRecorder),
 	];
+}
+
+function observedBashTool(options: EnvironmentToolBackendOptions) {
+	const tool = createBashToolDefinition(options.hostWorkspace, environmentBashOptions(options));
+	return defineTool({
+		...tool,
+		execute: (toolCallId, input, signal, onUpdate, context) =>
+			observeExternalOperation(
+				options,
+				{ operationKey: `bash:${toolCallId}`, intentRef: "environment:bash", request: input },
+				() => tool.execute(toolCallId, input, signal, onUpdate, context),
+			),
+	});
 }
 
 function environmentBashOptions(

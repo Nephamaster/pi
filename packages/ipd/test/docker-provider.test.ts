@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,6 +16,7 @@ import {
 	DockerEnvironmentProvider,
 	EnvironmentError,
 	EnvironmentManager,
+	hashJson,
 } from "../src/index.ts";
 
 const imageId = `sha256:${"a".repeat(64)}`;
@@ -59,6 +60,8 @@ class FauxDocker implements DockerCommandRunner {
 	commandTimeout = false;
 	cancelFailure = false;
 	private owner = "";
+	private runHash = "";
+	private status = "created";
 	private exists = false;
 	fileError?: { code: string; message: string };
 	readonly calls: Array<{ args: string[]; options: DockerRunOptions }> = [];
@@ -77,7 +80,11 @@ class FauxDocker implements DockerCommandRunner {
 		if (args[0] === "create") {
 			this.exists = true;
 			this.owner = `${args.find((arg) => arg.startsWith("pi.ipd.controller="))!.split("=")[1]}|${args.find((arg) => arg.startsWith("pi.ipd.lease="))!.split("=")[1]}`;
+			this.runHash = args.find((arg) => arg.startsWith("pi.ipd.run="))!.split("=")[1];
+			this.status = "created";
 		}
+		if (args[0] === "start") this.status = "running";
+		if (args[0] === "stop") this.status = "exited";
 		if (args[0] === "rm") {
 			if (this.cleanupFailure) throw new EnvironmentError("environment_unavailable", "synthetic cleanup failure");
 			this.exists = false;
@@ -88,6 +95,21 @@ class FauxDocker implements DockerCommandRunner {
 				stdout: Buffer.from(this.owner),
 				stderr: Buffer.from(this.exists ? "" : "No such container"),
 			};
+		if (args[0] === "container" && args[1] === "inspect" && args.at(-1)?.startsWith("{{.Id}}|{{.Image}}")) {
+			const [controller, lease] = this.owner.split("|");
+			const extended = args.at(-1)?.includes("pi.ipd.run");
+			return {
+				exitCode: this.exists ? 0 : 1,
+				stdout: Buffer.from(
+					this.exists
+						? extended
+							? `container-id|${imageId}|${controller}|${lease}|${this.runHash}|${this.status}`
+							: `container-id|${imageId}|${controller}|${lease}`
+						: "",
+				),
+				stderr: Buffer.from(this.exists ? "" : "No such container"),
+			};
+		}
 		if (
 			this.probeFailure &&
 			args.includes("/usr/local/lib/pi-ipd/command-bridge.mjs") &&
@@ -221,6 +243,100 @@ describe("DockerEnvironmentProvider", () => {
 		).toBe(true);
 	});
 
+	it("kills untracked writers before binding a later round", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-provider-round-boundary-"));
+		roots.push(root);
+		const docker = new FauxDocker();
+		const provider = new DockerEnvironmentProvider({ docker, storageRoot: root, controllerId: "controller" });
+		const leaseId = "44444444-4444-4444-8444-444444444444";
+		const prepared = await provider.prepare({ leaseId, runId: "run-1", binding: binding() });
+		const lease: EnvironmentLease = {
+			leaseId,
+			runId: "run-1",
+			nodeId: "node",
+			participantId: "participant",
+			provider: "docker",
+			providerHandle: prepared.providerHandle,
+			generation: 0,
+			state: "ready",
+			image: prepared.image,
+			createdAt: new Date().toISOString(),
+		};
+		const first: RoundBinding = {
+			roundId: "round-1",
+			leaseId,
+			generation: 1,
+			inputHash: hashJson([]),
+			inputs: [],
+			allowedOperations: ["read"],
+		};
+		await provider.bindRound(lease, first);
+		await provider.bindRound(lease, { ...first, roundId: "round-2", generation: 2 });
+
+		expect(docker.calls.some((call) => call.args.slice(0, 3).join(" ") === "stop --time 1")).toBe(true);
+		expect(docker.calls.filter((call) => call.args[0] === "start")).toHaveLength(2);
+	});
+
+	it("records network-capable Bash intent and leaves uncertain outcomes for reconciliation", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-provider-external-operation-"));
+		roots.push(root);
+		const docker = new FauxDocker();
+		const provider = new DockerEnvironmentProvider({ docker, storageRoot: root, controllerId: "controller" });
+		const leaseId = "55555555-5555-4555-8555-555555555555";
+		const configuredBinding: EnvironmentBinding = {
+			...binding(),
+			network: { mode: "restricted", allowedEndpoints: ["example.com"] },
+		};
+		const prepared = await provider.prepare({ leaseId, runId: "run-1", binding: binding() });
+		const lease: EnvironmentLease = {
+			leaseId,
+			runId: "run-1",
+			nodeId: "node",
+			participantId: "participant",
+			provider: "docker",
+			providerHandle: prepared.providerHandle,
+			generation: 0,
+			state: "ready",
+			image: prepared.image,
+			createdAt: new Date().toISOString(),
+		};
+		const round: RoundBinding = {
+			roundId: "round-1",
+			leaseId,
+			generation: 1,
+			inputHash: "e".repeat(64),
+			inputs: [],
+			allowedOperations: ["exec"],
+		};
+		await provider.bindRound(lease, round);
+		const started: Array<{ operationKey: string; targetRef: string }> = [];
+		const settled: Array<{ operationId: string; outcome: string }> = [];
+		const tools = createEnvironmentToolDefinitions({
+			hostWorkspace: "/workspace",
+			getContext: () => ({ provider, lease, round, binding: configuredBinding }),
+			getExternalOperationRecorder: () => ({
+				async begin(intent) {
+					started.push({ operationKey: intent.operationKey, targetRef: intent.targetRef });
+					return `operation-${started.length}`;
+				},
+				async settle(operationId, outcome) {
+					settled.push({ operationId, outcome });
+				},
+			}),
+		});
+		const bash = tools.find((tool) => tool.name === "bash")!;
+		await bash.execute("call-1", { command: "printf ok" }, undefined, undefined, {} as never);
+		expect(started).toEqual([{ operationKey: "bash:call-1", targetRef: "network:example.com" }]);
+		expect(settled).toEqual([{ operationId: "operation-1", outcome: "succeeded" }]);
+
+		docker.commandTimeout = true;
+		await expect(
+			bash.execute("call-2", { command: "sleep 10" }, undefined, undefined, {} as never),
+		).rejects.toMatchObject({ code: "external_outcome_unknown" });
+		expect(settled.at(-1)).toEqual({ operationId: "operation-2", outcome: "unknown" });
+		await provider.dispose(lease);
+	});
+
 	it("rejects a changed image identity before creating a container", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-provider-identity-"));
 		roots.push(root);
@@ -237,6 +353,113 @@ describe("DockerEnvironmentProvider", () => {
 		).rejects.toMatchObject({ code: "profile_incompatible" });
 		expect(docker.calls.some((call) => call.args[0] === "create")).toBe(false);
 	});
+
+	it("recovers a stopped container using its retained identity and workspace hash", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-provider-recover-"));
+		roots.push(root);
+		const docker = new FauxDocker();
+		const configuredBinding = binding();
+		const leaseId = "33333333-3333-4333-8333-333333333333";
+		const first = new DockerEnvironmentProvider({ docker, storageRoot: root, controllerId: "controller-a" });
+		const prepared = await first.prepare({ leaseId, runId: "run-1", binding: configuredBinding });
+		const lease: EnvironmentLease = {
+			leaseId,
+			runId: "run-1",
+			nodeId: "node",
+			participantId: "participant",
+			provider: "docker",
+			providerHandle: prepared.providerHandle,
+			generation: 2,
+			state: "active",
+			image: prepared.image,
+			createdAt: new Date().toISOString(),
+		};
+		const saved = await first.suspend(lease);
+
+		const second = new DockerEnvironmentProvider({ docker, storageRoot: root, controllerId: "controller-b" });
+		const recovered = await second.recover({
+			leaseId,
+			runId: "run-1",
+			binding: configuredBinding,
+			providerHandle: prepared.providerHandle,
+			generation: 2,
+			identity: saved.identity,
+			workspaceHash: saved.workspaceHash,
+		});
+		expect(recovered.providerHandle).toBe(prepared.providerHandle);
+		await second.verifyResume(lease, saved.identity, saved.workspaceHash);
+		await second.bindRound(lease, {
+			roundId: "round-3",
+			leaseId,
+			generation: 3,
+			inputHash: hashJson([]),
+			inputs: [],
+			allowedOperations: ["read"],
+		});
+		expect((await second.describe(lease)).generation).toBe(3);
+	});
+
+	it("quarantines a still-running container before adopting interrupted work", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-provider-quarantine-"));
+		roots.push(root);
+		const docker = new FauxDocker();
+		const configuredBinding = binding();
+		const leaseId = "66666666-6666-4666-8666-666666666666";
+		const first = new DockerEnvironmentProvider({ docker, storageRoot: root, controllerId: "controller-a" });
+		const prepared = await first.prepare({ leaseId, runId: "run-1", binding: configuredBinding });
+		const lease: EnvironmentLease = {
+			leaseId,
+			runId: "run-1",
+			nodeId: "node",
+			participantId: "participant",
+			provider: "docker",
+			providerHandle: prepared.providerHandle,
+			generation: 1,
+			state: "active",
+			image: prepared.image,
+			createdAt: new Date().toISOString(),
+		};
+		await first.bindRound(lease, {
+			roundId: "round-1",
+			leaseId,
+			generation: 1,
+			inputHash: hashJson([]),
+			inputs: [],
+			allowedOperations: ["read"],
+		});
+
+		const second = new DockerEnvironmentProvider({ docker, storageRoot: root, controllerId: "controller-b" });
+		const saved = await second.quarantine({
+			leaseId,
+			runId: "run-1",
+			binding: configuredBinding,
+			providerHandle: prepared.providerHandle,
+			generation: 1,
+		});
+		expect(saved.providerHandle).toBe(prepared.providerHandle);
+		expect(saved.identity).toContain("controller-a");
+		expect(docker.calls.some((call) => call.args[0] === "stop")).toBe(true);
+		await second.verifyResume(lease, saved.identity, saved.workspaceHash);
+	});
+
+	it("confirms an allocated container was never created and removes its empty storage", async () => {
+		const root = await mkdtemp(join(tmpdir(), "pi-ipd-provider-uncreated-"));
+		roots.push(root);
+		const leaseId = "77777777-7777-4777-8777-777777777777";
+		await mkdir(join(root, leaseId), { recursive: true });
+		const provider = new DockerEnvironmentProvider({ docker: new FauxDocker(), storageRoot: root });
+		await expect(
+			provider.quarantine({
+				leaseId,
+				runId: "run-1",
+				binding: binding(),
+				providerHandle: "",
+				generation: 0,
+			}),
+		).rejects.toMatchObject({ code: "path_not_found" });
+		await expect(lstat(join(root, leaseId))).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
 	it("retains provisional ownership and files after probe and cleanup failures, then retries cleanup", async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-ipd-prepare-cleanup-"));
 		roots.push(root);

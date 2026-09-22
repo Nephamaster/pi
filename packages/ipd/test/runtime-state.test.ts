@@ -11,7 +11,7 @@ import {
 	runIsComplete,
 	type SubmissionRecord,
 } from "../src/index.ts";
-import { createCompilerFixture } from "./fixtures.ts";
+import { createCompilerFixture, createEmptyRuntimeRecords } from "./fixtures.ts";
 
 function activeReview(
 	reviewId: string,
@@ -23,6 +23,7 @@ function activeReview(
 		reviewId,
 		reviewNodeId,
 		roundId: `${reviewNodeId}:round:1`,
+		attemptId: `${reviewNodeId}:round:1:attempt:1:term:1:scope:1`,
 		submissionIds,
 		decision: "PASS",
 		criteria: [
@@ -49,6 +50,7 @@ function fixtureState() {
 		contentHash: "a".repeat(64),
 		nodeId: "produce",
 		roundId: "produce:round:1",
+		attemptId: "produce:round:1:attempt:1:term:1:scope:1",
 		status: "candidate",
 		inputSubmissionIds: [],
 		outputs: [
@@ -87,6 +89,7 @@ function fixtureState() {
 		createdAt: 1,
 	};
 	const state: RunState = {
+		...createEmptyRuntimeRecords(),
 		runId: "run-1",
 		revision: 1,
 		phase: "execute",
@@ -97,6 +100,7 @@ function fixtureState() {
 			nodeId: node.definition.node_id,
 			kind: node.definition.kind,
 			status: "waiting",
+			scopeEpoch: 1,
 			nextRound: 1,
 		})),
 		rounds: [],
@@ -131,7 +135,7 @@ function consumerNode(sourceNodeId: string, requiredReviewNodeIds: string[]): Ef
 describe("runtime input and approval semantics", () => {
 	it("requires the specifically configured Gate and projects only the bound output", () => {
 		const { state, submission } = fixtureState();
-		state.nodes.push({ nodeId: "consumer", kind: "execution", status: "waiting", nextRound: 1 });
+		state.nodes.push({ nodeId: "consumer", kind: "execution", status: "waiting", scopeEpoch: 1, nextRound: 1 });
 		const consumer = consumerNode("produce", ["review-produce"]);
 		expect(nodeIsReady(consumer, state)).toBe(false);
 		state.approvals.push({
@@ -166,7 +170,7 @@ describe("runtime input and approval semantics", () => {
 
 	it("does not let an optional input replace a missing required input", () => {
 		const { state } = fixtureState();
-		state.nodes.push({ nodeId: "consumer", kind: "execution", status: "waiting", nextRound: 1 });
+		state.nodes.push({ nodeId: "consumer", kind: "execution", status: "waiting", scopeEpoch: 1, nextRound: 1 });
 		const consumer = consumerNode("missing", []);
 		consumer.definition.inputs.push({
 			kind: "node_output",
@@ -222,6 +226,7 @@ describe("runtime input and approval semantics", () => {
 			nodeId: "consumer",
 			kind: "execution",
 			status: "active",
+			scopeEpoch: 1,
 			nextRound: 2,
 			activeRoundId: "consumer:round:1",
 		});
@@ -275,8 +280,8 @@ describe("runtime input and approval semantics", () => {
 		otherSubmission.status = "approved";
 		otherSubmission.outputs = [{ ...otherSubmission.outputs[0], outputId: "other-output" }];
 		state.submissions.push(otherSubmission);
-		state.nodes.push({ nodeId: "other", kind: "execution", status: "succeeded", nextRound: 2 });
-		state.nodes.push({ nodeId: "joint-review", kind: "review", status: "succeeded", nextRound: 2 });
+		state.nodes.push({ nodeId: "other", kind: "execution", status: "succeeded", scopeEpoch: 1, nextRound: 2 });
+		state.nodes.push({ nodeId: "joint-review", kind: "review", status: "succeeded", scopeEpoch: 1, nextRound: 2 });
 		state.reviews.push(
 			activeReview("joint-review:round:1:review", "joint-review", [
 				submission.submissionId,
@@ -353,7 +358,7 @@ describe("runtime input and approval semantics", () => {
 		baseline.nodes.push(producer);
 		baseline.workflow.nodes.push(producer.definition);
 		baseline.graph.reviewsByOutput["B/content-output"] = ["joint", "independent"];
-		state.nodes.push({ nodeId: "B", kind: "execution", status: "succeeded", nextRound: 2 });
+		state.nodes.push({ nodeId: "B", kind: "execution", status: "succeeded", scopeEpoch: 1, nextRound: 2 });
 		for (const reviewer of ["joint", "independent"]) {
 			state.reviews.push(
 				activeReview(
@@ -382,6 +387,7 @@ describe("runtime input and approval semantics", () => {
 				nodeId: id,
 				kind: "execution",
 				status: id === "C" ? "succeeded" : "active",
+				scopeEpoch: 1,
 				nextRound: 2,
 				...(id !== "C" ? { activeRoundId: `${id}:1` } : {}),
 			});
@@ -419,7 +425,7 @@ describe("runtime input and approval semantics", () => {
 		});
 		const d = consumerNode("C", ["review-C"]);
 		d.definition.node_id = "D";
-		state.nodes.push({ nodeId: "D", kind: "execution", status: "waiting", nextRound: 1 });
+		state.nodes.push({ nodeId: "D", kind: "execution", status: "waiting", scopeEpoch: 1, nextRound: 1 });
 		expect(nodeIsReady(d, state)).toBe(true);
 		expect(invalidateFromNode(state, "produce")).toEqual([{ nodeId: "active", roundId: "active:1" }]);
 		expect(c.status).toBe("stale");

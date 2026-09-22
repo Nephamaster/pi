@@ -75,7 +75,7 @@ interface BindingRecord<TState> {
 
 interface RoundCallbacks<T> {
 	generation?: number;
-	prepare?(): void;
+	prepare?(): void | Promise<void>;
 	result(): T;
 }
 
@@ -201,7 +201,7 @@ export class NodeSessionAdapter<TCreateInput, TState = never> {
 		};
 		record.active = active;
 		try {
-			callbacks?.prepare?.();
+			await callbacks?.prepare?.();
 			await record.validate?.();
 			if (active.cancelled || record.unavailable)
 				throw new NodeWorkerError("cancelled", `Round ${roundId} was cancelled before dispatch`);

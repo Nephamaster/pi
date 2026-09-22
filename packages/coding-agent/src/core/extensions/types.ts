@@ -710,6 +710,14 @@ export interface ContextWithSystemEvent {
 	messages: AgentMessage[];
 }
 
+/** A deliberate pre-network request rejection that must reach the Agent request loop. */
+export class ProviderRequestRejection extends Error {
+	constructor(message: string, options?: ErrorOptions) {
+		super(message, options);
+		this.name = "ProviderRequestRejection";
+	}
+}
+
 /** Fired before a provider request is sent. Can replace the payload. */
 export interface BeforeProviderRequestEvent {
 	type: "before_provider_request";

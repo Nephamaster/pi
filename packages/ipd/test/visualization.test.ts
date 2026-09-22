@@ -3,11 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildDashboardSnapshot, IpdDashboardServer, type RunState, renderDashboardPage } from "../src/index.ts";
-import { createCompilerFixture } from "./fixtures.ts";
+import { createCompilerFixture, createEmptyRuntimeRecords } from "./fixtures.ts";
 
 function stateFixture(): { state: RunState; processSpec: ReturnType<typeof createCompilerFixture>["processSpec"] } {
 	const fixture = createCompilerFixture();
 	const state: RunState = {
+		...createEmptyRuntimeRecords(),
 		runId: fixture.runId,
 		revision: 3,
 		phase: "compile",
@@ -174,8 +175,15 @@ describe("IPD visualization", () => {
 			revision: 4,
 			phase: "execute",
 			nodes: [
-				{ nodeId: "produce", kind: "execution", status: "active", nextRound: 2, activeRoundId: "produce:round:1" },
-				{ nodeId: "review-produce", kind: "review", status: "waiting", nextRound: 1 },
+				{
+					nodeId: "produce",
+					kind: "execution",
+					status: "active",
+					scopeEpoch: 1,
+					nextRound: 2,
+					activeRoundId: "produce:round:1",
+				},
+				{ nodeId: "review-produce", kind: "review", status: "waiting", scopeEpoch: 1, nextRound: 1 },
 			],
 			rounds: [
 				{
