@@ -1,0 +1,81 @@
+# Temporary implementation diagnostic for PR #17. Remove before the final PR diff.
+# The repository's locked npm-ci checks remain unchanged and authoritative.
+name: IPD authoring diagnostic
+on:
+  push:
+    branches: [feat/ipd-workflow-authoring-v2]
+permissions:
+  contents: write
+concurrency:
+  group: authoring-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  diagnose:
+    if: github.repository == 'Nephamaster/pi' && github.ref == 'refs/heads/feat/ipd-workflow-authoring-v2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+      - name: Diagnostic dependency resolution (never committed)
+        id: install
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Format only this PR's IPD TypeScript files
+        id: format
+        continue-on-error: true
+        shell: bash
+        run: |
+          mapfile -t paths < <(git diff --name-only 7431984e2e9d1e22ed4c4bfa5c48d1da280a562b HEAD -- packages/ipd | grep '\.ts$')
+          printf '%s\n' "${paths[@]}"
+          test "${#paths[@]}" -gt 0
+          npx --no-install biome check --write --max-diagnostics=1000 "${paths[@]}"
+      - name: Commit only formatter edits to the same implementation branch
+        if: success() || steps.format.outcome == 'failure'
+        shell: bash
+        run: |
+          mapfile -t paths < <(git diff --name-only 7431984e2e9d1e22ed4c4bfa5c48d1da280a562b HEAD -- packages/ipd | grep '\.ts$')
+          test "${#paths[@]}" -gt 0
+          git add -- "${paths[@]}"
+          if ! git diff --cached --quiet; then
+            git diff --cached --check
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'style: format workflow authoring implementation'
+            git push origin HEAD:refs/heads/feat/ipd-workflow-authoring-v2
+          fi
+      - name: Type check against the diagnostic dependency resolution
+        if: success() || steps.format.outcome == 'failure'
+        id: types
+        continue-on-error: true
+        run: npx --no-install tsgo --noEmit
+      - name: Targeted IPD regressions (no external model)
+        if: success() || steps.types.outcome == 'failure' || steps.format.outcome == 'failure'
+        id: tests
+        continue-on-error: true
+        working-directory: packages/ipd
+        run: >-
+          npx --no-install vitest run
+          test/workflow-authoring.test.ts
+          test/workflow-authoring-manager.test.ts
+          test/workflow-authoring-dashboard.test.ts
+          test/workflow-draft-storage.test.ts
+          test/workflow-draft.test.ts
+          test/pi-control-roles.test.ts
+      - name: Diagnostic summary and honest status
+        if: always()
+        env:
+          INSTALL: ${{ steps.install.outcome }}
+          FORMAT: ${{ steps.format.outcome }}
+          TYPES: ${{ steps.types.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+        run: |
+          printf 'Diagnostic install=%s format=%s types=%s tests=%s\n' "$INSTALL" "$FORMAT" "$TYPES" "$TESTS"
+          printf 'These checks use an ephemeral repaired lock; they do not repair or replace standard npm-ci verification.\n'
+          git status --short
+          test "$INSTALL" = success && test "$FORMAT" = success && test "$TYPES" = success && test "$TESTS" = success
