@@ -54,3 +54,4 @@ benchmark/
 __pycache__/
 zh/
 telemetry.ndjson
+.pi/ipd/requests

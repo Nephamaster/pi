@@ -48,7 +48,7 @@ export interface IpdServiceOptions {
 	assets: CompilerAssetCatalog;
 	projectRoot: string;
 	executionIdentity?: JsonValue;
-	createControlPlane(runId: string, runSkill: LockedSkill): IpdControlPlane;
+	createControlPlane(runId: string, runSkill?: LockedSkill): IpdControlPlane;
 	createRuntime(
 		directory: RunDirectory,
 		controller: Pick<RunControllerRecord, "controllerId" | "term">,
@@ -106,14 +106,14 @@ export class IpdService {
 			options.requestRegistry ?? new FileRunRequestRegistry(join(options.projectRoot, ".pi", "ipd", "requests"));
 	}
 
-	createRun(requestId: string, taskInput: TaskInput, runSkillId: string): Promise<CreateRunReceipt> {
+	createRun(requestId: string, taskInput: TaskInput, runSkillId?: string): Promise<CreateRunReceipt> {
 		return this.createRequestedRun(requestId, taskInput, runSkillId);
 	}
 
 	createRunFromTemplates(
 		requestId: string,
 		taskInput: TaskInput,
-		runSkillId: string,
+		runSkillId: string | undefined,
 		templates: IpdRunTemplateSelection,
 	): Promise<CreateRunReceipt> {
 		return this.createRequestedRun(requestId, taskInput, runSkillId, templates);
@@ -122,7 +122,7 @@ export class IpdService {
 	private createRequestedRun(
 		requestId: string,
 		taskInput: TaskInput,
-		runSkillId: string,
+		runSkillId: string | undefined,
 		templates?: IpdRunTemplateSelection,
 	): Promise<CreateRunReceipt> {
 		if (this.closed) throw new Error("IPD service is closed");
@@ -141,7 +141,7 @@ export class IpdService {
 		requestId: string,
 		requestHash: string,
 		taskInput: TaskInput,
-		runSkillId: string,
+		runSkillId: string | undefined,
 		templates?: IpdRunTemplateSelection,
 	): Promise<CreateRunReceipt> {
 		const claim = await this.requestRegistry.claim({
@@ -287,7 +287,6 @@ export class IpdService {
 			if (
 				!entry &&
 				state.baseline &&
-				state.runSkill &&
 				["paused", "blocked"].includes(state.status) &&
 				state.cleanup?.status === "complete"
 			)
@@ -433,12 +432,12 @@ export class IpdService {
 	private async createRunOnce(
 		runId: string,
 		taskInput: TaskInput,
-		runSkillId: string,
+		runSkillId: string | undefined,
 		templates?: IpdRunTemplateSelection,
 		request?: RunRequestRecord,
 	): Promise<CreateRunReceipt> {
 		const runSkill = this.options.assets.skills.find((skill) => skill.id === runSkillId);
-		if (!runSkill) throw new Error(`Unknown Run Skill: ${runSkillId}`);
+		if (runSkillId !== undefined && !runSkill) throw new Error(`Unknown Run Skill: ${runSkillId}`);
 		let selectedProcessSpec: ProcessSpec | undefined;
 		let workflowTemplate: WorkflowAssetRecord | undefined;
 		if (templates) {
@@ -527,7 +526,9 @@ export class IpdService {
 			if (boundary.kind === "unsupported") throw new Error(`Cannot recover: ${boundary.reason}`);
 			const runSkill = state.runSkill;
 			const taskInput = state.taskInput;
-			if (!runSkill || !taskInput) throw new Error("Cannot recover: the Run Skill or TaskInput is unavailable");
+			if (!taskInput) throw new Error("Cannot recover: TaskInput is unavailable");
+			if (state.request?.runSkillId !== undefined && runSkill?.id !== state.request.runSkillId)
+				throw new Error("Cannot recover: the explicitly selected Run Skill snapshot is unavailable");
 			const controller = await this.acquireController(runId, true);
 			if (boundary.kind === "pending_dispatch") {
 				await this.options.store.mutate(

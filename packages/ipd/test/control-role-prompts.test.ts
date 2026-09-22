@@ -8,6 +8,22 @@ import {
 import { createCompilerFixture } from "./fixtures.ts";
 
 describe("control-role prompt projection", () => {
+	it("designs from the original task and assets without requiring a business Skill", () => {
+		const fixture = createCompilerFixture();
+		const prompt = buildInitialWorkflowDesignPrompt(
+			undefined,
+			fixture.taskInput,
+			fixture.processSelection,
+			fixture.processSpec,
+			{ tools: ["bash"], environmentProfiles: ["general-purpose"] },
+			[],
+		);
+		expect(prompt).toMatch(/^<workflow_design_assignment>/);
+		expect(prompt).not.toContain("/skill:");
+		expect(prompt).toContain(fixture.taskInput.raw_task.text);
+		expect(prompt).toContain("general-purpose");
+		expect(prompt).toContain("absence is not a resource gap");
+	});
 	it("explicitly loads the bound process-selection Skill", () => {
 		const fixture = createCompilerFixture();
 		const prompt = buildProcessSelectionPrompt("process-selection", fixture.taskInput);

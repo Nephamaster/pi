@@ -9,6 +9,7 @@
 
 ### Added
 
+- Added the general-purpose default Docker Profile with Node 24, Python 3.12, retrieval/archive and structured-data tools at 2 CPUs / 2 GiB.
 - Added bounded IPD request projections with retained Session evidence references, paged text/image retrieval, and native same-Session repair continuations.
 - Added StageScope candidate-use and exit validation, fixed composite ReviewBundles, criterion Assessments, persistent Findings, scoped release certificates, and source-aware requirement/decision contracts.
 - Added output-level provenance and targeted invalidation, verified preservation of unchanged outputs, release-only re-adoption, compact consumption views, and separately sealed Reviewer verification evidence.
@@ -46,6 +47,7 @@
 
 ### Changed
 
+- Made business Run Skills optional across tool input, interactive launch, workflow design, durable request identity and recovery; system design methods and explicit node Skill validation remain in place.
 - Review independence now follows actual scoped production contributions and Session identity; independent instances may reuse a capable AgentCard. Advisory failures remain visible without blocking release.
 - Changed IPD service shutdown from Run cancellation to bounded work preservation, and isolated node-local failures so independent branches can finish before the Run settles.
 - Changed final delivery publication to use immutable version directories and an exact CompletionBasis instead of replacing one mutable final directory.

@@ -68,7 +68,7 @@ jobs:
         env:
           PI_IPD_DOCKER_INTEGRATION: "1"
         working-directory: packages/ipd
-        run: node ../../node_modules/vitest/dist/cli.js --run test/docker-provider.integration.test.ts
+        run: node ../../node_modules/vitest/dist/cli.js --run test/general-environment.test.ts test/docker-provider.integration.test.ts
 
       - name: Run ordinary Pi tool regression
         working-directory: packages/coding-agent
@@ -95,5 +95,6 @@ jobs:
           test/workflow-runtime.test.ts
           test/runtime-rework.test.ts
           test/p0-runtime-safety.test.ts
+          test/optional-run-skill.test.ts
           test/egress-policy.test.ts
           test/round-invalidation.test.ts

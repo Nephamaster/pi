@@ -9,7 +9,7 @@ export interface ClaimRunRequestInput {
 	requestId: string;
 	requestHash: string;
 	proposedRunId: string;
-	runSkillId: string;
+	runSkillId?: string;
 	templates?: RunTemplateSelectionRecord;
 }
 

@@ -28,6 +28,11 @@ Process Selector. Selecting both a ProcessSpec and a Workflow asset also skips t
 template to the current TaskInput and ProcessSelection, compiles it deterministically, and activates Runtime only when
 the template remains valid. Workflow templates already contain their node AgentCard assignments.
 
+A business Run Skill is optional. The `ipd` tool requires only `request_id` and the verbatim `task`; `skill_name` and
+`materials` are optional. `/ipd` also allows skipping the business Skill. Without one, the Designer uses the original
+task, ProcessSpec, employee catalog, tools and environment capabilities. System `process-selection` / `workflow-design`
+methods remain installed; explicitly selected or node-bound Skills still require valid assets and permissions.
+
 Templates may declare `prerequisites: { minimum_materials: 1, retrieval_tools: ["search_sources"] }`.
 The Compiler requires either enough user-supplied materials or a registered retrieval tool actually bound to an
 execution node (normal AgentCard/Profile checks still apply). Without either, compilation reports
@@ -174,20 +179,23 @@ continues to use these facts through existing RunStore transactions and native P
 
 ## Controlled execution environments
 
-The default mode is Docker/OCI. Build the two trusted local Profiles before starting a Run:
+The default mode is Docker/OCI. Build the trusted local Profiles before starting a Run:
 
 ```bash
 ./packages/ipd/environments/build.sh
 ```
 
-`code-node24` supplies Node.js 24, npm, Git, Python, build tools, and ripgrep. `office-pptx` extends it with
+`general-purpose` is the default: Node.js 24, Python 3.12, npm/pip/venv, Bash/Git, retrieval/archive tools and common
+structured-data libraries, with **2 CPUs and 2 GiB** per node. See [environment setup](environments/README.md) for a
+general-only build. The existing `code-node24` remains available; `office-pptx` extends that specialized base with
 PptxGenJS, the PPTX Skill's Python dependencies, LibreOffice, Poppler, fontconfig, Liberation fonts, and Noto CJK.
 Profile templates contain only trusted image references; service initialization resolves each reference to the current
 immutable Docker image ID and platform. A missing or changed image fails before Workflow execution and never falls
 back to the host.
 
 An uninstalled optional Profile is omitted from the executable catalog with a diagnostic. A text-only Workflow can
-therefore use `code-node24` without an Office image. Docker connection errors still fail initialization; a task requiring
+therefore use `general-purpose` without an Office image. The general default must be installed; it does not silently
+fall back to another Profile. Docker connection errors still fail initialization; a task requiring
 an unavailable capability fails compilation. Existing Runs retain their frozen image identities.
 
 Each node receives one lease that survives normal rounds and rework. All local `read`, `write`, `edit`, `grep`, `find`,

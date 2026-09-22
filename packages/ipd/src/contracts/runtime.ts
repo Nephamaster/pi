@@ -49,7 +49,7 @@ export interface RunRequestRecord {
 	requestId: string;
 	requestHash: string;
 	runId: string;
-	runSkillId: string;
+	runSkillId?: string;
 	templates?: RunTemplateSelectionRecord;
 	acceptedAt: number;
 }

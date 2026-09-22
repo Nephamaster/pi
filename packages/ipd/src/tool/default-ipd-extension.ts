@@ -299,7 +299,7 @@ async function createDefaultService(
 			managementTimeoutMs: runtimeInteger("PI_IPD_DOCKER_TIMEOUT_MS", 120_000, 1),
 		});
 		const loadedProfiles = await Promise.all(
-			["code-node24", "office-pptx"].map(async (profile) => {
+			["general-purpose", "code-node24", "office-pptx"].map(async (profile) => {
 				try {
 					return await loadRegisteredDockerProfile(
 						fileURLToPath(new URL(`../../environments/${profile}/profile.template.json`, import.meta.url)),
@@ -309,6 +309,11 @@ async function createDefaultService(
 					);
 				} catch (error) {
 					if (!(error instanceof MissingDockerProfileError)) throw error;
+					if (profile === "general-purpose")
+						throw new Error(
+							`${error.message}. Build the default general-purpose environment before starting IPD.`,
+							{ cause: error },
+						);
 					unavailableProfiles.push(error.message);
 					return undefined;
 				}
@@ -324,7 +329,7 @@ async function createDefaultService(
 			);
 		const environmentPolicy = {
 			allowedProfiles: environmentProfiles.map(({ profile }) => ({ id: profile.id, version: profile.version })),
-			defaultProfile: { id: "code-node24", version: "1.0.0" },
+			defaultProfile: { id: "general-purpose", version: "1.0.0" },
 		};
 		assets = toCompilerAssetCatalog(assembled, checks, [], {
 			profiles: environmentProfiles,
@@ -380,6 +385,7 @@ async function createDefaultService(
 	});
 	const assetSummary = toJsonValue({
 		unavailableProfiles,
+		environmentPolicy: assets.environmentPolicy,
 		skills: assembled.skills.map((skill) => ({
 			id: skill.id,
 			description: skill.description,
@@ -401,6 +407,7 @@ async function createDefaultService(
 			commands: profile.commands,
 			network: profile.network,
 			supportedEnvironmentTools: profile.supportedTools,
+			resources: profile.resources,
 		})),
 	});
 	const executionIdentity = toJsonValue({

@@ -251,7 +251,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 		spec: ProcessSpec,
 	) => WorkflowDraftManager;
 	private readonly designSkill: LockedSkill;
-	private readonly runSkill: LockedSkill;
+	private readonly runSkill?: LockedSkill;
 	private readonly assetSummary: JsonValue;
 	private readonly agentCards: readonly CompiledAgentCard[];
 	private readonly active = new Map<
@@ -273,7 +273,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 			spec: ProcessSpec,
 		): WorkflowDraftManager;
 		designSkill: LockedSkill;
-		runSkill: LockedSkill;
+		runSkill?: LockedSkill;
 		assetSummary: JsonValue;
 		agentCards: readonly CompiledAgentCard[];
 	}) {
@@ -331,7 +331,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 					participant: {
 						participantId: "workflow-designer",
 						agentCard: options.agentCard,
-						lockedSkills: [this.designSkill, this.runSkill],
+						lockedSkills: [this.designSkill, ...(this.runSkill ? [this.runSkill] : [])],
 						lockedTools: [...(options.tools ?? [])],
 						lockedKnowledgeBases: [],
 					},
@@ -351,7 +351,7 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 		const prompt = active.initialized
 			? buildWorkflowDesignRevisionPrompt(draft.revision, compilerDiagnostics)
 			: buildInitialWorkflowDesignPrompt(
-					this.runSkill.id,
+					this.runSkill?.id,
 					task,
 					selection,
 					spec,

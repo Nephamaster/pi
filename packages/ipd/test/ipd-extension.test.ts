@@ -10,6 +10,38 @@ import type { IpdService } from "../src/runtime/ipd-service.ts";
 import { createCompilerFixture, createEmptyRuntimeRecords } from "./fixtures.ts";
 
 describe("IPD create-run tool", () => {
+	it.each([false, true])(
+		"allows /ipd without a business Skill (catalog has a candidate=%s)",
+		async (withCandidate) => {
+			let handler: ((args: string, context: ExtensionCommandContext) => Promise<void>) | undefined;
+			const api = {
+				registerTool() {},
+				registerCommand(name: string, command: { handler: typeof handler }) {
+					if (name === "ipd") handler = command.handler;
+				},
+			} as unknown as ExtensionAPI;
+			const createRun = vi
+				.fn()
+				.mockResolvedValue({ runId: "run", accepted: true, phase: "intake", status: "running" });
+			const service = {
+				listProcessSpecTemplates: () => [],
+				listRunSkills: () => (withCandidate ? [{ id: "pptx", description: "Presentations" }] : []),
+				createRun,
+			} as unknown as IpdService;
+			registerIpdCreateRunTool(api, async () => service);
+			const select = vi.fn(async (_title: string, choices: string[]) => choices[0]);
+			await handler!("", {
+				hasUI: true,
+				ui: { select, confirm: async () => false, editor: async () => "Original task", notify: vi.fn() },
+			} as unknown as ExtensionCommandContext);
+			expect(createRun).toHaveBeenCalledWith(
+				expect.any(String),
+				expect.objectContaining({ raw_task: { text: "Original task", source: "user-command:/ipd" } }),
+				undefined,
+			);
+			expect(select).toHaveBeenCalledTimes(withCandidate ? 2 : 1);
+		},
+	);
 	it.each(["pause", "resume"] as const)("routes %s to the owning Run service", async (action) => {
 		const tools: ToolDefinition[] = [];
 		const api = {
@@ -32,7 +64,7 @@ describe("IPD create-run tool", () => {
 		expect(provider).toHaveBeenCalledWith(context, "run");
 		expect(operation).toHaveBeenCalledWith("run");
 	});
-	it("accepts only identity, Skill, verbatim task, and optional user materials", async () => {
+	it("requires only identity and verbatim task, with optional Skill and user materials", async () => {
 		const tools: ToolDefinition[] = [];
 		const api = {
 			registerCommand() {},
@@ -56,7 +88,7 @@ describe("IPD create-run tool", () => {
 			required?: string[];
 		};
 		expect(Object.keys(schema.properties)).toEqual(["request_id", "skill_name", "task", "materials"]);
-		expect(schema.required).toEqual(["request_id", "skill_name", "task"]);
+		expect(schema.required).toEqual(["request_id", "task"]);
 		expect(schema.additionalProperties).toBe(false);
 		expect(schema.properties).not.toHaveProperty("objectives");
 		expect(schema.properties).not.toHaveProperty("requirements");
@@ -100,6 +132,12 @@ describe("IPD create-run tool", () => {
 			{} as ExtensionContext,
 		);
 		expect(createRun).toHaveBeenCalledWith("request-2", expect.objectContaining({ materials }), "pptx");
+		await tool.execute("call-3", { request_id: "request-3", task }, undefined, undefined, {} as ExtensionContext);
+		expect(createRun).toHaveBeenCalledWith(
+			"request-3",
+			expect.objectContaining({ raw_task: { text: task, source: "external-agent-request" } }),
+			undefined,
+		);
 	});
 
 	it("starts a template-backed Run from the interactive /ipd command", async () => {
@@ -148,7 +186,8 @@ describe("IPD create-run tool", () => {
 		const select = vi
 			.fn()
 			.mockResolvedValueOnce("Delivery Process · delivery-process@1.0.0")
-			.mockResolvedValueOnce("Example Workflow · example-workflow@1.0.0");
+			.mockResolvedValueOnce("Example Workflow · example-workflow@1.0.0")
+			.mockResolvedValueOnce("pptx · Create presentations");
 		const confirm = vi.fn().mockResolvedValue(false);
 		const input = vi
 			.fn()

@@ -67,7 +67,7 @@ export interface PrepareRunInput {
 	projectRoot: string;
 	runId: string;
 	taskInput: TaskInput;
-	runSkill: LockedSkill;
+	runSkill?: LockedSkill;
 	processSpecs: readonly ProcessSpec[];
 	assets: CompilerAssetCatalog;
 	executionIdentity?: JsonValue;
@@ -154,7 +154,7 @@ export class IpdControlPlane {
 		const assertCompatible = (existing: RunState) => {
 			if (
 				hashJson(existing.taskInput) !== hashJson(input.taskInput) ||
-				existing.runSkill?.hash !== input.runSkill.hash ||
+				existing.runSkill?.hash !== input.runSkill?.hash ||
 				(input.request !== undefined && existing.request?.requestHash !== input.request.requestHash)
 			)
 				throw new Error(`Run ${input.runId} was already accepted with different input`);

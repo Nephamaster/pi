@@ -20,16 +20,16 @@ export function buildWorkflowDesignMethodPrompt(designSkillId: string): string {
 }
 
 export function buildInitialWorkflowDesignPrompt(
-	runSkillId: string,
+	runSkillId: string | undefined,
 	task: TaskInput,
 	selection: ProcessSelection,
 	spec: ProcessSpec,
 	assetSummary: JsonValue,
 	compilerDiagnostics: readonly string[],
 ): string {
-	return `/skill:${runSkillId} ${wrapPromptBlock(
+	return `${runSkillId ? `/skill:${runSkillId} ` : ""}${wrapPromptBlock(
 		"workflow_design_assignment",
-		`Load the task-specific method, then design this Workflow.\n\nTaskInput:\n${canonicalJson(task)}\n\nProcessSelection:\n${canonicalJson(selection)}\n\nProcessSpec:\n${canonicalJson(spec)}\n\nAvailable non-employee resources:\n${canonicalJson(assetSummary)}\n\nSearch and inspect AgentCards before binding employees.\n\nCompiler diagnostics:\n${compilerDiagnostics.length > 0 ? compilerDiagnostics.join("\n") : "None"}`,
+		`${runSkillId ? "Use the supplied business Skill as supplementary method guidance." : "No business Run Skill is selected; its absence is not a resource gap."} Design this Workflow from the original task, ProcessSpec, available employees, tools and environment capabilities. Bind suitable Skills only where they help the work.\n\nTaskInput:\n${canonicalJson(task)}\n\nProcessSelection:\n${canonicalJson(selection)}\n\nProcessSpec:\n${canonicalJson(spec)}\n\nAvailable non-employee resources:\n${canonicalJson(assetSummary)}\n\nSearch and inspect AgentCards before binding employees.\n\nCompiler diagnostics:\n${compilerDiagnostics.length > 0 ? compilerDiagnostics.join("\n") : "None"}`,
 	)}`;
 }
 

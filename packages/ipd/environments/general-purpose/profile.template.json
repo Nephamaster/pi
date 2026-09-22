@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "general-purpose",
+  "version": "1.0.0",
+  "provider": "docker",
+  "image": {
+    "reference": "pi-ipd/general-purpose:1.0.0",
+    "contentId": "RESOLVED_BY_TRUSTED_INITIALIZATION",
+    "platform": "linux/amd64"
+  },
+  "capabilities": [
+    { "id": "node", "version": "24.19.0" },
+    { "id": "python", "version": "3.12.14" },
+    { "id": "structured-data", "version": "1.0.0" }
+  ],
+  "commands": ["bash", "git", "node", "npm", "npx", "python", "python3", "pip", "pip3", "rg", "find", "curl", "wget", "jq", "sqlite3", "file", "patch", "diff", "ps", "tar", "gzip", "bzip2", "xz", "zip", "unzip", "make", "gcc", "g++"],
+  "supportedTools": ["bash", "edit", "environment_describe", "environment_process_logs", "environment_process_start", "environment_process_status", "environment_process_stop", "find", "grep", "ls", "read", "write"],
+  "environment": { "PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8" },
+  "network": { "mode": "none" },
+  "resources": { "memoryBytes": 2147483648, "cpus": 2, "pids": 512, "logBytes": 8388608 },
+  "probes": [
+    { "id": "node", "version": "1.0.0", "command": ["node", "-e", "if (process.versions.node !== '24.19.0') process.exit(1)"], "timeoutSeconds": 10 },
+    { "id": "python", "version": "1.0.0", "command": ["python3", "-c", "import sys, venv, ensurepip; assert sys.version_info[:3] == (3, 12, 14)"], "timeoutSeconds": 10 },
+    { "id": "data-libraries", "version": "1.0.0", "command": ["python3", "-c", "import numpy, pandas, yaml, jsonschema, openpyxl, requests, bs4, lxml.etree, sqlite3"], "timeoutSeconds": 20 },
+    { "id": "base-commands", "version": "1.0.0", "command": ["bash", "--noprofile", "--norc", "-c", "for cmd in git npm npx rg find curl wget jq sqlite3 file patch diff ps tar gzip bzip2 xz zip unzip make gcc g++; do command -v \"$cmd\" >/dev/null || exit 1; done"], "timeoutSeconds": 10 }
+  ],
+  "paths": { "context": "/ipd/context", "skills": "/ipd/skills", "inputs": "/ipd/inputs", "workspace": "/workspace", "scratch": "/scratch", "cache": "/cache", "home": "/home/agent", "temporary": "/tmp" }
+}

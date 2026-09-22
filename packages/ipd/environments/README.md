@@ -1,6 +1,6 @@
 # IPD execution Profiles
 
-This directory builds the only new execution backend supported by IPD: Linux Docker/OCI. Both Profiles share the
+This directory builds the only new execution backend supported by IPD: Linux Docker/OCI. All Profiles share the
 same Provider and differ only in declared capabilities and image contents.
 
 ## Build and verify
@@ -14,7 +14,7 @@ PI_IPD_DOCKER_INTEGRATION=1 \
   node node_modules/vitest/dist/cli.js --run packages/ipd/test/docker-provider.integration.test.ts
 ```
 
-The build creates `pi-ipd/code-node24:1.0.0` and `pi-ipd/office-pptx:1.0.0`. Runtime resolves these tags to the
+The build creates `pi-ipd/general-purpose:1.0.0`, `pi-ipd/code-node24:1.0.0` and `pi-ipd/office-pptx:1.0.0`. Runtime resolves these tags to the
 Engine's actual `sha256` image ID and `linux/amd64` or `linux/arm64` platform before compiling a Run. Tags are never
 used as the frozen execution identity.
 
@@ -23,16 +23,46 @@ managed processes, cancellation, input rebinding, all Pi file/search/image/Bash 
 multilingual PPTX through the repository's actual PPTX Skill validator and renderer. An ordinary Pi SDK session with
 a faux provider also uses the same Workspace tools, without an IPD Runtime.
 
-`build.sh` forwards extra arguments to both `docker build` calls, including proxy build arguments when required.
+`build.sh` forwards extra arguments to all `docker build` calls, including proxy build arguments when required.
 The Docker daemon proxy does not automatically configure package downloads inside build steps.
-For concurrent development, set `PI_IPD_CODE_IMAGE` and `PI_IPD_OFFICE_IMAGE` to unique local tags for both the build
-script and integration test. The Office recipe uses the selected code image as its base. Production template references
+For concurrent development, set `PI_IPD_GENERAL_IMAGE`, `PI_IPD_CODE_IMAGE` and `PI_IPD_OFFICE_IMAGE` to unique local tags
+for the build script and integration tests. The Office recipe uses the selected code image as its base. Production template references
 remain explicit; these test/build variables do not silently change a Run's frozen image identity.
 
 ## Bridge and preflight contract
 
+### General-purpose default
+
+`general-purpose@1.0.0` supplies Node 24.19.0, Python 3.12.14, npm/pip/venv, Bash, Git, compiler/build tools,
+curl/wget, ripgrep/find, jq/sqlite3, file/diff/patch, process inspection and tar/zip/gzip/bzip2/xz utilities.
+Pinned Python packages include NumPy, pandas, PyYAML, jsonschema, openpyxl, requests, BeautifulSoup and lxml.
+JSON/CSV/SQLite are also available through the Python standard library. Dependencies for a particular job remain
+private project installs; Office, browsers and database servers are not preinstalled here.
+
+The default is **2 CPUs, 2 GiB**, 512 PIDs and 8 MiB logs. Container networking remains disabled unless explicitly
+authorized. curl/wget are transport tools, not a search engine; registered Pi search tools still require separate authorization.
+
+Build only the new default (no changes to existing Code/Office images):
+
+```bash
+docker build -f packages/ipd/environments/general-purpose/Dockerfile \
+  -t pi-ipd/general-purpose:1.0.0 packages/ipd/environments
+cd packages/ipd
+PI_IPD_DOCKER_INTEGRATION=1 node ../../node_modules/vitest/dist/cli.js --run test/general-environment.test.ts
+```
+
+Optional build arguments are `DEBIAN_MIRROR`, `DEBIAN_SECURITY_MIRROR` and `PIP_INDEX_URL`; defaults use the official
+Debian/PyPI endpoints. Node and Python base images are digest-pinned. Python direct/transitive versions are locked;
+Debian packages receive the configured Bookworm repository's updates and their exact versions are recorded in
+`/opt/pi-ipd/system-packages.txt`. The frozen Runtime binding records the final image ID.
+
+Missing general-purpose fails initialization; uninstalled optional Code/Office Profiles remain skippable. Explicit
+Workflow `environment_ref` and actual capability needs still select specialized Profiles. Existing Runs are unchanged.
+
+### Shared bridge
+
 `src/environment/bridge` is the sole implementation of the versioned request protocol and command launcher.
-`common/*-bridge.mjs` files are generated artifacts; `npm run check:ipd-bridges` detects stale copies. Rebuild both
+`common/*-bridge.mjs` files are generated artifacts; `npm run check:ipd-bridges` detects stale copies. Rebuild all affected
 images after bridge changes. Startup checks the bridge version and command-cancellation capability and never falls back to host execution.
 
 Normal Bash, full-output Bash, managed processes and probes use explicit argv, cwd and the same Profile environment.
@@ -61,11 +91,12 @@ explicitly. Install npm dependencies locally and retain lockfiles/version record
 ## Locked inputs
 
 - Base image: `node:24.19.0-bookworm-slim` at the digest in `code-node24/Dockerfile`.
-- Direct Debian packages are pinned to the versions observed in the tested Bookworm snapshot.
+- Code/Office direct Debian packages are pinned to the versions observed in the tested Bookworm snapshot; general-purpose records installed OS versions as described above.
 - PptxGenJS, React, react-dom, react-icons and sharp use `package-lock.json` and `npm ci --ignore-scripts`.
 - `image-size` is overridden to 2.0.3 because the version range requested by PptxGenJS 4.0.1 contains known
   denial-of-service vulnerabilities. The real PPTX smoke protects API compatibility.
-- Python direct and transitive dependencies are pinned in `requirements.lock` and installed into a private venv.
+- Python direct and transitive dependencies are pinned in each `requirements.lock`: general-purpose installs them in
+  the read-only Python base; Office uses `/opt/pi-ipd/venv`. Node-created project venvs remain private and writable.
 - Noto CJK and Liberation fonts come from Debian packages under their packaged licenses; no commercial font files are
   downloaded or committed.
 

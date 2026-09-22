@@ -16,7 +16,7 @@ import { completionProblems } from "../runtime/runtime-state.ts";
 const CreateRunSchema = Type.Object(
 	{
 		request_id: NonEmptyStringSchema,
-		skill_name: NonEmptyStringSchema,
+		skill_name: Type.Optional(NonEmptyStringSchema),
 		task: Type.String({
 			minLength: 1,
 			description:
@@ -118,7 +118,7 @@ async function chooseRunSkill(
 	context: ExtensionCommandContext,
 	service: IpdService,
 	workflow?: Awaited<ReturnType<IpdService["listWorkflowTemplates"]>>[number],
-): Promise<string | undefined> {
+): Promise<string | null | undefined> {
 	const available = service
 		.listRunSkills()
 		.filter((skill) => !["process-selection", "workflow-design"].includes(skill.id));
@@ -129,13 +129,11 @@ async function chooseRunSkill(
 	);
 	const candidates =
 		workflowSkillIds.size > 0 ? available.filter((skill) => workflowSkillIds.has(skill.id)) : available;
-	if (candidates.length === 1) return candidates[0].id;
-	if (candidates.length === 0) {
-		context.ui.notify("没有可用于该任务的 Skill", "error");
-		return undefined;
-	}
+	if (candidates.length === 0) return null;
 	const labels = candidates.map((skill) => `${skill.id} · ${skill.description}`);
-	const selected = await context.ui.select("选择任务 Skill", labels);
+	const skip = "不使用业务 Skill，直接根据任务设计";
+	const selected = await context.ui.select("选择任务 Skill（可选）", [skip, ...labels]);
+	if (selected === skip) return null;
 	return selected === undefined ? undefined : candidates[labels.indexOf(selected)]?.id;
 }
 
@@ -173,7 +171,7 @@ function registerIpdCommand(pi: ExtensionAPI, serviceProvider: IpdServiceProvide
 				}
 
 				const runSkillId = await chooseRunSkill(context, service, workflowTemplate);
-				if (!runSkillId) return;
+				if (runSkillId === undefined) return;
 				const task = await context.ui.editor("输入任务描述", args.trim());
 				if (task === undefined) return;
 				if (!task.trim()) {
@@ -200,7 +198,7 @@ function registerIpdCommand(pi: ExtensionAPI, serviceProvider: IpdServiceProvide
 					unresolved_facts: [],
 				};
 				const receipt = processSpec
-					? await service.createRunFromTemplates(requestId, input, runSkillId, {
+					? await service.createRunFromTemplates(requestId, input, runSkillId ?? undefined, {
 							processSpecId: processSpec.process_spec_id,
 							processSpecVersion: processSpec.version,
 							...(workflowTemplate
@@ -210,7 +208,7 @@ function registerIpdCommand(pi: ExtensionAPI, serviceProvider: IpdServiceProvide
 									}
 								: {}),
 						})
-					: await service.createRun(requestId, input, runSkillId);
+					: await service.createRun(requestId, input, runSkillId ?? undefined);
 				const visualization = receipt.visualization ? `\n看板：${receipt.visualization.url}` : "";
 				context.ui.notify(`IPD Run ${receipt.runId} 已启动${visualization}`, "info");
 			} catch (error) {
@@ -263,10 +261,10 @@ export function registerIpdCreateRunTool(pi: ExtensionAPI, serviceProvider: IpdS
 			description:
 				"Create one governed IPD Run from the user's preserved task. Internal planning and execution continue without outer-agent orchestration.",
 			promptSnippet:
-				"Use IPD create_run for long tasks that require structured delivery and independent review. Pass request_id, skill_name, the user's complete verbatim task, and only user-supplied task materials when present.",
+				"Use IPD create_run for long tasks that require structured delivery and independent review. Pass request_id, the user's complete verbatim task, and optional skill_name and user-supplied materials.",
 			promptGuidelines: [
 				"Copy the user's complete task request verbatim into task. Do not summarize, rewrite, expand, interpret, classify, or extract requirements before handing the task to IPD.",
-				"skill_name binds the task Skill separately. Do not repeat Skill instructions, files, scripts, inferred requirements, materials, or unresolved facts in task.",
+				"skill_name is optional method guidance, not a prerequisite for workflow design. Omit it when no suitable business Skill exists. Do not repeat Skill instructions, files, scripts, inferred requirements, materials, or unresolved facts in task.",
 				"materials is optional and contains only task materials explicitly supplied or referenced by the user. Never include the bound Skill, Skill files, Skill scripts, or Agent-inferred materials.",
 				"This Tool only creates a Run. IPD owns task interpretation, process selection, Workflow design, execution, and review after creation.",
 			],

@@ -8,6 +8,8 @@ Based on the preserved original user task and selected `ProcessSpec`, build an e
 
 Follow the bound `workflow-design` Skill for the detailed design method.
 
+A business Run Skill is optional supplementary method guidance, not a prerequisite or a source of new requirements. When none is selected, design directly from the original task, ProcessSpec, employee library, tools and environment capabilities. Do not report the absence of a business Skill as a resource gap; evaluate whether the actual work is executable.
+
 Your goal is **not** to reproduce the ProcessSpec as a diagram. Your goal is to instantiate its governance intent for the current task with the necessary sufficient set of accountable work packages, deliverables, evidence, and independent reviews.
 
 ## 1. Interpret the Task and ProcessSpec Correctly

@@ -101,7 +101,7 @@ describe("native control role bindings", () => {
 		await expect(selector.select("run", base.taskInput, [base.processSpec])).rejects.toThrow("cannot be recreated");
 	});
 
-	it("retains the designer session across revisions and uses the common result capture boundary", async () => {
+	it.each([false, true])("designs and revises in one native Session (business Skill=%s)", async (withSkill) => {
 		const { root, faux, base, options, skills, events } = await fixture();
 		const workflow = base.workflow;
 		const manager = new WorkflowDraftManager({
@@ -131,7 +131,7 @@ describe("native control role bindings", () => {
 			optionsForRun: () => options,
 			managerForRun: () => manager,
 			designSkill: skills[0],
-			runSkill: skills[1],
+			runSkill: withSkill ? skills[1] : undefined,
 			assetSummary: {},
 			agentCards: base.assets.agentCards,
 		});
@@ -155,6 +155,13 @@ describe("native control role bindings", () => {
 			).toEqual(workflow);
 			expect(faux.state.callCount).toBe(3);
 			expect(new Set(events.map((event) => event.sessionId)).size).toBe(1);
+			const dispatches = events.flatMap(({ event }) =>
+				event.type === "message_end" && event.message.role === "user"
+					? [JSON.stringify(event.message.content)]
+					: [],
+			);
+			expect(dispatches.join("\n")).not.toContain("/skill:undefined");
+			if (!withSkill) expect(dispatches.join("\n")).toContain("No business Run Skill is selected");
 		} finally {
 			await designer.cancelRun("run");
 		}
