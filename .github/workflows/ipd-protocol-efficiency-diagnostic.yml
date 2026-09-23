@@ -13,11 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: fix/ipd-protocol-efficiency
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
       - name: Apply hash-verified scoped edits in disposable checkout
@@ -31,18 +31,34 @@ jobs:
           raw=zlib.decompress(base64.b64decode(encoded,validate=True))
           assert hashlib.sha256(raw).hexdigest()=='994383207588fd039f198540b544a8bf4bff950f2cca8142c50ea37f0d531ec1'
           data=json.loads(raw)
-          changed=set(data['files'])|{p['path'] for p in data['patches']}
+          excluded={'packages/ipd/CHANGELOG.md'}
+          changed=(set(data['files'])|{p['path'] for p in data['patches']})-excluded
           for path,content in data['files'].items():
               assert path.startswith('packages/ipd/')
+              if path in excluded: continue
               p=Path(path);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content)
           for i,item in enumerate(data['patches']):
+              if item['path'] in excluded: continue
               p=Path(item['path']);text=p.read_text()
               found=text.count(item['old'])
               assert found==item['count'],f'Patch {i} {p}: expected {item["count"]} anchors, got {found}'
               p.write_text(text.replace(item['old'],item['new'],item['count']))
               print(f'Applied patch {i}: {p}')
+          p=Path('packages/ipd/test/submission-correction-session.test.ts')
+          text=p.read_text()
+          print('=== Full correction-session test before type fix ===\n'+text)
+          assert text.count('Record<string, unknown>')==1
+          p.write_text(text.replace('Record<string, unknown>', 'Parameters<typeof fauxToolCall>[1]'))
+          p=Path('packages/ipd/test/workflow-authoring.test.ts')
+          text=p.read_text()
+          old='expect(mapped.authoringPath).toBe("output:produce/content-output");'
+          new='expect(mapped.authoringPath).toBe("output:produce/content-output.path_prefix");'
+          assert text.count(old)==1
+          p.write_text(text.replace(old,new))
+          changed.add(str(p))
           Path('/tmp/ipd-protocol-changed.json').write_text(json.dumps(sorted(changed)))
           print('Scoped source paths:',len(changed))
+          print('All IPD test names:', '\n'.join(str(p) for p in sorted(Path('packages/ipd/test').glob('*.test.ts'))))
           PY
       - name: Resolve diagnostic dependencies without committing lock changes
         run: |
@@ -72,6 +88,7 @@ jobs:
           test/protocol-efficiency.test.ts
           test/authoring-source-efficiency.test.ts
           test/submission-correction-session.test.ts
+          test/structured-submissions.test.ts
           test/pi-node-worker.test.ts
           test/pi-control-roles.test.ts
           test/workflow-authoring.test.ts
@@ -93,7 +110,7 @@ jobs:
           subprocess.run(['git','add','--',*paths],check=True)
           PY
           git diff --cached --stat
-          git commit -m 'fix(ipd): resolve source bindings and repair submission fields without report regeneration'
+          git commit -m 'fix(ipd): resolve source bindings and amend submissions without regenerating reports'
           git push origin HEAD:fix/ipd-protocol-efficiency
       - name: Diagnostics retained in run logs
         if: always()
