@@ -90,7 +90,7 @@ Forward dependencies are expressed through exact input bindings. For every depen
 
 Execution nodes should consume controlled upstream results through `approved` inputs when approval is required. Review nodes inspect the exact candidate through `submitted` inputs.
 
-Use explicit `stages` when internal work needs sealed candidates before the joint Gate. Declare member nodes, each permitted `internal_uses` input, and the controlled output `exits` with their required Gate IDs. Only declared internal consumers may use `submitted`; crossing the stage boundary requires every declared exit Gate. This avoids the A→B→R→A approval cycle.
+Use explicit stages when internal work needs sealed candidates before the joint Gate. Configure members and exits with `workflow_draft_stages`; configure each permitted input with `access: {mode: stage_candidate, stage_id: ...}`. Code derives `internal_uses`. Crossing the stage boundary still requires every declared exit Gate. This avoids the A→B→R→A approval cycle.
 
 Before fan-out, establish the shared scope, terminology, data/interface conventions, and output ownership that branches need. Fan-in must have the inputs and criteria needed to check the combination, not just collect files. Parallel test design can start from an interface contract; test execution still needs the actual implementation. See the reference for further examples.
 
@@ -123,7 +123,7 @@ Describe submission readiness through sufficient work and evidence, not "be exha
 
 Design a concise entry point to each handoff, backed by complete usable content and locatable original evidence. Do not demand overlapping research, summary, design, and reporting files without distinct consumers or process obligations. A compact handoff must not shift missing core work to the next node or substitute a producer summary for evidence.
 
-Every controlled output needs mechanical criteria backed by real checks and semantic criteria backed by professional judgment. Define the assessed object, acceptable condition, verification method, and evidence; link standards through the existing `criterion_refs`. A command exit code, file existence, or a producer's "checked" statement proves only what it actually establishes.
+Every controlled output needs mechanical criteria backed by real checks and semantic criteria backed by professional judgment. Define the assessed object, acceptable condition, verification method, and evidence. Select production `output_bindings` in `workflow_draft_criteria`; code generates output `criterion_refs`. A command exit code, file existence, or a producer's "checked" statement proves only what it actually establishes.
 
 Keep user/ProcessSpec requirements, source-linked design decisions, and advisory methods distinct using the existing authority fields. Do not invent arbitrary source counts, tool-call quotas, visual scores, or layout thresholds. Specify implementation details only when needed for a real requirement, interface, or justified design decision.
 
@@ -147,7 +147,7 @@ Place meaningful judgment where a shared basis will affect many consumers, indep
 
 Use execution nodes to produce genuinely needed integrated results and composite reviews to judge integrated properties. Do not duplicate production in the Reviewer or add an integration node solely to forward files. Distinguish blocking defects from advisory improvements; prohibit preference-based redesign, extra thresholds, and defect quotas.
 
-Review targets reference exact node/output pairs and semantic criteria. Composite criteria require exact `criterion_subjects`; add `required_relations` when a target must derive from the precise upstream version in the bundle. Use bounded `remediation_mappings` for directly dependent upstream owners, not as blanket authority to return work to any ancestor.
+Use `workflow_draft_reviews` to assign semantic criteria to exact single or composite subjects. Code derives targets, `criterion_subjects` and necessary candidate inputs. Add `required_relations` when a target must derive from the precise upstream version in the bundle. Use bounded `remediation_mappings` for directly dependent upstream owners, not as blanket authority to return work to any ancestor.
 
 For each plausible defect, distinguish **who repairs**, **which results or approvals lose a valid basis**, and **what must be rechecked**. Restrict `allowed_rework_node_ids` to legal owners and make the review work requirements call for criterion-local evidence, repair targets, and re-review conditions. If A is wrong, B uses A, and D is independent, repair A and affected B and re-evaluate the relevant judgment; do not require D to produce its valid work again. If only integrator J misuses correct inputs, target J rather than all upstream producers.
 
@@ -166,23 +166,25 @@ Do not create `task_requirement` coverage. The user request remains natural lang
 
 Compiler success therefore means the Workflow is structurally legal and ProcessSpec obligations are formally represented. It does **not** mean the Compiler has proved semantic satisfaction of the user's request.
 
-## 9. Implement Incrementally with Draft Tools
+## 9. Build the Workflow with Domain Tools
 
-Recommended sequence:
+Use one managed AuthoringDraft V2. It may be incomplete while you design; only a complete, validated projection becomes WorkflowDefinition V3. Do not fabricate placeholder employees, criteria or permissions just to save a skeleton.
 
-1. `workflow_draft_open` / `workflow_draft_read`;
-2. `set_header` using the current Workflow schema version;
-3. `upsert_criterion`;
-4. `upsert_node`;
-5. `set_requirement_coverage` for ProcessSpec obligations only;
-6. `set_completion`;
-7. `workflow_draft_validate`;
-8. fix diagnostics locally in the same draft and Session;
-9. `workflow_draft_submit` only for the latest validated revision.
+| Step | Tools and purpose |
+|---|---|
+| Inspect | `workflow_draft_open`; use `workflow_draft_read` for scoped catalog, process, topology or node sections. |
+| Declare work | `workflow_draft_topology` declares nodes, output ports and real input connections. |
+| Configure | `workflow_draft_configure_nodes` updates contract, employee, resources and environment sections without resending whole nodes. |
+| Define delivery | `workflow_draft_outputs` defines substance and evidence; `workflow_draft_criteria` assigns production standards. |
+| Connect and review | `workflow_draft_inputs` fixes required/purpose/use policy; `workflow_draft_reviews` assigns judgments and correction owners; `workflow_draft_stages` defines stage members and exits. |
+| Complete governance | `workflow_draft_governance`, `workflow_draft_coverage`, `workflow_draft_completion` record remaining concrete obligations. |
+| Check and submit | `workflow_draft_validate` checks incomplete choices or runs full compilation; correct named objects locally, then `workflow_draft_submit` captures the exact revision. |
 
-`upsert_node` replaces the whole node. `set_requirement_coverage` and `set_completion` replace their full structures. Follow [Draft Tool Protocol](references/draft-tools.md) for revision and operation-ID rules.
+Use meaningful small batches, not one tool call per string. Declare referenced identities before using them. Omitted fields remain unchanged; supplied arrays replace only that field. `null` clears only supported optional overrides. No separate edge graph or repeated review-input/criterion/stage arrays are needed.
 
-Compiler diagnostics are structural/formal feedback. They never authorize changing the user's request, weakening ProcessSpec obligations, dropping required review, or fabricating process coverage.
+Every edit and submit uses the actual `expected_revision` and a stable `operation_id`. Retry lost receipts with the same ID and payload; inspect `view: operation` when uncertain. Follow [Draft Tool Protocol](references/draft-tools.md) for exact shapes, paging, defaults and compatibility boundaries.
+
+Read only relevant node sections or diagnostics after a correction. Do not write a Workflow JSON file or call the retired model-facing `workflow_draft_apply`. Submission closes model editing; only trusted control requests another revision in this same Session. Compiler feedback never authorizes weakening user requirements, ProcessSpec obligations, independent review or permissions.
 
 ## 10. Report Genuine Design Blocks
 

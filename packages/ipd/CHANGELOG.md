@@ -4,11 +4,14 @@
 
 ### Breaking Changes
 
+- New Workflow Designer sessions use partial AuthoringDraft V2 and domain tools instead of the model-facing `workflow_draft_apply`. Existing V1 drafts require an explicit stopped-writer import with a retained backup; WorkflowDefinition V3 templates and frozen Baselines remain unchanged.
 - New IPD Runs use Runtime schema v3; prior Run schemas are rejected without migration. Review evidence must resolve to sealed objects, and Finding repairs require explicit claims and verification.
 - Removed implicit host I/O fallback. Legacy adapters now require the explicit `/legacy` entry and optional sandbox-runtime peer; execution images must be rebuilt for the versioned bridge protocol.
 
 ### Added
 
+- Added fourteen stepwise workflow authoring tools, incomplete node and topology drafts, scoped/paged reads, deterministic criterion/review/stage projection, and compiler diagnostics mapped to authoring objects.
+- Added atomic draft edits, durable idempotency and candidate receipts, explicit legacy import, writer serialization, and safe dashboard presentation for incomplete designs.
 - Added the general-purpose default Docker Profile with Node 24, Python 3.12, retrieval/archive and structured-data tools at 2 CPUs / 2 GiB.
 - Added bounded IPD request projections with retained Session evidence references, paged text/image retrieval, and native same-Session repair continuations.
 - Added StageScope candidate-use and exit validation, fixed composite ReviewBundles, criterion Assessments, persistent Findings, scoped release certificates, and source-aware requirement/decision contracts.
@@ -47,6 +50,7 @@
 
 ### Changed
 
+- Workflow Designers now edit meaningful domain sections and inspect named objects instead of resending complete nodes. Compiler-requested corrections reopen the same managed draft in the original native Session; optional business Skills and configured default environments are preserved.
 - Made business Run Skills optional across tool input, interactive launch, workflow design, durable request identity and recovery; system design methods and explicit node Skill validation remain in place.
 - Review independence now follows actual scoped production contributions and Session identity; independent instances may reuse a capable AgentCard. Advisory failures remain visible without blocking release.
 - Changed IPD service shutdown from Run cancellation to bounded work preservation, and isolated node-local failures so independent branches can finish before the Run settles.

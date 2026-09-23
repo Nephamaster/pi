@@ -38,9 +38,9 @@ Acceptance criteria must be concrete enough to support real evidence-based judgm
 
 Let genuinely independent work proceed in parallel. Make downstream work wait when it requires approved upstream outputs. Do not introduce parallel branches merely because multiple employees exist.
 
-For a stage whose internal work needs candidates before its joint review, declare `stages` in the draft header: member nodes, exact `internal_uses` (consumer node and input ID), and output `exits` with required Gate IDs. Only those internal uses may consume `submitted` outputs; cross-stage consumers must bind every exit Gate. Reviewers read their targets without depending on their own future approval. Internal candidate consumers cannot be granted external actions.
+Use `workflow_draft_stages` for members and controlled exits; select `stage_candidate` with its stage ID on permitted inputs. Code derives internal uses. Cross-stage consumers still bind every required exit Gate. Review target inputs are generated from assignments, without a dependency on their own future approval. Internal candidate consumers cannot be granted external actions.
 
-When one semantic criterion evaluates several outputs together, declare its complete `criterion_subjects` on the review node. Use `required_relations` to require an output to derive from the exact upstream version included in the same review. Set input `purpose` to `content_basis`, `test_subject`, or `historical_reference` according to the actual role; only correctness dependencies propagate content invalidation.
+Use review assignments with complete subjects and single/composite mode. Code derives targets and `criterion_subjects`. Use `required_relations` for exact derivations, and truthful input `purpose`: `content_basis`, `test_subject`, or `historical_reference`. Only correctness dependencies propagate content invalidation.
 
 For an observed downstream defect whose repair may belong to a direct upstream owner, declare a bounded `remediation_mappings` entry (criterion, observed output, owner output). The owner must be bound as a required review input and included in the allowed rework owners; actual version lineage and supported root-cause evidence are checked before routing.
 
@@ -59,7 +59,7 @@ For reusable templates, declare checkable `prerequisites` when the workflow reli
 If the task requires research but no materials or executable retrieval are available, adapt the workflow or report
 the resource gap. Do not change a research deliverable into a list of missing evidence.
 
-A Skill may declare `required-tools`; every required tool must be explicitly bound and remain within the selected AgentCard's tool ceiling. Do not grant unnecessary resources or bypass AgentCard authorization.
+A Skill may declare `required-tools`; every required tool must be explicitly bound and remain within the selected AgentCard's tool ceiling. Do not grant unnecessary resources or bypass AgentCard authorization. Omit environment_ref to use the configured default resolver unless the task needs a declared alternative. A missing business Skill does not require a placeholder.
 
 ## 7. Maintain Process Governance Traceability
 
@@ -73,15 +73,17 @@ Formal `requirement_coverage` exists only for ProcessSpec governance obligations
 
 The Compiler validates these formal process relationships and workflow invariants. It does **not** prove that the final delivery semantically satisfies every aspect of the user's natural-language request.
 
-Use header `requirements` and `decisions` when a criterion needs explicit provenance. Requirements distinguish `user`, `process`, `design`, and `recommendation` authority, with `required` or `advisory` strength and an exact source reference/quote. User quotes must occur verbatim in the task; process quotes must resolve to the selected specification. Connect contracts and criteria through `requirement_refs` and `decision_refs`. A recommendation cannot become required, and advisory criteria must set `blocking: false`. Design decisions remain identified as design choices; they must trace to independent requirements.
+Use `workflow_draft_governance` for source-linked requirements and decisions. Requirements distinguish `user`, `process`, `design`, and `recommendation` authority, with `required` or `advisory` strength and an exact source reference/quote. User quotes must occur verbatim in the task; process quotes must resolve to the selected specification. Connect contracts and criteria through `requirement_refs` and `decision_refs`. A recommendation cannot become required, and advisory criteria must set `blocking: false`. Design decisions remain identified as design choices; they must trace to independent requirements.
 
-## 8. Author the Workflow Incrementally
+## 8. Author Through Domain Tools
 
-Use only the managed draft tools: `workflow_draft_open`, `workflow_draft_read`, `workflow_draft_apply`, `workflow_draft_validate`, and `workflow_draft_submit`.
+Maintain one managed AuthoringDraft V2. Declare topology and output ports, then configure bounded contracts, employees/resources, outputs, production criterion bindings, inputs, review assignments, stages, coverage and completion. The generator materializes existing Workflow V3 and repeated references. Do not write a Workflow file, resubmit complete nodes, maintain separate edges, or call the retired model-facing `workflow_draft_apply`.
 
-Maintain one managed draft for the Run. Do not bypass the draft manager by writing a complete Workflow file directly, and do not regenerate the entire configuration on every correction.
+An incomplete draft is normal and cannot execute. Use meaningful small batches: omitted fields preserve existing choices; arrays replace that field only. Read named objects and missing fields through `workflow_draft_read`, not the whole configuration. Do not invent content to fill a required field.
 
-When Compiler diagnostics are returned, revise the existing draft in the same Session and fix the affected design locally.
+Every edit and submit uses the actual expected_revision and stable operation_id. Same ID/content safely retries a lost receipt; changed content requires a new ID. Read an operation's receipt after uncertainty. The live Schema and Skill reference define exact payloads.
+
+Validate in compile mode after completeness, then submit that exact revision. Capturing a candidate closes editing but does not start execution or approve results. Trusted Compiler feedback reopens this draft in the same Session. Legacy migration requires the old writer to stop and an explicit trusted action, not direct model file edits.
 
 ## 9. Report a Genuine Design Block Explicitly
 

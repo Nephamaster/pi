@@ -15,7 +15,7 @@ import { IdentifierSchema, type JsonValue, NonEmptyStringSchema } from "../contr
 import { type ProcessSelection, ProcessSelectionDecisionSchema, type ProcessSpec } from "../contracts/process-spec.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
-import { hashJson } from "../ir/hash.ts";
+import { hashJson, toJsonValue } from "../ir/hash.ts";
 import type { ResourceAdmission } from "../runtime/resource-admission.ts";
 import { createAgentCardCatalogTools, createProcessSpecCatalogTools } from "./asset-catalog-tools.ts";
 import {
@@ -293,10 +293,15 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 	): Promise<WorkflowDefinition> {
 		const manager = this.managerForRun(runId, task, selection, spec);
 		const draft = await manager.open(runId);
+		await manager.beginRevision();
 		let active = this.active.get(runId);
 		if (!active) {
 			const options = this.optionsForRun(runId);
-			const tools = createWorkflowDraftTools(manager, runId);
+			const tools = createWorkflowDraftTools(manager, runId, {
+				catalog: this.assetSummary,
+				process: toJsonValue(spec),
+				materialIds: task.materials.map((material) => material.material_id),
+			});
 			const blockCapture = new SubmissionCapture<WorkflowDesignBlock>();
 			const blockTool = createSubmissionTool({
 				name: "report_workflow_design_blocked",
@@ -381,8 +386,12 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 	async cancelRun(runId: string): Promise<void> {
 		const active = this.active.get(runId);
 		if (!active) return;
-		await active.adapter.releaseRun(runId);
-		this.optionsForRun(runId).admission?.releaseParticipant(runId, "workflow-designer/workflow-designer");
-		this.active.delete(runId);
+		try {
+			await active.tools.close();
+		} finally {
+			await active.adapter.releaseRun(runId);
+			this.optionsForRun(runId).admission?.releaseParticipant(runId, "workflow-designer/workflow-designer");
+			this.active.delete(runId);
+		}
 	}
 }

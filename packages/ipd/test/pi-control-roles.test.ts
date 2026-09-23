@@ -5,17 +5,19 @@ import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earen
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import type { NodeSessionEventEnvelope } from "../src/adapter/node-session-adapter.ts";
+import { compileWorkflow } from "../src/compiler/compiler.ts";
 import { type PiControlRoleOptions, PiProcessSelector, PiWorkflowDesigner } from "../src/control/pi-control-roles.ts";
 import { WorkflowDraftManager } from "../src/control/workflow-draft.ts";
+import { toJsonValue } from "../src/ir/hash.ts";
 import { hashSkillPackage } from "../src/registry/skill-package.ts";
 import { createCompilerFixture } from "./fixtures.ts";
+import { authoringCommands } from "./workflow-authoring-fixtures.ts";
 
 describe("native control role bindings", () => {
 	const cleanups: Array<() => Promise<void>> = [];
 	afterEach(async () => {
 		while (cleanups.length) await cleanups.pop()?.();
 	});
-
 	async function fixture() {
 		const root = await mkdtemp(join(tmpdir(), "ipd-control-binding-"));
 		const faux = registerFauxProvider();
@@ -137,12 +139,14 @@ describe("native control role bindings", () => {
 		});
 		faux.setResponses([
 			fauxAssistantMessage("Method loaded."),
-			fauxAssistantMessage(fauxToolCall("workflow_draft_submit", { expected_revision: 1 }), {
-				stopReason: "toolUse",
-			}),
-			fauxAssistantMessage(fauxToolCall("workflow_draft_submit", { expected_revision: 1 }), {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				fauxToolCall("workflow_draft_submit", { expected_revision: 1, operation_id: "submit-design-1" }),
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(
+				fauxToolCall("workflow_draft_submit", { expected_revision: 1, operation_id: "submit-design-2" }),
+				{ stopReason: "toolUse" },
+			),
 		]);
 		try {
 			expect(await designer.design("run", base.taskInput, base.processSelection, base.processSpec)).toEqual(
@@ -164,6 +168,66 @@ describe("native control role bindings", () => {
 			if (!withSkill) expect(dispatches.join("\n")).toContain("No business Run Skill is selected");
 		} finally {
 			await designer.cancelRun("run");
+		}
+	});
+
+	it("authors through domain tools in a single native Session and compiles with the existing engine", async () => {
+		const { root, faux, base, options, skills, events } = await fixture();
+		const manager = new WorkflowDraftManager({
+			file: join(root, "domain-draft.json"),
+			trustedReferences: {
+				task_input_ref: base.workflow.task_input_ref,
+				process_selection_ref: base.workflow.process_selection_ref,
+			},
+			validator: (workflow) => {
+				const result = compileWorkflow({ ...base, workflow });
+				return result.ok ? [] : result.report.diagnostics;
+			},
+		});
+		const commands = authoringCommands(base.workflow);
+		faux.setResponses([
+			fauxAssistantMessage("Method loaded."),
+			...commands.map((command, index) => {
+				const data = toJsonValue(command.data);
+				if (data === null || typeof data !== "object" || Array.isArray(data)) {
+					throw new Error("Expected object-valued authoring command");
+				}
+				return fauxAssistantMessage(
+					fauxToolCall(`workflow_draft_${command.domain}`, {
+						expected_revision: index,
+						operation_id: `step-${index}`,
+						...data,
+					}),
+					{ stopReason: "toolUse" },
+				);
+			}),
+			fauxAssistantMessage(
+				fauxToolCall("workflow_draft_submit", {
+					expected_revision: commands.length,
+					operation_id: "submit-domain-workflow",
+				}),
+				{ stopReason: "toolUse" },
+			),
+		]);
+		const designer = new PiWorkflowDesigner({
+			optionsForRun: () => options,
+			managerForRun: () => manager,
+			designSkill: skills[0],
+			assetSummary: {},
+			agentCards: base.assets.agentCards,
+		});
+		try {
+			const workflow = await designer.design(base.runId, base.taskInput, base.processSelection, base.processSpec);
+			expect(compileWorkflow({ ...base, workflow }).ok).toBe(true);
+			expect(workflow.nodes[1].inputs[0]).toMatchObject({
+				purpose: "test_subject",
+				required: true,
+				availability: "submitted",
+			});
+			expect(new Set(events.map((event) => event.sessionId)).size).toBe(1);
+			expect(events.filter(({ event }) => event.type === "tool_execution_end" && event.isError)).toEqual([]);
+		} finally {
+			await designer.cancelRun(base.runId);
 		}
 	});
 });
