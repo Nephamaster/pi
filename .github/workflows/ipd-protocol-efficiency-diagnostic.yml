@@ -2,9 +2,9 @@ name: IPD protocol efficiency diagnostic
 on:
   push:
     branches: [fix/ipd-protocol-efficiency]
-    paths: ['.github/ipd-perf-payload.*', '.github/workflows/ipd-protocol-efficiency-diagnostic.yml']
+    paths: ['.github/workflows/ipd-protocol-efficiency-diagnostic.yml']
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: ipd-protocol-efficiency-diagnostic
   cancel-in-progress: false
@@ -15,71 +15,26 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: fix/ipd-protocol-efficiency
-          fetch-depth: 0
+          ref: 7c6b01e98bb9bc4f2a69a5fae41949898b7f104c
+          fetch-depth: 1
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
-      - name: Apply hash-verified scoped edits in disposable checkout
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import base64,hashlib,json,zlib,re
-          from pathlib import Path
-          encoded=''.join(Path(f'.github/ipd-perf-payload.{i}').read_text().strip() for i in (1,2,3))
-          encoded=encoded.replace('TjLzLp3TOi','TjLzLp3n07TOi')
-          raw=zlib.decompress(base64.b64decode(encoded,validate=True))
-          assert hashlib.sha256(raw).hexdigest()=='994383207588fd039f198540b544a8bf4bff950f2cca8142c50ea37f0d531ec1'
-          data=json.loads(raw)
-          excluded={'packages/ipd/CHANGELOG.md'}
-          changed=(set(data['files'])|{p['path'] for p in data['patches']})-excluded
-          for path,content in data['files'].items():
-              assert path.startswith('packages/ipd/')
-              if path in excluded: continue
-              p=Path(path);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content)
-          for i,item in enumerate(data['patches']):
-              if item['path'] in excluded: continue
-              p=Path(item['path']);text=p.read_text()
-              found=text.count(item['old'])
-              assert found==item['count'],f'Patch {i} {p}: expected {item["count"]} anchors, got {found}'
-              p.write_text(text.replace(item['old'],item['new'],item['count']))
-              print(f'Applied patch {i}: {p}')
-          p=Path('packages/ipd/test/submission-correction-session.test.ts')
-          text,count=re.subn(r'Record<string,\s*unknown>', 'Parameters<typeof fauxToolCall>[1]', p.read_text())
-          assert count==1, count
-          p.write_text(text)
-          p=Path('packages/ipd/test/workflow-authoring.test.ts')
-          text=p.read_text()
-          old='expect(mapped.authoringPath).toBe("output:produce/content-output");'
-          new='expect(mapped.authoringPath).toBe("output:produce/content-output.path_prefix");'
-          assert text.count(old)==1
-          p.write_text(text.replace(old,new))
-          changed.add(str(p))
-          Path('/tmp/ipd-protocol-changed.json').write_text(json.dumps(sorted(changed)))
-          print('Scoped source paths:',len(changed))
-          print('All IPD test names:', '\n'.join(str(p) for p in sorted(Path('packages/ipd/test').glob('*.test.ts'))))
-          PY
+      - name: Record fixed implementation
+        run: git rev-parse HEAD
       - name: Resolve diagnostic dependencies without committing lock changes
         run: |
           sha256sum package-lock.json
           npm install --package-lock-only --ignore-scripts
           sha256sum package-lock.json
           npm ci --ignore-scripts
-      - name: Hydrate existing model catalog data
+      - name: Hydrate existing ignored model data
         run: npm run hydrate:model-data
-      - name: Format changed TypeScript only
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json,subprocess
-          paths=[p for p in json.load(open('/tmp/ipd-protocol-changed.json')) if p.endswith('.ts')]
-          subprocess.run(['node_modules/.bin/biome','check','--write',*paths],check=True)
-          PY
       - name: Full repository check
         id: check
-        continue-on-error: true
         run: npm run check
-      - name: Scoped IPD regression tests
+      - name: Authoring, evidence, Session, and local-rework regressions
         id: tests
         working-directory: packages/ipd
         run: >-
@@ -96,21 +51,16 @@ jobs:
           test/workflow-authoring-schema.test.ts
           test/workflow-authoring-dashboard.test.ts
           test/workflow-draft-storage.test.ts
-      - name: Commit only verified scoped source paths
-        if: steps.check.outcome == 'success' && steps.tests.outcome == 'success'
-        shell: bash
-        run: |
-          git diff --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          python3 - <<'PY'
-          import json,subprocess
-          paths=json.load(open('/tmp/ipd-protocol-changed.json'))
-          subprocess.run(['git','add','--',*paths],check=True)
-          PY
-          git diff --cached --stat
-          git commit -m 'fix(ipd): resolve source bindings and amend submissions without regenerating reports'
-          git push origin HEAD:fix/ipd-protocol-efficiency
-      - name: Diagnostics retained in run logs
+          test/compiler.test.ts
+          test/review-validation.test.ts
+          test/review-evidence-store.test.ts
+          test/submission-store.test.ts
+          test/submission-diagnostics.test.ts
+          test/governance-kernel.test.ts
+          test/round-invalidation.test.ts
+          test/runtime-rework.test.ts
+      - name: Verify no checked implementation file was rewritten
         if: always()
-        run: git status --short
+        run: |
+          git status --short
+          git diff --exit-code -- packages/ipd/src packages/ipd/prompts packages/ipd/assets/skills/workflow-design packages/ipd/test/protocol-efficiency.test.ts packages/ipd/test/authoring-source-efficiency.test.ts packages/ipd/test/submission-correction-session.test.ts packages/ipd/test/workflow-authoring.test.ts
