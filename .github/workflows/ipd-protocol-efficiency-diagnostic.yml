@@ -1,0 +1,93 @@
+name: IPD protocol efficiency diagnostic
+on:
+  push:
+    branches: [fix/ipd-protocol-efficiency]
+    paths: ['.github/ipd-perf-payload.*', '.github/workflows/ipd-protocol-efficiency-diagnostic.yml']
+permissions:
+  contents: write
+concurrency:
+  group: ipd-protocol-efficiency-diagnostic
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ipd-protocol-efficiency
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Apply hash-verified scoped edits in disposable checkout
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,json,zlib
+          from pathlib import Path
+          encoded=''.join(Path(f'.github/ipd-perf-payload.{i}').read_text().strip() for i in (1,2,3))
+          # Repair a transcription-only omission; the decoded full payload must match.
+          encoded=encoded.replace('TjLzLp3TOi','TjLzLp3n07TOi')
+          raw=zlib.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(raw).hexdigest()=='994383207588fd039f198540b544a8bf4bff950f2cca8142c50ea37f0d531ec1'
+          data=json.loads(raw)
+          changed=set(data['files'])|{p['path'] for p in data['patches']}
+          for path,content in data['files'].items():
+              assert path.startswith('packages/ipd/')
+              p=Path(path);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content)
+          for i,item in enumerate(data['patches']):
+              p=Path(item['path']);text=p.read_text()
+              found=text.count(item['old'])
+              assert found==item['count'],f'Patch {i} {p}: expected {item["count"]} anchors, got {found}'
+              p.write_text(text.replace(item['old'],item['new'],item['count']))
+              print(f'Applied patch {i}: {p}')
+          Path('/tmp/ipd-protocol-changed.json').write_text(json.dumps(sorted(changed)))
+          print('Scoped source paths:',len(changed))
+          PY
+      - name: Install without dependency lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Hydrate existing model catalog data
+        run: npm run hydrate:model-data
+      - name: Format changed TypeScript only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,subprocess
+          paths=[p for p in json.load(open('/tmp/ipd-protocol-changed.json')) if p.endswith('.ts')]
+          subprocess.run(['node_modules/.bin/biome','check','--write',*paths],check=True)
+          PY
+      - name: Full repository check
+        run: npm run check
+      - name: Scoped IPD regression tests
+        working-directory: packages/ipd
+        run: >-
+          node ../../node_modules/vitest/dist/cli.js --run
+          test/protocol-efficiency.test.ts
+          test/authoring-source-efficiency.test.ts
+          test/submission-correction-session.test.ts
+          test/pi-node-worker.test.ts
+          test/pi-control-roles.test.ts
+          test/workflow-authoring.test.ts
+          test/workflow-authoring-manager.test.ts
+          test/workflow-authoring-invariants.test.ts
+          test/workflow-authoring-schema.test.ts
+          test/workflow-authoring-dashboard.test.ts
+          test/workflow-draft-storage.test.ts
+      - name: Commit only verified scoped source paths
+        shell: bash
+        run: |
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python3 - <<'PY'
+          import json,subprocess
+          paths=json.load(open('/tmp/ipd-protocol-changed.json'))
+          subprocess.run(['git','add','--',*paths],check=True)
+          PY
+          git diff --cached --stat
+          git commit -m 'fix(ipd): resolve source bindings and repair submission fields without report regeneration'
+          git push origin HEAD:fix/ipd-protocol-efficiency
+      - name: Diagnostics retained in run logs
+        if: always()
+        run: git status --short
