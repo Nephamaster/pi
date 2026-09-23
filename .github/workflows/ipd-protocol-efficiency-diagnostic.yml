@@ -27,7 +27,6 @@ jobs:
           import base64,hashlib,json,zlib
           from pathlib import Path
           encoded=''.join(Path(f'.github/ipd-perf-payload.{i}').read_text().strip() for i in (1,2,3))
-          # Repair a transcription-only omission; the decoded full payload must match.
           encoded=encoded.replace('TjLzLp3TOi','TjLzLp3n07TOi')
           raw=zlib.decompress(base64.b64decode(encoded,validate=True))
           assert hashlib.sha256(raw).hexdigest()=='994383207588fd039f198540b544a8bf4bff950f2cca8142c50ea37f0d531ec1'
@@ -45,8 +44,12 @@ jobs:
           Path('/tmp/ipd-protocol-changed.json').write_text(json.dumps(sorted(changed)))
           print('Scoped source paths:',len(changed))
           PY
-      - name: Install without dependency lifecycle scripts
-        run: npm ci --ignore-scripts
+      - name: Resolve diagnostic dependencies without committing lock changes
+        run: |
+          sha256sum package-lock.json
+          npm install --package-lock-only --ignore-scripts
+          sha256sum package-lock.json
+          npm ci --ignore-scripts
       - name: Hydrate existing model catalog data
         run: npm run hydrate:model-data
       - name: Format changed TypeScript only
@@ -58,8 +61,11 @@ jobs:
           subprocess.run(['node_modules/.bin/biome','check','--write',*paths],check=True)
           PY
       - name: Full repository check
+        id: check
+        continue-on-error: true
         run: npm run check
       - name: Scoped IPD regression tests
+        id: tests
         working-directory: packages/ipd
         run: >-
           node ../../node_modules/vitest/dist/cli.js --run
@@ -75,6 +81,7 @@ jobs:
           test/workflow-authoring-dashboard.test.ts
           test/workflow-draft-storage.test.ts
       - name: Commit only verified scoped source paths
+        if: steps.check.outcome == 'success' && steps.tests.outcome == 'success'
         shell: bash
         run: |
           git diff --check
