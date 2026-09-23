@@ -24,7 +24,7 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import base64,hashlib,json,zlib
+          import base64,hashlib,json,zlib,re
           from pathlib import Path
           encoded=''.join(Path(f'.github/ipd-perf-payload.{i}').read_text().strip() for i in (1,2,3))
           encoded=encoded.replace('TjLzLp3TOi','TjLzLp3n07TOi')
@@ -45,10 +45,9 @@ jobs:
               p.write_text(text.replace(item['old'],item['new'],item['count']))
               print(f'Applied patch {i}: {p}')
           p=Path('packages/ipd/test/submission-correction-session.test.ts')
-          text=p.read_text()
-          print('=== Full correction-session test before type fix ===\n'+text)
-          assert text.count('Record<string, unknown>')==1
-          p.write_text(text.replace('Record<string, unknown>', 'Parameters<typeof fauxToolCall>[1]'))
+          text,count=re.subn(r'Record<string,\s*unknown>', 'Parameters<typeof fauxToolCall>[1]', p.read_text())
+          assert count==1, count
+          p.write_text(text)
           p=Path('packages/ipd/test/workflow-authoring.test.ts')
           text=p.read_text()
           old='expect(mapped.authoringPath).toBe("output:produce/content-output");'
