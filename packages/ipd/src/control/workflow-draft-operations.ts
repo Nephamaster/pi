@@ -1,5 +1,9 @@
 // Atomic domain reductions: callers validate the command before applying this pure function.
+import { type ProcessSpec, ProcessSpecSchema } from "../contracts/process-spec.ts";
+import { RequirementDefinitionSchema } from "../contracts/workflow.ts";
 import { hashJson } from "../ir/hash.ts";
+import { processSources } from "../ir/process-sources.ts";
+import { validateSchema } from "../ir/validation.ts";
 import { checkDraftLinks } from "./workflow-draft-links.ts";
 import {
 	type AuthoringDraft,
@@ -282,11 +286,76 @@ export function applyDraftCommand(before: AuthoringDraft, command: DraftCommand,
 				draft.prerequisites = data.prerequisites;
 				changed.push("prerequisites");
 			}
-			unique(data.requirements?.upsert ?? [], (item) => item.requirement_id, "governance.requirements");
+			unique(
+				[
+					...(data.requirements?.upsert ?? []),
+					...(data.requirements?.patch ?? []),
+					...(data.requirements?.from_process ?? []),
+				],
+				(item) => item.requirement_id,
+				"governance.requirements",
+			);
 			unique(data.decisions?.upsert ?? [], (item) => item.decision_id, "governance.decisions");
 			for (const item of data.requirements?.upsert ?? []) {
 				upsert(draft.requirements, item, (value) => value.requirement_id);
 				changed.push(`requirement:${item.requirement_id}`);
+			}
+			for (const item of data.requirements?.patch ?? []) {
+				const existing = draft.requirements.find((entry) => entry.requirement_id === item.requirement_id);
+				if (!existing)
+					throw new DraftError(
+						"requirement_unknown",
+						`requirement:${item.requirement_id}`,
+						"Patch requires an existing requirement; use upsert or from_process to create one.",
+					);
+				const candidate = { ...existing, ...item };
+				const checked = validateSchema<AuthoringDraft["requirements"][number]>(
+					RequirementDefinitionSchema,
+					candidate,
+				);
+				if (!checked.ok)
+					throw new DraftError(
+						"invalid_requirement_patch",
+						`requirement:${item.requirement_id}`,
+						"The patched requirement is invalid.",
+						checked.diagnostics,
+					);
+				upsert(draft.requirements, checked.value, (entry) => entry.requirement_id);
+				changed.push(`requirement:${item.requirement_id}`);
+			}
+			if (data.requirements?.from_process?.length) {
+				const parsed = validateSchema<ProcessSpec>(ProcessSpecSchema, external.process);
+				if (!parsed.ok)
+					throw new DraftError(
+						"process_source_unavailable",
+						"governance.requirements",
+						"A validated selected ProcessSpec is required for from_process.",
+					);
+				const sources = processSources(parsed.value);
+				for (const item of data.requirements.from_process) {
+					const matches = sources.filter((source) => source.source_ref === item.source_id);
+					if (matches.length !== 1)
+						throw new DraftError(
+							"process_source_unknown_or_ambiguous",
+							`requirement:${item.requirement_id}.source_ref`,
+							`Expected one exact ProcessSpec entry ID, received ${JSON.stringify(item.source_id)}. Read workflow_draft_read with view=process, kind=sources; do not use the spec ID, a version-qualified reference, or the selection ID.`,
+						);
+					const source = matches[0];
+					const existing = draft.requirements.find((entry) => entry.requirement_id === item.requirement_id);
+					upsert(
+						draft.requirements,
+						{
+							requirement_id: item.requirement_id,
+							description: item.description ?? existing?.description ?? source.source_quote,
+							authority: "process",
+							strength: item.strength,
+							source_ref: source.source_ref,
+							source_quote: source.source_quote,
+						},
+						(entry) => entry.requirement_id,
+					);
+					changed.push(`requirement:${item.requirement_id}`);
+				}
 			}
 			for (const item of data.decisions?.upsert ?? []) {
 				upsert(draft.decisions, item, (value) => value.decision_id);

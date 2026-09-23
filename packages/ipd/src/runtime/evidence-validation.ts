@@ -28,7 +28,14 @@ export async function verifyEvidenceFile(
 	if (!path.includes("/") && basenameMatches.length === 1) path = basenameMatches[0].path;
 	const file = output.manifest.files.find((item) => item.path === path);
 	if (!file && path !== "submission.json")
-		throw new SubmissionValidationError(`Evidence must point to a sealed file of the exact output: ${reference}`);
+		throw new SubmissionValidationError(
+			`Evidence must point to a sealed file of the exact output: ${reference}. Output: ${submission.nodeId}/${outputId}; allowed examples: ${output.manifest.files
+				.slice(0, 8)
+				.map((item) => item.path)
+				.join(
+					", ",
+				)}${output.manifest.files.length > 8 ? " (more in scoped manifest)" : ""}. Use ONE file reference; put page/section details in locator, not appended prose or a list of paths.`,
+		);
 	const root = await realpath(output.sealedRoot);
 	const target = await realpath(resolve(root, path));
 	const child = relative(root, target);

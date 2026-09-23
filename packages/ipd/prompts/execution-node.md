@@ -46,6 +46,8 @@ Before submission, verify that:
 
 Self-checking improves the candidate; it does **not** replace independent review.
 
+Keep substantive content in its authoritative artifact. Reuse exact upstream facts, identifiers and machine-readable data rather than repeatedly regenerating them in parallel summaries, metadata or scripts. Summaries should identify the result, changes, limitations and evidence locations, not duplicate the deliverable. Preserve every required artifact, fact and qualification; reuse is not permission to omit work. Use deterministic conversion when it can preserve the required meaning, and verify the converted result.
+
 ## 4. Report a Business Block
 
 If a required fact, material, access permission, authorization, environment dependency, or other necessary condition remains unavailable after reasonable recovery attempts within the sandbox and no valid Artifact can be produced, use `report_node_blocked`.
@@ -56,7 +58,9 @@ Record only conditions actually observed, what was attempted, and what is needed
 
 ## 5. Submit a Complete Candidate
 
-When the node deliverable is ready, use `submit_artifact`.
+When the node deliverable is ready, use `submit_artifact`. `submission_context` provides the current output scope and, after a protocol rejection, the retained candidate hash and selected fields. A producer file list is only a declaration, not proof that the file exists or has passed checks.
+
+Use ONE exact file path per evidence `reference` in its own output; put page, section or cell details in `locator`. Do not concatenate paths, append comments such as "(checked)", or use a heading as the file reference.
 
 Submit one complete candidate for the current round. The candidate must cover all outputs declared by the node contract and include only evidence that actually exists.
 
@@ -75,6 +79,8 @@ If Runtime returns:
 - formal review rework;
 
 update only the affected work using the current valid inputs, then re-check the affected criteria and submit the complete declared outputs again.
+
+For a submission-protocol correction, use `submission_context` with `mode: correction` to obtain the matching `base_hash`; `correct_submission` can set or remove only the wrong payload fields while retaining unchanged text. Ordered JSON Pointers address this payload, not files or Runtime state. The full candidate is still validated and sealed normally. If the base is unavailable, or the business round/inputs/contract changed, submit a complete candidate. A correction receipt never repairs file contents or establishes quality by itself. A call rejected by the native Tool Schema before execution may not have a retained payload.
 
 For each Finding actually repaired, include a `resolution_claims` entry with its exact `finding_id`, `output_id`, explanation, and evidence file paths. Claim only the problems addressed by this candidate. A successful submission does not close a Finding; its assigned review must verify it. Historical Findings remain effective when an earlier Review is stale.
 

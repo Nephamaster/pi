@@ -61,6 +61,16 @@ Read pages return current_revision, items, total_items, truncated and next_curso
 
 Validation returns a bounded initial diagnostic list; use view=validation for all pages. Compiler paths map back to authoring objects and suggested editors. Draft-only validity means current authoring choices are complete, not that runtime governance has passed. Only compile mode runs formal Workflow validation. Neither permits weakening standards to remove diagnostics.
 
+### Source Binding and Local Requirement Repair
+
+`workflow_draft_read` with `view: "process", kind: "sources"` lists exact `source_ref`, `source_quote` and source kind, including review criteria. Filter with `ids` or `query`. These refer to entries in the selected ProcessSpec, not the specification ID, version or ProcessSelection ID.
+
+For an applicable process requirement, use `requirements.from_process: [{requirement_id, source_id, strength, description?}]` in `workflow_draft_governance`. The program copies the exact source reference/quote and sets process authority. You still choose its meaning, strength, criteria and substantive coverage. It adds no criteria or approvals. Unknown or ambiguous entries fail without saving the batch.
+
+For an existing requirement, `requirements.patch: [{requirement_id, source_ref: "exact-entry-id"}]` changes only supplied fields and preserves unchanged descriptions and quotes. Other requirement fields may likewise be explicitly patched; the final Compiler still checks all provenance and authority. To change the selected source and copy its quote together, use `from_process` with explicit strength. Do not use the same requirement ID in multiple edit forms in one call.
+
+Read `view: "governance", ids: ["requirement-id"]` for only the relevant object. A failed batch does not advance revision; a lost successful receipt should be retried with the same operation ID and payload.
+
 ## 5. Two Independent Calls
 
 These examples declare a skeleton and update only its work contract. Revisions and IDs must come from actual responses; this is not a complete Workflow.

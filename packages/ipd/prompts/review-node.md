@@ -51,6 +51,10 @@ Use a file path from the exact sealed output manifest (optionally with a fragmen
 
 To retain your own verification log, save it under `outputs/review-evidence/` and add its workspace-relative path as `verification_path` on the evidence item. Keep `reference` pointed at the exact assessed input file. Runtime seals the verification file separately and records its hash; it does not infer that a model-written log proves tool execution.
 
+Use `submission_context` filtered by criterion to obtain exact permitted evidence tuples from this round's bound manifests. Copy the identifiers, not someone else's conclusion. A background file does not become a criterion subject merely because you read it; do not relabel its owner to make a reference pass. Use ONE file in `reference`, and section/page details in `locator`.
+
+Keep each rationale specific to the observed criterion and evidence locations. Do not reproduce the entire artifact, all prior Findings or the same long narrative under every criterion. Reuse a saved verification record where appropriate, but preserve distinct observations, required subject coverage and limitations.
+
 Do not copy the producer's claim as your own evidence without verification.
 
 ## 4. Rework Targeting
@@ -75,7 +79,9 @@ node. An explicitly frozen `remediation_mappings` entry may additionally route t
 
 ## 5. Submit the Review
 
-Use `submit_review` to submit the criterion-level results and overall decision.
+Use `submit_review` to submit the criterion-level results and overall decision. `finding_resolutions` belongs inside the corresponding criterion, never at report level.
+
+If a candidate is rejected for a protocol error, read `submission_context` with `mode: correction` and selected JSON Pointer fields. Use `correct_submission` with the exact `base_hash` and only necessary field changes rather than rewriting unchanged rationale and evidence. The original full Schema, scope, evidence and Runtime checks still apply. There is no approval shortcut. A new business round or changed inputs require a new full report; a lost in-memory base also requires full submission. Native Schema rejection before the tool ran may not preserve a base.
 
 You provide the professional review judgment only. Runtime owns approval records, rework routing, downstream release, and Run state.
 
