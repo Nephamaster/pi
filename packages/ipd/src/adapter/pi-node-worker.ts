@@ -13,6 +13,7 @@ import type { EnvironmentManager } from "../environment/manager.ts";
 import { hashEnvironmentSource, hashWorkspaceState } from "../environment/paths.ts";
 import type { EnvironmentToolContext } from "../environment/tool-backend.ts";
 import { createEnvironmentToolDefinitions, verifyEnvironmentProbes } from "../environment/tool-backend.ts";
+import { hashJson } from "../ir/hash.ts";
 import { buildNodeRoundPrompt, buildNodeSystemPrompt } from "../runtime/node-prompts.ts";
 import {
 	type NodeRoundWork,
@@ -21,6 +22,8 @@ import {
 	NodeWorkerError,
 } from "../runtime/node-worker.ts";
 import type { ResourceAdmission } from "../runtime/resource-admission.ts";
+import { validateReviewSubmission } from "../runtime/review-validation.ts";
+import { artifactReferenceDiagnostics } from "./artifact-reference-preflight.ts";
 import { renderCurrentRoundContext, renderNodeContextFiles } from "./node-context.ts";
 import { NodeSessionAdapter, type NodeSessionEventEnvelope } from "./node-session-adapter.ts";
 import {
@@ -32,7 +35,7 @@ import {
 } from "./pi-node-session-factory.ts";
 import type { ProviderRequestObservation } from "./provider-request-admission.ts";
 import type { IpdSessionSettings } from "./session-policy.ts";
-import type { ReportNodeBlocked, SubmitArtifact, SubmitReview } from "./structured-submissions.ts";
+import type { ReportNodeBlocked, SubmissionTool, SubmitArtifact, SubmitReview } from "./structured-submissions.ts";
 import {
 	createSubmissionTool,
 	normalizeArtifactPaths,
@@ -41,6 +44,8 @@ import {
 	SubmitArtifactSchema,
 	SubmitReviewSchema,
 } from "./structured-submissions.ts";
+import { createSubmissionContextTool } from "./submission-context.ts";
+import { createSubmissionCorrectionTool } from "./submission-correction-tool.ts";
 
 interface WorkerBinding {
 	kind: "execution" | "review";
@@ -48,6 +53,7 @@ interface WorkerBinding {
 	blockedCapture?: SubmissionCapture<ReportNodeBlocked>;
 	tools: ToolDefinition[];
 	currentContext?: string;
+	currentWork?: NodeRoundWork;
 	additionalReadRoots: string[];
 	deniedReadRoots: string[];
 	environment?: EnvironmentToolContext;
@@ -371,6 +377,10 @@ export class PiNodeWorker implements NodeWorker {
 			work.node.definition.kind === "execution"
 				? work.node.definition.outputs.map((output) => output.output_id)
 				: [];
+		const getWork = () =>
+			this.sessions.getState(work.runId, work.node.definition.node_id, work.node.agents[0].participantId)
+				?.currentWork;
+		const active = () => Boolean(getWork() && !getWork()?.signal?.aborted);
 		const submissionTool =
 			kind === "execution"
 				? createSubmissionTool({
@@ -387,11 +397,23 @@ export class PiNodeWorker implements NodeWorker {
 							const invalid = submitted.filter((id) => !declaredOutputIds.includes(id));
 							const missing = declaredOutputIds.filter((id) => !submitted.includes(id));
 							const duplicate = submitted.filter((id, index) => submitted.indexOf(id) !== index);
-							return invalid.length || missing.length || duplicate.length
-								? [
-										`Output IDs must match the node contract. Expected: ${declaredOutputIds.join(", ")}. Unknown: ${invalid.join(", ") || "none"}. Missing: ${missing.join(", ") || "none"}. Duplicate: ${duplicate.join(", ") || "none"}. Correct the IDs and submit again.`,
-									]
-								: [];
+							const ownership =
+								invalid.length || missing.length || duplicate.length
+									? [
+											`Output IDs must match the node contract. Expected: ${declaredOutputIds.join(", ")}. Unknown: ${invalid.join(", ") || "none"}. Missing: ${missing.join(", ") || "none"}. Duplicate: ${duplicate.join(", ") || "none"}. Correct the IDs and submit again.`,
+										]
+									: [];
+							const current = getWork();
+							if (!current || current.signal?.aborted || current.node.definition.kind !== "execution")
+								return ["No active execution scope."];
+							return [
+								...ownership,
+								...artifactReferenceDiagnostics(
+									value,
+									current.node.definition,
+									current.environmentBinding?.paths.workspace ?? this.options.workspace,
+								),
+							];
 						},
 					})
 				: createSubmissionTool({
@@ -401,9 +423,35 @@ export class PiNodeWorker implements NodeWorker {
 							"Submit the criterion-level review result for the exact sealed targets assigned to this review round. Every assigned criterion must have exactly one result. The tool captures a review candidate; Runtime validates it and controls approval, rework, and downstream release.",
 						parameters: SubmitReviewSchema,
 						capture: capture as SubmissionCapture<SubmitReview>,
+						validate: (value) => {
+							const current = getWork();
+							if (!current || current.signal?.aborted) return ["No active review scope."];
+							try {
+								validateReviewSubmission(current.node, value, current.inputSubmissions);
+								return [];
+							} catch (error) {
+								return [error instanceof Error ? error.message : String(error)];
+							}
+						},
 					});
 		const blockedCapture = kind === "execution" ? new SubmissionCapture<ReportNodeBlocked>() : undefined;
-		const tools: ToolDefinition[] = [submissionTool];
+		const correctionTool =
+			kind === "execution"
+				? createSubmissionCorrectionTool(
+						submissionTool as SubmissionTool<typeof SubmitArtifactSchema>,
+						capture as SubmissionCapture<SubmitArtifact>,
+						active,
+					)
+				: createSubmissionCorrectionTool(
+						submissionTool as SubmissionTool<typeof SubmitReviewSchema>,
+						capture as SubmissionCapture<SubmitReview>,
+						active,
+					);
+		const tools: ToolDefinition[] = [
+			submissionTool,
+			createSubmissionContextTool(getWork, () => capture.correction, this.options.workspace),
+			correctionTool,
+		];
 		if (blockedCapture)
 			tools.push(
 				createSubmissionTool({
@@ -673,7 +721,19 @@ export class PiNodeWorker implements NodeWorker {
 				{
 					generation: work.generation,
 					prepare: async () => {
-						binding.capture.beginRound();
+						const correctionScope = hashJson({
+							run: work.runId,
+							node: work.node.definition.node_id,
+							participant: participant.participantId,
+							round: work.roundId,
+							definition: work.node.definition,
+							inputs: work.inputBindings,
+						});
+						binding.currentWork = work;
+						binding.capture.beginRound(
+							correctionScope,
+							work.feedback.some((item) => item.type === "submission_correction"),
+						);
 						binding.blockedCapture?.beginRound();
 						binding.currentContext = renderCurrentRoundContext(work);
 						binding.additionalReadRoots = [
@@ -696,6 +756,8 @@ export class PiNodeWorker implements NodeWorker {
 		} catch (error) {
 			if (error instanceof NodeWorkerError || error instanceof NodeSubmissionProtocolError) throw error;
 			throw classifyWorkerError(error);
+		} finally {
+			if (binding.currentWork === work) binding.currentWork = undefined;
 		}
 	}
 }

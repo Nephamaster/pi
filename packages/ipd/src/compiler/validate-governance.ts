@@ -3,6 +3,7 @@ import type { CompilerDiagnostic } from "../contracts/baseline.ts";
 import type { ProcessSpec } from "../contracts/process-spec.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
 import type { WorkflowDefinition } from "../contracts/workflow.ts";
+import { processSources } from "../ir/process-sources.ts";
 import { addDiagnostic, duplicateIds } from "./diagnostics.ts";
 import { candidateUseAllowed, criterionSubjects, outputRefKey } from "./governance-policy.ts";
 
@@ -172,35 +173,47 @@ export function validateGovernance(
 		error("requirement_duplicate", "/requirements", id);
 	for (const id of duplicateIds((workflow.decisions ?? []).map((item) => item.decision_id)))
 		error("decision_duplicate", "/decisions", id);
-	const processSources = new Map([
-		...spec.required_activities.map((item) => [item.activity_id, item.description] as const),
-		...spec.required_deliverables.map((item) => [item.deliverable_id, item.description] as const),
-		...spec.required_reviews.flatMap((item) => [
-			[item.review_id, item.description] as const,
-			...item.criteria.map((criterion) => [criterion.process_criterion_id, criterion.description] as const),
-		]),
-		...spec.workflow_rules.map((item) => [item.rule_id, item.description] as const),
-	]);
-	for (const requirement of requirements.values()) {
+	const sources = processSources(spec);
+	for (const [requirementIndex, requirement] of (workflow.requirements ?? []).entries()) {
+		const requirementPath = `/requirements/${requirementIndex}`;
+		const sourceMismatch = (field: string, expected: string) =>
+			error(
+				"requirement_source_mismatch",
+				`${requirementPath}/${field}`,
+				`${requirement.requirement_id}: received source_ref=${JSON.stringify(requirement.source_ref)}. ${expected} Repair only the source fields; preserve unrelated description, authority and criteria.`,
+			);
 		if (requirement.authority === "recommendation" && requirement.strength === "required")
 			error("recommendation_promoted", "/requirements", requirement.requirement_id);
 		if (
 			requirement.authority === "user" &&
 			(requirement.source_ref !== task.task_input_id || !task.raw_task.text.includes(requirement.source_quote))
 		)
-			error("requirement_source_mismatch", "/requirements", requirement.requirement_id);
-		if (
-			requirement.authority === "process" &&
-			!processSources.get(requirement.source_ref)?.includes(requirement.source_quote)
-		)
-			error("requirement_source_mismatch", "/requirements", requirement.requirement_id);
+			sourceMismatch(
+				requirement.source_ref === task.task_input_id ? "source_quote" : "source_ref",
+				`Use TaskInput ID ${JSON.stringify(task.task_input_id)} and an exact quote from raw_task.text.`,
+			);
+		if (requirement.authority === "process") {
+			const entries = sources.filter((source) => source.source_ref === requirement.source_ref);
+			if (entries.length !== 1 || !entries[0].source_quote.includes(requirement.source_quote)) {
+				const quoteMatches = sources
+					.filter((source) => source.source_quote.includes(requirement.source_quote))
+					.map((source) => source.source_ref);
+				sourceMismatch(
+					entries.length === 1 ? "source_quote" : "source_ref",
+					`Use an exact selected ProcessSpec entry ID, not a spec/version or selection ID. ${quoteMatches.length ? `This quote occurs in ${JSON.stringify(quoteMatches.slice(0, 8))}${quoteMatches.length > 8 ? " (more entries in source view)" : ""}.` : "The quote does not match a selected source entry."} Read workflow_draft_read(view=process, kind=sources) or bind with governance.requirements.from_process.`,
+				);
+			}
+		}
 		if (requirement.authority === "design" && !decisions.has(requirement.source_ref))
 			error("requirement_decision_missing", "/requirements", requirement.requirement_id);
 		if (
 			requirement.authority === "design" &&
 			!decisions.get(requirement.source_ref)?.description.includes(requirement.source_quote)
 		)
-			error("requirement_source_mismatch", "/requirements", requirement.requirement_id);
+			sourceMismatch(
+				"source_quote",
+				"Use an existing decision ID and an exact quote from that decision description.",
+			);
 		if (
 			requirement.strength === "required" &&
 			!workflow.criteria.some(

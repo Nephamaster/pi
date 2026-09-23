@@ -177,6 +177,12 @@ export function materializeDraft(draft: AuthoringDraft): MaterializedDraft {
 	draft.decisions.forEach((item, index) => {
 		sourceMap[`/decisions/${index}`] = `decision:${item.decision_id}`;
 	});
+	for (const [index, node] of draft.nodes.entries())
+		for (const [path, target] of Object.entries({ ...sourceMap }))
+			if (path === `/nodes/${index}` || path.startsWith(`/nodes/${index}/`)) {
+				const alias = `/nodes/${node.node_id}${path.slice(`/nodes/${index}`.length)}`;
+				if (!Object.hasOwn(sourceMap, alias)) sourceMap[alias] = target;
+			}
 	const include = (name: "stages" | "requirements" | "decisions", length: number) =>
 		length > 0 || draft.emptyOptionalSections?.includes(name);
 	return {
@@ -201,24 +207,30 @@ export function locateDiagnostic(diagnostic: DraftDiagnostic, sourceMap: Record<
 	const prefix = Object.keys(sourceMap)
 		.filter((path) => diagnostic.path === path || diagnostic.path.startsWith(`${path}/`))
 		.sort((a, b) => b.length - a.length)[0];
-	const authoringPath = prefix ? sourceMap[prefix] : diagnostic.path;
-	const domain = authoringPath.startsWith("review:")
-		? "reviews"
-		: authoringPath.startsWith("output:")
-			? "outputs"
-			: authoringPath.startsWith("criterion:")
-				? "criteria"
-				: authoringPath.startsWith("coverage:")
-					? "coverage"
-					: authoringPath.startsWith("stage:")
-						? "stages"
-						: authoringPath.startsWith("completion")
-							? "completion"
-							: authoringPath.includes(".inputs")
-								? "inputs"
-								: authoringPath.startsWith("node:")
-									? "configure_nodes"
-									: "governance";
+	const authoringPath = prefix
+		? `${sourceMap[prefix]}${diagnostic.path.slice(prefix.length).replaceAll("/", ".")}`
+		: diagnostic.path;
+	const reviewDiagnostic = /^(review_|remediation_)/u.test(diagnostic.code ?? "");
+	const coverageDiagnostic =
+		diagnostic.path === "/requirement_coverage" || diagnostic.path.startsWith("/requirement_coverage/");
+	const domain =
+		reviewDiagnostic || authoringPath.startsWith("review:")
+			? "reviews"
+			: authoringPath.startsWith("output:")
+				? "outputs"
+				: authoringPath.startsWith("criterion:")
+					? "criteria"
+					: coverageDiagnostic || authoringPath.startsWith("coverage:")
+						? "coverage"
+						: authoringPath.startsWith("stage:")
+							? "stages"
+							: authoringPath.startsWith("completion")
+								? "completion"
+								: authoringPath.includes(".inputs")
+									? "inputs"
+									: authoringPath.startsWith("node:")
+										? "configure_nodes"
+										: "governance";
 	return {
 		code: diagnostic.code,
 		path: diagnostic.path,

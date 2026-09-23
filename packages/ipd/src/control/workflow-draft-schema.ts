@@ -165,7 +165,24 @@ export const DraftCommandSchemas: Record<DraftDomain, TObject> = {
 	governance: object({
 		metadata: Type.Optional(MetadataSchema),
 		prerequisites: nullable(WorkflowDefinitionSchema.properties.prerequisites),
-		requirements: Type.Optional(edits(RequirementDefinitionSchema)),
+		requirements: Type.Optional(
+			object({
+				...edits(RequirementDefinitionSchema).properties,
+				patch: Type.Optional(
+					list(object({ ...partial(RequirementDefinitionSchema).properties, requirement_id: Id })),
+				),
+				from_process: Type.Optional(
+					list(
+						object({
+							requirement_id: Id,
+							source_id: Id,
+							strength: RequirementDefinitionSchema.properties.strength,
+							description: Type.Optional(NonEmptyStringSchema),
+						}),
+					),
+				),
+			}),
+		),
 		decisions: Type.Optional(edits(DesignDecisionSchema)),
 	}),
 	coverage: object({

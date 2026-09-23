@@ -157,7 +157,17 @@ export interface DraftCommands {
 	governance: {
 		metadata?: Partial<DraftMetadata>;
 		prerequisites?: WorkflowDefinition["prerequisites"] | null;
-		requirements?: { upsert?: AuthoringDraft["requirements"]; remove_ids?: string[] };
+		requirements?: {
+			upsert?: AuthoringDraft["requirements"];
+			patch?: (Partial<AuthoringDraft["requirements"][number]> & { requirement_id: string })[];
+			from_process?: {
+				requirement_id: string;
+				source_id: string;
+				strength: "required" | "advisory";
+				description?: string;
+			}[];
+			remove_ids?: string[];
+		};
 		decisions?: { upsert?: AuthoringDraft["decisions"]; remove_ids?: string[] };
 	};
 	coverage: {

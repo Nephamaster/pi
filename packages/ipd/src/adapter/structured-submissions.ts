@@ -207,9 +207,24 @@ export interface SubmissionReceipt<T> {
 
 export class SubmissionCapture<T> {
 	private receipt?: Omit<SubmissionReceipt<T>, "reused">;
+	private correctionBase?: { contentHash: string; value: T };
+	private scope?: string;
 
-	beginRound(): void {
+	beginRound(scope?: string, allowCorrection = false): void {
+		if (scope && scope === this.scope && allowCorrection) {
+			if (this.receipt)
+				this.correctionBase = { contentHash: this.receipt.contentHash, value: structuredClone(this.receipt.value) };
+		} else this.correctionBase = undefined;
 		this.receipt = undefined;
+		this.scope = scope;
+	}
+
+	rememberRejected(value: T): void {
+		if (!this.receipt) this.correctionBase = { contentHash: hashJson(value), value: structuredClone(value) };
+	}
+
+	get correction(): { contentHash: string; value: T } | undefined {
+		return this.correctionBase ? structuredClone(this.correctionBase) : undefined;
 	}
 
 	capture(operationId: string, value: T): SubmissionReceipt<T> {
@@ -275,19 +290,21 @@ export function createSubmissionTool<TParameters extends TSchema>(options: {
 		executionMode: "sequential",
 		async execute(toolCallId, params) {
 			const diagnostics = options.validate?.(params) ?? [];
-			if (diagnostics.length > 0)
+			if (diagnostics.length > 0) {
+				options.capture.rememberRejected(params);
 				return {
 					content: [
 						{
 							type: "text",
 							text: wrapPromptBlock(
 								"submission_validation_result",
-								`Submission rejected. Correct these issues and submit again:\n${diagnostics.map((item) => `- ${item}`).join("\n")}`,
+								`Submission rejected. Correct these issues and submit again:\n${diagnostics.map((item) => `- ${item}`).join("\n")}\nIf correct_submission is available, read submission_context (mode=correction) and change only the rejected fields; the complete candidate is still revalidated.`,
 							),
 						},
 					],
 					details: { captured: false, diagnostics },
 				};
+			}
 			const receipt = options.capture.capture(toolCallId, params);
 			return {
 				content: [

@@ -184,6 +184,8 @@ Use meaningful small batches, not one tool call per string. Declare referenced i
 
 Every edit and submit uses the actual `expected_revision` and a stable `operation_id`. Retry lost receipts with the same ID and payload; inspect `view: operation` when uncertain. Follow [Draft Tool Protocol](references/draft-tools.md) for exact shapes, paging, defaults and compatibility boundaries.
 
+For source-linked process requirements, inspect `workflow_draft_read` with `view: process, kind: sources`, then use `workflow_draft_governance.requirements.from_process` to bind the selected entry's exact ID and quote. Do not guess spec/version or selection-reference strings. To correct an existing requirement, use `requirements.patch` with its ID and changed fields only; do not regenerate all descriptions and quotes. These helpers do not create criteria, coverage or new quality requirements.
+
 Read only relevant node sections or diagnostics after a correction. Do not write a Workflow JSON file or call the retired model-facing `workflow_draft_apply`. Submission closes model editing; only trusted control requests another revision in this same Session. Compiler feedback never authorizes weakening user requirements, ProcessSpec obligations, independent review or permissions.
 
 ## 10. Report Genuine Design Blocks

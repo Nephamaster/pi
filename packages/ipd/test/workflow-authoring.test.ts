@@ -363,7 +363,7 @@ describe("partial workflow authoring", () => {
 			{ path: "/nodes/0/outputs/0/path_prefix", message: "Invalid path" },
 			output.sourceMap,
 		);
-		expect(mapped.authoringPath).toBe("output:produce/content-output");
+		expect(mapped.authoringPath).toBe("output:produce/content-output.path_prefix");
 		expect(mapped.suggestedTool).toBe("workflow_draft_outputs");
 	});
 	it("requires scoped reads and excludes full state from summary", () => {

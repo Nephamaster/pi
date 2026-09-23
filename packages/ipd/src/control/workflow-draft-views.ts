@@ -1,6 +1,9 @@
 // Bounded read-only views. Both tool text and details contain only the selected page.
 import type { JsonValue } from "../contracts/primitives.ts";
+import { type ProcessSpec, ProcessSpecSchema } from "../contracts/process-spec.ts";
 import { hashJson, toJsonValue } from "../ir/hash.ts";
+import { processSources } from "../ir/process-sources.ts";
+import { validateSchema } from "../ir/validation.ts";
 import { draftCompleteness } from "./workflow-draft-completeness.ts";
 import { draftReferences, draftTopology } from "./workflow-draft-links.ts";
 import { reviewProjection } from "./workflow-draft-materialize.ts";
@@ -132,9 +135,15 @@ function selectView(draft: AuthoringDraft, request: DraftReadRequest, context: D
 			return filter(draft.stage_plans, (item) => item.stage_id, request.ids);
 		case "governance":
 			return [
-				{ metadata: draft.metadata, prerequisites: draft.prerequisites },
-				...draft.requirements.map((item) => ({ record_type: "requirement", ...item })),
-				...draft.decisions.map((item) => ({ record_type: "decision", ...item })),
+				...(!request.ids ? [{ metadata: draft.metadata, prerequisites: draft.prerequisites }] : []),
+				...filter(draft.requirements, (item) => item.requirement_id, request.ids).map((item) => ({
+					record_type: "requirement",
+					...item,
+				})),
+				...filter(draft.decisions, (item) => item.decision_id, request.ids).map((item) => ({
+					record_type: "decision",
+					...item,
+				})),
 			];
 		case "coverage":
 			return filter(draft.process_coverage, (item) => item.requirement_id, request.ids).filter(
@@ -186,6 +195,15 @@ function selectView(draft: AuthoringDraft, request: DraftReadRequest, context: D
 			);
 		}
 		case "process": {
+			if (request.kind === "sources") {
+				const parsed = validateSchema<ProcessSpec>(ProcessSpecSchema, context.process);
+				if (!parsed.ok) return [{ available: false, message: "No validated selected ProcessSpec." }];
+				return processSources(parsed.value)
+					.filter((item) => !request.ids || request.ids.includes(item.source_ref))
+					.filter(
+						(item) => !request.query || JSON.stringify(item).toLowerCase().includes(request.query.toLowerCase()),
+					);
+			}
 			if (!context.process || typeof context.process !== "object" || Array.isArray(context.process))
 				return [{ available: false }];
 			const process = context.process as Record<string, JsonValue>;
