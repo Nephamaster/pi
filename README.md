@@ -63,6 +63,19 @@ npm run check         # Lint, format, and type check
 ./pi-test.sh         # Run pi from sources (can be run from any directory)
 ```
 
+### IPD in this checkout
+
+Use Node.js 24 or newer for IPD. From the repository root, run `./pi-test.sh` and grant project trust when prompted.
+Pi automatically loads [`.pi/extensions/ipd.ts`](.pi/extensions/ipd.ts); no IPD environment variables or `-e` argument
+are needed. The project [settings](.pi/settings.json) also declare `pi-web-access@0.27.0`, which Pi installs on first
+trusted startup if missing (network access is required). Root builds already include `packages/ipd`.
+
+This loads the `/ipd` command and IPD tools; it does not install Docker or container images. Before using `/ipd`,
+configure a Pi model, ensure Docker is available, and build at least the default `general-purpose` image as described
+in [IPD environment setup](packages/ipd/environments/README.md). The project extension selects Docker, allows outbound
+HTTP/HTTPS hostnames with `allowedEndpoints: ["*"]`, and authorizes the four configured external-read tools; edit that
+file to narrow the policy. Starting Pi from another project's directory uses that project's resources instead.
+
 ## Building standalone binaries from release source
 
 GitHub releases include a versioned source archive covered by the release's `SHA256SUMS` file. Extract it and run the same build script used for the official standalone binaries:

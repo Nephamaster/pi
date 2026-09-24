@@ -1,213 +1,97 @@
 ---
 name: workflow-design
-description: Convert the preserved user task and selected ProcessSpec into an efficient, governable, and verifiable task Workflow; instantiate ProcessSpec responsibilities, deliverables, reviews, dependencies, and employee configuration while preserving the user's original task semantics without inventing a separate formal requirement model.
+description: Design a task-specific IPD workflow from TaskInput and a selected ProcessSpec. Use as the Workflow Architect to author bounded work packages, real dependencies, resources, evidence-based reviews, and local repair through the managed draft tools, then validate and submit the exact revision.
+compatibility: Requires IPD AuthoringDraft V2 domain tools, the employee/resource catalogs, and WorkflowDefinition V3 compilation. One employee per node in the verified implementation; tools and permissions come from the Session, not this file.
 ---
 
-# Workflow Design Method
+# Design an IPD Workflow
 
-## 0. Responsibility and Sources of Truth
+## Assignment and boundaries
 
-You are the Workflow Architect. You do not perform the user's business task yourself; you turn the task into an executable, reviewable Workflow.
+You design the work; you do not perform its business execution or start the resulting graph. Trusted control supplies `TaskInput`, `ProcessSelection`, the exact `ProcessSpec`, and resource information. Use `TaskInput.raw_task.text` as preserved intent. A supplementary business Skill is optional, not an automatic prerequisite.
 
-You receive two primary sources of truth:
+**IPD working model:** preserve necessary professional responsibility, inspectable deliverables, meaningful independent reviews, and controlled handoffs. A **ProcessSpec** constrains a family of valid workflows, not a node-for-node template. A **node** owns a professional result, not one model call. The Runtime, not the employee, adopts submissions and controls approval, scheduling, and rework.
 
-- **TaskInput** — the preserved original user request, user-provided materials, and unresolved facts;
-- **ProcessSpec** — the selected governance specification describing required activities, controlled deliverables, professional reviews, and workflow rules.
+Do not change the task or chosen specification, weaken mandatory work, fabricate resources, invent extra approval authority, or write runtime state. Work only through the injected draft tools. Ordinary draft correction continues in this Session; a genuine unsatisfied prerequisite uses `report_workflow_design_blocked`.
 
-The original request remains natural-language task intent. Do not convert it into a separate Compiler-owned objective/requirement list. Your design must interpret it faithfully end to end, but formal `requirement_coverage` exists only for ProcessSpec obligations.
+## 1. Inspect the task, draft, and available capabilities
 
-Workflow-local `requirements` and `decisions` may annotate the provenance and strength of concrete criteria. These annotations link exact task/specification quotes and design choices; they do not replace TaskInput or make semantic task fidelity a Compiler theorem. See the contract checklist for the source and advisory rules.
+Read the assignment before searching. Open the managed draft with `workflow_draft_open`; use scoped `workflow_draft_read` views for current choices, selected process entries, and actual resources. Material descriptors and references are not attachment contents. Current control-role `read` is limited to locked Skill assets: do not search the workspace or guess task filenames. Analyze supplied content; otherwise bind registered materials to the appropriate execution work. Report a missing fact only when it prevents a responsible design.
 
-A ProcessSpec is not an executable Workflow template. It constrains a family of valid Workflows. Preserve its governance intent while creating the smallest sufficient set of accountable work packages for the actual user task.
+Search employees with `search_agent_cards`; use `capabilities_all` and `tools_all` for non-negotiable constraints, then inspect serious candidates with `get_agent_card`. Resource discovery prevents an impossible design; it does not mean inventing jobs for the employees found. Use only registered IDs, versions, check IDs, and authorized capabilities. Do not assume a registry, attachment, model, or software dependency is available merely because a reference mentions it.
 
-You must not modify TaskInput, reselect or edit the ProcessSpec, perform the business work, start the Workflow, or directly mutate Runtime state.
+## 2. Shape the smallest sufficient work packages
 
-Before designing, use these references when needed:
+Work backward from the actual delivery and the selected process obligations. Keep tightly coupled decisions using the same context together. Split for materially different expertise or permission, genuinely independent work, independently consumed results, meaningful review or repair isolation, or mandatory separation. Deterministic conversion/checking normally belongs in a tool or Skill procedure, not a new Agent node.
 
-1. [IPD Methodology Reference](references/ipd-methodology.md)
-2. [Design Concepts and Judgment Principles](references/design-concepts.md)
-3. [WorkflowDefinition Contract Checklist](references/workflow-contract.md)
-4. [Draft Tool Protocol](references/draft-tools.md)
+For each package, decide its owned result, real consumers, required inputs, submission boundary, and evaluation. Preserve all required process activities, artifacts, evidence, and reviews; combining aligned responsibilities must preserve their substance and timing. Do not add forwarding, status-reporting, or planning-report nodes solely to display organization.
 
-The live Tool Schema is authoritative for exact tool parameters.
+Declare nodes and output ports through `workflow_draft_topology`. Forward links express real data/decision dependencies; Runtime coordination and normal quality rework are not extra forward edges. The implementation supports one employee per execution or review node; do not author unsupported teams or recursive IPD calls.
 
-## 1. Understand the ProcessSpec as Governance Obligations
+## 3. Give each employee an assignment it can finish
 
-For each required activity, deliverable, review, and rule, determine its responsibility or quality-control purpose in the current task.
+Use `workflow_draft_configure_nodes` for the existing contract, employee, resources, and optional environment sections.
 
-A required activity may be realized by one node, combined with another aligned responsibility, or split across several nodes when there is genuine professional separation, parallelism, or rework value. Do not mechanically create one node per ProcessSpec item.
-
-Whatever structure you choose:
-
-- required responsibility must not disappear;
-- required deliverables must become real artifacts;
-- required independent review must not be replaced by producer self-checking;
-- ProcessSpec IDs must not be attached cosmetically to unrelated work.
-
-Formal process traceability is:
-
-```text
-ProcessSpec obligation
-        ↓
-Concrete responsibility in this task
-        ↓
-Responsible node
-        ↓
-Declared output
-        ↓
-Acceptance criteria / evidence
-        ↓
-Required independent review
-```
-
-If a ProcessSpec obligation cannot be legally represented with available nodes, employees, Skills, tools, permissions, or checks, report a real resource or expressiveness gap instead of weakening it.
-
-## 2. Interpret the Original User Task Directly
-
-The ProcessSpec tells you how this class of work is governed. The original request tells you what must actually be accomplished this time.
-
-Read the raw request and materials directly. Determine the intended final result, delivery form, constraints, prohibitions, supplied evidence, unresolved facts, and work that requires research, calculation, implementation, production, or specialized verification.
-
-Do not turn your assumptions, AgentCard habits, or ProcessSpec examples into new user facts. Do not create formal task requirement IDs merely to make the Compiler reason about user semantics.
-
-User-task fidelity is a design and end-to-end delivery responsibility, not something the Compiler can prove from a coverage table.
-
-Distinguish internal controlled artifacts from user-facing delivery outputs. Internal evidence, research notes, intermediate specifications, or QA reports may be required for process control without becoming files delivered to the user.
-
-## 3. Design Minimal Sufficient Work Packages Backward from Delivery
-
-Start from the final deliverable and ask what smallest set of accountable professional work packages is necessary to produce it reliably and review it meaningfully.
-
-Create a separate execution node when materially different capability or permission is needed, work can genuinely run in parallel, an independently reusable/reviewable output exists, local rework has real value, or ProcessSpec requires responsibility separation.
-
-Prefer merging work when the same professional should naturally do it, inputs are essentially the same, the result is one inseparable deliverable, there is no independent consumer, and separate review adds no value.
-
-Runtime owns coordination. Avoid nodes whose only purpose is forwarding, status reporting, or ceremony.
-
-## 4. Design Dependencies, Parallelism, and Rework
-
-Forward dependencies are expressed through exact input bindings. For every dependency, identify the result, decision, or approval the consumer actually needs. Do not make a node wait for unrelated work because it appears later in a phase list; do not omit real dependencies just to make the graph parallel.
-
-Execution nodes should consume controlled upstream results through `approved` inputs when approval is required. Review nodes inspect the exact candidate through `submitted` inputs.
-
-Use explicit stages when internal work needs sealed candidates before the joint Gate. Configure members and exits with `workflow_draft_stages`; configure each permitted input with `access: {mode: stage_candidate, stage_id: ...}`. Code derives `internal_uses`. Crossing the stage boundary still requires every declared exit Gate. This avoids the A→B→R→A approval cycle.
-
-Before fan-out, establish the shared scope, terminology, data/interface conventions, and output ownership that branches need. Fan-in must have the inputs and criteria needed to check the combination, not just collect files. Parallel test design can start from an interface contract; test execution still needs the actual implementation. See the reference for further examples.
-
-Place low-cost checks of route-changing uncertainties early in the responsible node's work, before expensive production. Do not create a separate feasibility node unless it has independent value or is required by the ProcessSpec.
-
-Normal quality rework is not a forward DAG edge:
-
-```text
-execution → submission → review
-     ↑                    │
-     └────── REWORK ──────┘
-```
-
-Declare legal correction owners in `allowed_rework_node_ids`. Do not create artificial fix nodes solely because rework may occur.
-
-## 5. Define Bounded Work, Consumable Outputs, and Verifiable Criteria
-
-A node employee has not attended the design discussion. Use the existing contract and output fields to make its assignment executable:
-
-| Existing field | What the Designer must make clear |
+| Contract field | Design responsibility |
 |---|---|
-| `contract.objective` / `responsibilities` | The result and professional responsibility this node owns. |
-| `contract.non_responsibilities` | Adjacent work it must not silently take over. |
-| `contract.work_requirements` | Task-specific method guidance, required self-checks, and when the candidate is ready to submit. Keep reusable procedures in bound Skills. |
-| `contract.constraints` | Genuine scope, permission, factual, and delivery constraints. Do not promote role habits or examples into hard requirements. |
-| Output `description` / `business_purpose` | The consumer and required substance. Put essential production instructions in `contract.work_requirements` as well; output metadata alone is not a work instruction. |
-| Output / criterion `evidence_requirements` | What inspectable evidence must accompany the result and how to locate it. |
+| `objective`, `responsibilities` | What result and professional decisions this node owns. |
+| `non_responsibilities` | Adjacent work it must not silently take over. |
+| `work_requirements` | Task-specific method, actual self-checks, evidence preparation, and a recognizable candidate-submission boundary. |
+| `constraints` | Real task/process, interface, factual, and permission restrictions, not personal preferences disguised as requirements. |
 
-Describe submission readiness through sufficient work and evidence, not "be exhaustive" or "keep improving." Once the assigned work and required self-checks are complete, the employee should submit instead of expanding scope for polish or volume. Missing required work remains a defect or a genuine block, never permission to lower the bar. A producer need not wait for its later Gate to declare its own candidate ready.
+Research should stop when assigned questions have adequate answers and required support, not after an arbitrary source count or endless expansion. Design is sufficient when production can proceed without inventing missing core decisions. Production should submit a complete checked candidate, not keep polishing without an identified obligation. A missing mandatory result remains a defect or a genuine block; a gap list cannot replace completed work. A producer need not wait for its future Reviewer to submit a candidate.
 
-Design a concise entry point to each handoff, backed by complete usable content and locatable original evidence. Do not demand overlapping research, summary, design, and reporting files without distinct consumers or process obligations. A compact handoff must not shift missing core work to the next node or substitute a producer summary for evidence.
+Bind the employee and only the needed tools, Skills, and permissions. Check producer creation and Reviewer inspection capabilities separately. A Skill's tool requirements must be fulfilled by explicit bindings within authorization. Omit an environment override unless an available alternative is needed. Reuse suitable methods instead of routinely requiring every node to build its own production framework. Keep `knowledge_bases: []`: the current Compiler rejects every non-empty knowledge-base binding because the Pi adapter has no executable projection for it.
 
-Every controlled output needs mechanical criteria backed by real checks and semantic criteria backed by professional judgment. Define the assessed object, acceptable condition, verification method, and evidence. Select production `output_bindings` in `workflow_draft_criteria`; code generates output `criterion_refs`. A command exit code, file existence, or a producer's "checked" statement proves only what it actually establishes.
+## 4. Define usable outputs and evidence-based standards
 
-Keep user/ProcessSpec requirements, source-linked design decisions, and advisory methods distinct using the existing authority fields. Do not invent arbitrary source counts, tool-call quotas, visual scores, or layout thresholds. Specify implementation details only when needed for a real requirement, interface, or justified design decision.
+Use `workflow_draft_outputs` for substantive content, consumer purpose, an owned path, evidence, and exact `process_evidence_requirement_refs`. Put indispensable production instructions in the node contract too; output metadata alone is not a complete assignment.
 
-These are authoring rules for existing fields, not new Workflow or submission fields. See [Design Concepts and Judgment Principles](references/design-concepts.md) for bounded-work and handoff examples.
+Provide a short handoff entry point, complete usable content, and locatable source evidence. Avoid redundant reports without distinct consumers, but do not omit core content or substitute summaries for proof. Separate independently consumed outputs where that enables precise repair; do not make one node for each file.
 
-## 6. Select Employees and Bind Resources After Work Is Clear
+Use `workflow_draft_criteria` with an actual `definition` object and `output_bindings` array. Every controlled output needs the required mechanical and semantic checks. Mechanical criteria reference a real check with its actual parameter shape and prove only what that check implements. Semantic criteria name an observable condition, checking method, evidence, and applicable `process_criterion_refs`.
 
-Select employees for defined work packages, not work packages for available employees. Inspect resource availability early enough to avoid designing work around nonexistent capabilities.
+Preserve the distinction between user/process obligations, justified design decisions, and advisory methods. `requirements`/`decisions` annotate authority; they do not replace the raw task. A recommendation cannot become a blocking requirement. `workflow_draft_read` with `view: "process", kind: "sources"` supplies exact entry IDs/quotes for `requirements.from_process`; do not guess them from a spec ID or version.
 
-Use `search_agent_cards` to find candidates by professional responsibility and capability, then inspect serious candidates with `get_agent_card`. The current implementation binds exactly one employee per execution or review node; do not design unsupported teams or recursive IPD calls.
+## 5. Connect real dependencies, meaningful reviews, and local repair
 
-Bind only the Skills, tools, knowledge bases, and permissions actually needed by the node. AgentCard authorization is a ceiling, not a command to grant every allowed resource. Prefer an available, suitable Skill or tool over requiring each employee to invent its own production and validation framework. Tool development is justified when the task genuinely needs it, not as routine preparation for every deliverable.
+Use `workflow_draft_inputs` to choose actual sources and explicit requiredness. For node outputs, set truthful `purpose` and `access`: approved upstream work, a permitted internal stage candidate, or a review candidate. Do not copy generated Workflow V3 input fields into Authoring V2 calls.
 
-A Skill's `required-tools` must be explicitly bound and remain inside AgentCard authorization. Check that the producer can create the artifact and the Reviewer can actually inspect it in their respective environments. If no legal employee/resource combination can perform required work, choose another valid combination or report a genuine resource gap.
+Independent branches may overlap after shared scope, terminology, interfaces, and output ownership are clear. A later activity need not wait for unrelated work; a truly dependent activity must wait. Test-case design can overlap implementation from an interface baseline; executing the tests still needs the implementation. Early low-cost capability/data checks belong in the responsible work package when they can prevent an expensive wrong route.
 
-## 7. Design Reviews and Local Repair Together
+Use `workflow_draft_reviews` to assign semantic criteria to exact single or composite subjects. Review evidence must exist at that point. Preserve required review object, timing, competence, and independence; do not replace a required Gate with producer self-checking. A joint review judges compatibility, not just file collection. Reviewers report evidence-based nonconformities, not personal redesign, new thresholds, or a quota of defects.
 
-Every ProcessSpec-required review must be realized with its required object, timing, capability, and independence. Merge review work only when those obligations remain intact; efficiency does not authorize deleting a required Gate.
+A stage can permit sealed candidates between named internal consumers before the joint Gate. Use `workflow_draft_stages` for members/exits and input `access.mode: "stage_candidate"` for permitted use; code derives internal uses. Cross-stage consumers still require the appropriate exit Gates. A review must not wait for its own future approval. Read the advanced relation guidance before configuring stages or composite repair.
 
-Place meaningful judgment where a shared basis will affect many consumers, independently produced outputs must work together, or an irreversible action or final delivery depends on acceptance. The required evidence must exist and be accessible at that point: a test plan cannot prove tests passed, and a design cannot prove the finished artifact renders correctly.
+Distinguish **repair owners**, **invalid results/approvals**, and **necessary rechecks**. If A is wrong, B actually depends on A, and D is independent, correct A and affected B and renew the relevant judgment; preserve valid D. If only integrator J misuses correct inputs, repair J. Truthful dependencies, bounded `allowed_rework_node_ids`, explicit subjects, and justified `remediation_mappings` enable Runtime localization. Do not grant ancestor-wide repair authority or hide a dependency to make rework look smaller. New versions alone do not resolve Findings.
 
-Use execution nodes to produce genuinely needed integrated results and composite reviews to judge integrated properties. Do not duplicate production in the Reviewer or add an integration node solely to forward files. Distinguish blocking defects from advisory improvements; prohibit preference-based redesign, extra thresholds, and defect quotas.
+## 6. Close governance and validate the current revision
 
-Use `workflow_draft_reviews` to assign semantic criteria to exact single or composite subjects. Code derives targets, `criterion_subjects` and necessary candidate inputs. Add `required_relations` when a target must derive from the precise upstream version in the bundle. Use bounded `remediation_mappings` for directly dependent upstream owners, not as blanket authority to return work to any ancestor.
+Maintain ProcessSpec implementation links through `workflow_draft_coverage`: activity, deliverable, review, and rule rows. Do not invent `task_requirement` coverage. Use source-linked criteria and contracts to preserve user requirements. Formal coverage and a Compiler pass do not prove semantic task fulfillment.
 
-For each plausible defect, distinguish **who repairs**, **which results or approvals lose a valid basis**, and **what must be rechecked**. Restrict `allowed_rework_node_ids` to legal owners and make the review work requirements call for criterion-local evidence, repair targets, and re-review conditions. If A is wrong, B uses A, and D is independent, repair A and affected B and re-evaluate the relevant judgment; do not require D to produce its valid work again. If only integrator J misuses correct inputs, target J rather than all upstream producers.
+Set `workflow_draft_completion` explicitly: required nodes/reviews, terminal outputs, and the subset actually delivered to the user. Required reviews must participate in success, not merely exist somewhere in the graph. Do not deliver internal notes or duplicate wrapper packages unless requested.
 
-Runtime owns actual invalidation, scheduling, and retention. The Designer provides truthful input purposes, output boundaries, review subjects, and correction ownership; never hide a real dependency to make rework look local. Findings persist across reviews; a new submission, a stale review or an unrelated PASS does not close them.
+Before submission, check substance as well as completeness: Can a redundant node or wait be removed without losing a real obligation? Can each consumer begin from its actual inputs? Would a plausible wrong artifact fail a concrete standard? Would an upstream defect and an integration-only defect reach different correct repair targets while preserving unrelated work? Check likely reading/rechecking load and the critical dependency chain without inventing exact timings.
 
-## 8. Maintain ProcessSpec Coverage, Not User-Requirement Coverage
+Use `workflow_draft_validate` in compile mode once choices are complete. Read named diagnostics, fix affected fields, validate again, and submit the exact current revision with `workflow_draft_submit`. Successful capture ends your editing turn; it is not business execution or approval. Do not continue optional redesign after the design is fit and formally valid.
 
-`requirement_coverage` is a machine-checkable governance structure for ProcessSpec obligations only:
+## Tool discipline and recovery
 
-- `process_activity`
-- `process_deliverable`
-- `process_review`
-- `process_rule`
+Each mutation and submit uses the actual `expected_revision` and stable `operation_id`. Batch edit lists address records by ID; they do not replace the whole collection. Within a partial record edit, omitted fields remain unchanged and supplied arrays replace that field. Keep batches coherent, not one call per string and not a giant whole-workflow payload. Objects and arrays stay structured: do not put escaped JSON text in `prerequisites`, `definition`, or `upsert`.
 
-Do not create `task_requirement` coverage. The user request remains natural language and should influence node contracts, outputs, criteria, reviews, and final delivery through the Designer's task understanding.
+A lost receipt may require replaying the same ID and identical payload after inspection. A known rejected request requires correcting its actual cause; changed content is a new logical edit. Read only affected fields or an operation receipt. Repeatedly sending the same invalid type, guessing paths, weakening standards, or swapping operation IDs without fixing the payload is not recovery.
 
-Compiler success therefore means the Workflow is structurally legal and ProcessSpec obligations are formally represented. It does **not** mean the Compiler has proved semantic satisfaction of the user's request.
+If no legal design remains after relevant alternatives, report the exact task/resource/expressiveness gap through `report_workflow_design_blocked`; do not turn an ordinary schema correction into a business block. Missing declared tools or incompatible authoring protocol require trusted control, not Bash workarounds.
 
-## 9. Build the Workflow with Domain Tools
+## Read references by need
 
-Use one managed AuthoringDraft V2. It may be incomplete while you design; only a complete, validated projection becomes WorkflowDefinition V3. Do not fabricate placeholder employees, criteria or permissions just to save a skeleton.
-
-| Step | Tools and purpose |
+| Need | Reference |
 |---|---|
-| Inspect | `workflow_draft_open`; use `workflow_draft_read` for scoped catalog, process, topology or node sections. |
-| Declare work | `workflow_draft_topology` declares nodes, output ports and real input connections. |
-| Configure | `workflow_draft_configure_nodes` updates contract, employee, resources and environment sections without resending whole nodes. |
-| Define delivery | `workflow_draft_outputs` defines substance and evidence; `workflow_draft_criteria` assigns production standards. |
-| Connect and review | `workflow_draft_inputs` fixes required/purpose/use policy; `workflow_draft_reviews` assigns judgments and correction owners; `workflow_draft_stages` defines stage members and exits. |
-| Complete governance | `workflow_draft_governance`, `workflow_draft_coverage`, `workflow_draft_completion` record remaining concrete obligations. |
-| Check and submit | `workflow_draft_validate` checks incomplete choices or runs full compilation; correct named objects locally, then `workflow_draft_submit` captures the exact revision. |
+| A complete default-path example with exact structured payloads | [Small-workflow walkthrough](references/authoring-walkthrough.md) |
+| Tool semantics, partial edits, revisions, paging, and receipts | [Draft tool protocol](references/draft-tools.md) |
+| Field decisions; stages, composite subjects, authority, and completion | [Authoring contract guide](references/workflow-contract.md) |
+| Better work boundaries, handoffs, reviews, and fault-localization examples | [Design judgment](references/design-concepts.md) |
+| A validation, lookup, permission, reference, or revision error | [Error recovery](references/error-recovery.md) |
+| Public IPD background and the project's interpretation boundaries | [IPD background](references/ipd-methodology.md) |
 
-Use meaningful small batches, not one tool call per string. Declare referenced identities before using them. Omitted fields remain unchanged; supplied arrays replace only that field. `null` clears only supported optional overrides. No separate edge graph or repeated review-input/criterion/stage arrays are needed.
-
-Every edit and submit uses the actual `expected_revision` and a stable `operation_id`. Retry lost receipts with the same ID and payload; inspect `view: operation` when uncertain. Follow [Draft Tool Protocol](references/draft-tools.md) for exact shapes, paging, defaults and compatibility boundaries.
-
-For source-linked process requirements, inspect `workflow_draft_read` with `view: process, kind: sources`, then use `workflow_draft_governance.requirements.from_process` to bind the selected entry's exact ID and quote. Do not guess spec/version or selection-reference strings. To correct an existing requirement, use `requirements.patch` with its ID and changed fields only; do not regenerate all descriptions and quotes. These helpers do not create criteria, coverage or new quality requirements.
-
-Read only relevant node sections or diagnostics after a correction. Do not write a Workflow JSON file or call the retired model-facing `workflow_draft_apply`. Submission closes model editing; only trusted control requests another revision in this same Session. Compiler feedback never authorizes weakening user requirements, ProcessSpec obligations, independent review or permissions.
-
-## 10. Report Genuine Design Blocks
-
-Use `report_workflow_design_blocked` only when a legal Workflow cannot be produced after checking serious alternatives. Report exact missing conditions, relevant ProcessSpec requirement IDs when applicable, diagnostics, and what must change before design can resume.
-
-A design block is a normal preparation-blocked outcome, not a Runtime failure. Ordinary draft mistakes should be repaired within the persistent Designer Session.
-
-## 11. Final Design-Quality Review
-
-Before submission, inspect the design against these questions. They are Designer reasoning aids, not additional output files or mandatory Agent nodes.
-
-| Check | Question |
-|---|---|
-| Task and process fidelity | Does the design preserve the raw task, unresolved facts, and every mandatory ProcessSpec responsibility, deliverable, review, and rule? Is coverage substantive rather than cosmetic? |
-| Delivery boundary | Are user-facing outputs exactly what the user should receive, with internal process artifacts kept separate? Do completion conditions require the actual terminal delivery and mandatory reviews? |
-| Node deletion | If a node were removed, what necessary work, independent judgment, or governance obligation would disappear? If none, merge or remove it. |
-| Dependency deletion | Could the consumer legally and correctly begin without waiting? Remove unnecessary waits, never actual data or approval prerequisites. |
-| Consumer blind read | Could an employee with only its real inputs, contract, and bound methods start without guessing hidden decisions or redoing upstream work? |
-| Bounded execution | Can each producer recognize a ready candidate, distinguish a real block from a fixable defect, and avoid open-ended expansion? Are capabilities and permissions sufficient? |
-| Bad-artifact test | Would a plausible incomplete or inconsistent artifact fail an applicable criterion with locatable evidence, rather than pass on file presence or self-report? |
-| Fault walkthrough | Would an upstream defect, an integration-only defect, and missing evidence reach the correct repair or blocking path while preserving unrelated work? |
-| Workload and critical path | What must each node read, produce, and recheck? Where are duplicated work and the longest required dependency chain? Use actual records when available; do not invent precise timing or enforce arbitrary quotas. |
-
-The Compiler can validate formal structure and ProcessSpec governance relationships. It cannot decide whether the final business result satisfies the user. Repair real design gaps found above, validate the resulting draft, and submit once the latest revision is both formally valid and semantically fit; do not turn design review itself into unlimited refinement.
+Begin from this default path; do not read every reference before inspecting the assignment. Detailed examples are demonstration fixtures, not production employees or task templates to copy unchanged.

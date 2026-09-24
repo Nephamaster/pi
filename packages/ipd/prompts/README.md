@@ -1,1208 +1,670 @@
 # IPD 提示词组装与上下文管理
 
-本文只回答一个问题：**IPD 中不同角色在一次模型请求里到底能看到什么、哪些内容会持续保留、哪些内容只属于当前 round，以及不同状态变化时上下文如何变化。**
+本文说明四类内部角色在**每一次模型请求**中看到什么，以及首次执行、工具续接、补正、返工、暂停恢复和压缩时如何变化。
 
-当前内部角色分为四类：
+## 目录
 
-1. Process Selector（ST）：选择一份确定版本的 ProcessSpec；
-2. Workflow Designer：把 TaskInput + ProcessSpec 实例化为 WorkflowDefinition；
-3. Execution Node：执行一个冻结的专业工作包；
-4. Review Node：独立评审一个或多个确定版本的 Submission 输出。
+- [1. 先区分轮次、会话与模型请求](#1-先区分轮次会话与模型请求)
+- [2. Pi 原生组装方式与资源边界](#2-pi-原生组装方式与资源边界)
+- [3. 流程选择者](#3-流程选择者)
+- [4. 工作流设计师](#4-工作流设计师)
+- [5. 执行与评审节点的稳定上下文](#5-执行与评审节点的稳定上下文)
+- [6. 当前轮次状态与派发消息](#6-当前轮次状态与派发消息)
+- [7. 补正、返工、阻塞与恢复](#7-补正返工阻塞与恢复)
+- [8. 长历史、图片与容量管理](#8-长历史图片与容量管理)
+- [9. 可还原的请求示例](#9-可还原的请求示例)
+- [10. 外层 Pi、模板与不会自动注入的内容](#10-外层-pi模板与不会自动注入的内容)
+- [11. 文件、标签和验证入口](#11-文件标签和验证入口)
 
-外层 Pi 不是内部员工，只负责通过 `ipd` 创建 Run，并可用只读工具查询状态、事件和结果。
+## 1. 轮次、会话与模型请求
 
-2026-09-17 执行环境补充：Docker 节点 cwd 为 `/workspace`，四个冻结上下文文件位于 `/ipd/context`，输入位于 `/ipd/inputs/<input-id>`，Skill 位于 `/ipd/skills/<id>/<hash>`。下文旧 `/virtual/ipd/...` 和 Run 宿主路径示例仅表示装配结构，不是当前容器访问路径；旧 schema 示例不能直接作为当前工具参数。
-节点契约中的 `Controlled Environment Layout` 还包含冻结的网络策略、项目内 npm/venv 安装指引、提交前 project-probes、评审副本权限和暂停后重启服务的说明。它们不改变标准或交付范围。
-
-例如，Docker 评审 Session 绑定 `read/bash/write/submit_review` 时，模型可在 `/workspace/check` 复制和构建 `/ipd/inputs/candidate` 的内容，并把检查日志保存在私有工作区；原输入仍只读，结论必须引用其原 Submission ID。只有明确绑定的工具会出现。经可信配置授权的 `web_search` 等外部只读服务沿用 Pi 注册的完整 Schema/实现，不由 IPD 生成或替换搜索服务，也不受容器断网策略等同约束。
-
----
-
-## 1. 先理解一条总公式
-
-无论哪类内部角色，Provider 最终收到的都是三部分：
-
-```text
-Provider Request
-├── systemPrompt
-├── messages
-└── tools
-```
-
-它们的职责完全不同：
-
-| 部分 | 放什么 | 生命周期 |
-|---|---|---|
-| `systemPrompt` | 稳定规则、角色、契约、Skill Catalog、cwd，以及独立的当前轮次 section | 稳定部分不变；轮次 section 仅在真实派发时更新 |
-| `messages` | 真实派发、Session 历史、Tool Call/Result、Pi 原生系统增量 | 原生持久化与压缩；不再逐请求追加 Runtime user 通知 |
-| `tools` | 本角色真实可调用的 ToolDefinition 与参数 Schema | 由当前 Session 绑定决定 |
-
-最重要的理解是：**任务事实、节点契约、角色方法、当前输入版本、工具能力不是同一层信息。** IPD 刻意把它们拆开，避免任何一个 Prompt 同时承担所有职责。
-
----
-
-## 2. Pi 如何形成最终 systemPrompt
-
-Pi 的 `buildSystemPrompt()` 固定按以下顺序组装：
-
-```text
-Pi Base
-→ appendSystemPrompt
-→ project_context / contextFiles
-→ Skill Catalog
-→ Current Working Directory
-→ 自定义 system sections（节点的 ipd_current_round）
-```
-
-来源：[Pi system-prompt.ts](../../coding-agent/src/core/system-prompt.ts)。
-
-IPD 只负责向这些槽位提供自己的内容，不另建一套平行 Prompt 系统。
-
-### 2.1 控制角色
-
-Process Selector / Workflow Designer 没有节点 Contract，其稳定 systemPrompt 是：
-
-```text
-Pi Base
-→ <core_rules> common.md
-→ <professional_role> Runtime Agent Profile
-→ 对应控制角色 protocol
-→ 绑定 Skill Catalog
-→ Run workspace cwd
-```
-
-### 2.2 执行/评审节点
-
-Execution / Review 使用 Pi 原生 `project_context` 放入四个稳定虚拟文件：
-
-```text
-Pi Base
-→ <core_rules> common.md
-→ <project_context>
-     TASK_SCOPE.md
-     NODE_CONTRACT.md / REVIEW_CONTRACT.md
-     PROFESSIONAL_ROLE.md
-     EXECUTION_PROTOCOL.md / REVIEW_PROTOCOL.md
-   </project_context>
-→ 绑定 Skill Catalog
-→ Run workspace cwd
-```
-
-其中：
-
-- `TASK_SCOPE.md`：为什么做、当前节点相关的原始任务依据；
-- `NODE_CONTRACT.md / REVIEW_CONTRACT.md`：本节点必须做什么、输入输出、标准、权限；
-- `PROFESSIONAL_ROLE.md`：这个员工擅长怎么做；
-- `EXECUTION_PROTOCOL.md / REVIEW_PROTOCOL.md`：怎样与 Runtime 协作和正式提交。
-
-四层各自只有一个权威职责。
-
----
-
-## 3. 信息所有权：理解上下文的核心
-
-| 信息 | 唯一权威来源 | 是否随 round 变化 |
-|---|---|---|
-| Pi 身份、基础工具说明 | Pi Base | 否 |
-| IPD 控制权、信任边界、事实纪律 | `common.md` | 否 |
-| 原始任务及当前节点相关需求 | `TASK_SCOPE.md` | 否 |
-| 节点目标、静态输入声明、输出、标准、权限 | Node / Review Contract | 否 |
-| 员工身份和专业方法 | Runtime Agent Profile | 否 |
-| 角色与 Runtime 的协作协议 | 对应 role protocol | 否 |
-| 当前确切 Submission 输入、round_id、返工反馈 | `<ipd_current_round>` | 是 |
-| 具体专业操作方法 | Skill body / references | 按需读取 |
-| Tool 参数、枚举、提交 Schema | Provider `tools` | Tool 稳定 |
-| 是否真的允许访问/写入 | Compiler + Scope Extension + Runtime | 代码强制 |
-
-因此：
-
-- Task material、网页、上游产物、Tool Result 属于**数据/证据**，不能改写契约和权限；
-- AgentCard 说明“这个员工通常擅长什么”，不能覆盖节点冻结标准；
-- Skill 说明“怎么做”，不能扩大任务范围；
-- `ipd_current_round` 只描述“这一轮实际拿到什么版本、收到什么反馈”。
-
----
-
-## 4. 模型可见文本的边界标签
-
-当前实现为 IPD 生成的主要文本块加了语义标签，以便模型和人都能辨认来源边界。标签描述**内容语义**，不是消息角色。
-
-| 内容 | 标签 |
+| 概念 | 当前含义 |
 |---|---|
-| 通用规则 | `<core_rules>` |
-| 节点任务范围 | `<task_scope>` |
-| 执行/评审契约 | `<execution_contract>` / `<review_contract>` |
-| 节点运行画像 | `<professional_role>` |
-| AgentCard 选择画像 | `<agent_selection_profile>` |
-| 四类协议 | `<process_selection_protocol>` / `<workflow_design_protocol>` / `<execution_protocol>` / `<review_protocol>` |
-| Selector 派发 | `<process_selection_assignment>` |
-| Designer 方法准备 / 首次设计 / 修订 | `<workflow_design_method_request>` / `<workflow_design_assignment>` / `<workflow_design_revision>` |
-| 节点派发 | `<node_round_dispatch>` |
-| 当前 round | `<ipd_current_round>` |
-| ProcessSpec 查询结果 | `<process_spec_search_results>` / `<process_spec>` |
-| AgentCard 查询结果 | `<agent_card_search_results>` / `<agent_selection_profile>` |
-| Workflow Draft 工具结果 | `<workflow_draft_state>` / `<workflow_draft_operation_result>` / `<workflow_draft_validation>` / `<workflow_draft_submission_result>` |
-| 提交工具结果 | `<submission_validation_result>` / `<submission_capture_result>` |
-| 外层 IPD 查询结果 | `<ipd_run_receipt>` / `<ipd_run_status>` / `<ipd_run_events>` / `<ipd_run_result>` |
+| Run | 从任务接收、流程选择、设计到执行和交付的一次治理任务。 |
+| Baseline | Compiler 校验后冻结的执行基线：工作流、已解析员工/资源、标准、图关系及环境绑定等。不是基础提示词。 |
+| 节点 round | 一次业务执行或评审轮次，例如 `produce:round:2`。正式质量返工通常开新 round。 |
+| Attempt | 某个 round 的执行尝试，带控制者 term 和 scope epoch。恢复可以保持 round、产生新 Attempt。 |
+| dispatch | IPD 对一个 Session 的一次真实派发。Runtime 提交补正可以在同一 round/Attempt 中再次派发。 |
+| Session | 以 `runId + nodeId + participantId` 绑定的持续对话。当前每个执行/评审节点仅一个员工。 |
+| 模型请求 | 一次 LLM 调用。一次 dispatch 内可能出现多次“模型 → 工具 → 模型”，不是每次工具返回都开新 round。 |
 
-Pi 自己已经提供 `<project_context>`、`<project_instructions>` 和 `<skill>`，IPD 不重复再包一层。
+概念上，模型信息分为**系统指令、有效对话历史、工具定义**三部分；但不要把旧版 `{systemPrompt, messages, tools}` 当成当前 Provider 内部的固定结构。
 
-实现入口：[prompt/block.ts](../src/prompt/block.ts)。
+当前 Pi 将指令和工具声明记录在原生 transcript 的 `role: "system"` 消息中：
+
+```text
+SystemMessage
+  content
+  sections                  命名系统段；后续同名项替换，null 删除
+  toolsAdded / toolsRemoved 工具定义及工具集变化
+UserMessage                 真实任务/派发
+AssistantMessage            回答、思考块、工具调用
+ToolResultMessage           工具内容/错误
+```
+
+公共 `Context.systemPrompt/tools` 仍可作为简写，但会被 `normalizeContext()` 归入首条 system 消息。Provider 接收的是 `TranscriptContext.messages`，再转为供应商 API 的 system/messages/tools 等字段。支持对话中途系统消息的模型可在原位接收变化；其他模型使用重放后合并的系统状态。**系统段变化不等于用户又发来了一条指令。**
+
+源码：[Pi 类型](../../ai/src/types.ts)、[系统提示词组装](../../coding-agent/src/core/system-prompt.ts)、[AgentSession](../../coding-agent/src/core/agent-session.ts)。
+
+## 2. Pi 原生组装方式与资源边界
+
+### 2.1 系统段的顺序
+
+无自定义基础系统提示词时，`buildSystemPromptSections()` 按下列顺序构建：
+
+```text
+preamble                  Pi 默认身份，无外层标签
+<tools>                   已启用工具中提供 promptSnippet 的说明
+<rules>                   工具 guidelines 与 Pi 通用规则
+<docs>                    Pi 文档位置和使用说明
+<addendum>                IPD 传入的 appendSystemPrompt
+<project_context>         IPD contextFiles，控制角色通常没有这一段
+<skills>                  绑定 Skill 的目录，内部含 <available_skills>
+<cwd>                     当前工作目录
+<ipd_current_round>       仅执行/评审节点；当前有效状态
+```
+
+工具没有 `promptSnippet`，不代表工具不存在；模型仍通过原生工具定义获得名称、描述和参数 Schema。README 中的“Pi Base”指上述原生基础段，不是 IPD 的 Baseline。
+
+一个容易遗漏的现状：`noContextFiles` **不关闭**全局 `SYSTEM.md` 发现。当前工厂没有覆盖 `systemPrompt`，因此如果指定的 `agentDir/SYSTEM.md` 存在，Pi 会以它替换默认 preamble，且不生成默认 tools/rules/docs 段。项目被标为不可信，项目内 `.pi/SYSTEM.md` 不会按可信项目路径载入。IPD 显式传入 append 数组，所以不会再自动发现 `APPEND_SYSTEM.md`。还原实际请求时必须区分这一分支，不能声称所有宿主提示词都被关闭。
+
+### 2.2 内部 Session 不继承外层资源全集
+
+[PiNodeSessionFactory](../src/adapter/pi-node-session-factory.ts) 关闭自动发现的 Extensions、Skills、Prompt Templates、Themes、Context Files，然后只加入：
+
+- `lockedSkills` 对应的 `additionalSkillPaths`；
+- `lockedTools` 与该角色私有控制工具；
+- IPD 内联扩展：提交结果处理、请求准入、请求视图，节点另加当前轮次扩展；
+- 执行/评审的四个 `agentsFilesOverride` 上下文文件；
+- 可信宿主设置中的 `retry/compaction/httpIdleTimeoutMs/images`，而非节点目录内任意配置。
+
+模型与 thinking level 按冻结 AgentCard 的显式选择或 Run 默认值解析。API 凭据用于请求，不作为提示词正文。
+
+控制角色仅有锁定 Skill 范围的文件读取能力；执行/评审的文件、搜索、图片和 Bash 由明确的环境后端提供。没有后端不能自动退回宿主工具。获准的 `control_read` 服务沿用外层注册工具的实现/Schema，例如搜索和网页读取，并不因此获得节点文件系统写权限。
+
+### 2.3 Skill 目录与正文是两件事
+
+系统目录通常只列 name、description、location；不加载正文或 references。有 `read` 或 `bash` 才展示目录；`disable-model-invocation` 的 Skill 不自动列入目录。
+
+控制角色首次派发以 `/skill:process-selection` 或 `/skill:workflow-design` 开头，Pi 在发送前展开为：
+
+```xml
+<skill name="workflow-design" location="/locked/.../SKILL.md">
+References are relative to /locked/....
+
+[该 SKILL.md 去掉 frontmatter 后的完整正文]
+</skill>
+
+[同一条命令后面的任务正文]
+```
+
+这是一条 **user 消息**，不是 system section。references 由模型按需读取。业务 Run Skill 可选，Designer 只得到其确切读取路径，不自动展开正文；执行/评审只获得自身显式绑定的 Skills。
+
+Docker 节点的目录路径改写为 `/ipd/skills/<id>/<hash>/SKILL.md`，实际包也绑定到该只读位置。正常节点派发不是 `/skill:` 命令；正文通常通过授权 `read/bash` 成为工具结果。不要据此假定控制侧原生 Skill 命令展开可以直接读取容器虚拟路径。
 
 ---
 
-## 5. 资源装配共同规则
+现在开始阐述各类角色的上下文组织。
 
-内部 Session 创建时关闭普通 Pi 用户资源的自动发现：
+## 3. 流程选择者
+
+### 系统上下文
 
 ```text
-noExtensions=true
-noSkills=true
-noPromptTemplates=true
-noThemes=true
-noContextFiles=true
+Pi Base
+<addendum>
+  common.md（自带 <core_rules>）
+  renderAgentRuntimeProfile(selectorCard)（<professional_role>）
+  process-selector.md（<process_selection_protocol>）
+</addendum>
+<skills> process-selection 的目录 </skills>
+<cwd> Run 的宿主 workspace </cwd>
 ```
 
-随后只把当前角色被明确绑定的资源重新加入：
+没有节点 contextFiles，也没有 `ipd_current_round`。
 
-- AgentCard 选择实际模型和 thinking level；
-- lockedSkills 作为 additionalSkillPaths；
-- lockedTools 加入启用工具列表；
-- Runtime 控制工具额外加入当前 Session；
-- 节点虚拟 context files 通过 agentsFilesOverride 注入。
+运行画像只包含名称、描述、职责、非职责、原则和 `promptProfile.approach`，不是完整 AgentCard。选择画像则额外包含场景、能力、通用交付物、验证参考、默认 Skills、允许工具和权限上限。
 
-每个 Skill 在 Session 创建前重新计算完整包 Hash；内容改变时拒绝创建。Skill Catalog 只有在 Session
-具有 read 或 bash 时才会进入 Pi systemPrompt。Compiler 同时要求绑定 Skill 的节点至少具有其中一种
-读取能力。
+### 首次请求与工具续接
 
-Skill Catalog 只列出名称、描述和文件位置，不自动注入正文。控制角色消息以 /skill:name 开头时，
-Pi 会在发送 Provider 之前把它展开为 skill XML：去掉 frontmatter 后的完整 SKILL.md 正文、Skill 文件
-位置、references 相对目录，再接原命令后的任务参数。Provider 正常情况下看不到字面量 /skill:name。
-references 不会自动全文加载，角色根据 SKILL.md 的路由使用 read 按需读取。
-
-## 5. 外层 Pi 与 IPD Tool
-
-外层 Pi 不是 IPD 内部员工。它保留普通 Pi 的项目上下文、用户对话和 Skills。加载
-examples/ipd-extension.ts 后，Provider 的 tools 中增加：
-
-- ipd：创建 Run；
-- ipd_get_run：读取状态；
-- ipd_cancel_run：按用户明确要求取消 Run；
-- ipd_read_events：按游标读取事件；
-- ipd_get_result：读取终态结果。
-
-Extension 通过 Tool promptSnippet 和 promptGuidelines 告诉外层模型何时创建 Run、必须保留用户要求，
-但不会把内部 ProcessSpec、Workflow、AgentCard 或节点 Session 历史回灌给外层模型。
-
-创建 Run 的参数刻意保持最小化：
+首条 user 消息是展开的流程选择 Skill，加 `<process_selection_assignment>`；其中放完整 TaskInput V2：
 
 ```json
 {
-  "request_id": "request-001",
-  "skill_name": "market-brief",
-  "task": "<用户完整原文，逐字复制>",
-  "materials": [
-    {
-      "material_id": "source-1",
-      "description": "<用户提供的任务材料>",
-      "reference": "/input/source.md",
-      "media_type": "text/markdown"
-    }
-  ]
+  "schema_version": 2,
+  "task_input_id": "request-demo",
+  "raw_task": {
+    "text": "根据提供的事实写一份经过独立评审的简报。",
+    "source": "external-agent-request"
+  },
+  "materials": [],
+  "unresolved_facts": []
 }
 ```
 
-外层 Agent 不得总结、改写或扩展 `task`，也不得把 Skill 内容、推断要求、材料清单或未决事实混入其中。
-`materials` 可省略，只能包含用户明确提供或引用的任务材料，不能包含 Skill 文件、Skill 脚本或 Agent
-推断的材料。`skill_name` 已独立锁定 Skill 包；内部 TaskInput 的 `objectives`、`requirements` 和
-`unresolved_facts` 初始化为空。当前接口不再由外层 Agent 解释这些事实。
+当前没有 `objectives`、`requirements` 或 `task_requirement_refs`。
 
-典型外层上下文：
+默认工具为 `read`、`search_process_specs`、`get_process_spec`、`submit_process_selection`，另有 `ipd_read_context`。全部 ProcessSpec 不预先注入；搜索给摘要，精确查询才给完整规范。
 
-```text
-<skill name="..." location=".../SKILL.md">
-References are relative to ...
+一次派发中的后续请求看到同一系统状态、首条任务、既有 assistant/tool 历史和最新工具结果。查询错误、非法选择引用是工具诊断，模型可在同一派发内修正；不会因此收到新一轮 Runtime 状态通知。
 
-<完整 SKILL.md 正文，去掉 frontmatter>
-</skill>
+`submit_process_selection` 捕获 selected/blocked 后终止此派发，控制层记录结果并释放选择 Session。Selected 不等于员工配备足够：随后仍有 ProcessSpec staffing 检查。默认选择派发保护为 40 次工具调用、5 次工具错误的阈值（超过才中止），不是时长限制。
 
-<原派发正文>
-```
+源码：[控制角色](../src/control/pi-control-roles.ts)、[派发文本](../src/control/control-role-prompts.ts)、[目录工具](../src/control/asset-catalog-tools.ts)。
 
-references 仍由角色按需 `read`。
+## 4. 工作流设计师
 
----
+### 系统上下文与首次任务
 
-## 6. 四类角色一览
+稳定 addendum 为 `common + Designer 运行画像 + workflow-designer 协议`；Skill 目录包含 `workflow-design` 和可选业务 Run Skill。没有节点契约文件，也没有 `ipd_current_round`。
 
-| 角色 | 稳定 systemPrompt 的核心 | 首轮动态输入 | 主要私有工具 | Session 是否跨轮复用 |
-|---|---|---|---|---|
-| Process Selector | common + ST role + selector protocol | TaskInput | `search_process_specs`, `get_process_spec`, `submit_process_selection` | 当前选择过程内复用 |
-| Workflow Designer | common + Project Shepherd role + designer protocol | TaskInput + ProcessSelection + ProcessSpec + asset summary | draft tools + AgentCard catalog | 是，Compiler 修订继续原 Session |
-| Execution Node | common + Task Scope + Node Contract + role + execution protocol | `node_round_dispatch` + `ipd_current_round` | 业务 tools + `submit_artifact` + `report_node_blocked` | 是，补正/返工/技术重试复用 |
-| Review Node | common + Task Scope + Review Contract + role + review protocol | `node_round_dispatch` + `ipd_current_round` | 授权检查 tools + `submit_review` | 是，新 Submission 复审继续原 Session |
-
-下面逐类展开。
-
----
-
-## 7. Process Selector（ST）
-
-### 7.1 它能看到什么
-
-稳定 systemPrompt：
-
-```text
-Pi Base
-<core_rules>...</core_rules>
-<professional_role>IPD Process Selector...</professional_role>
-<process_selection_protocol>...</process_selection_protocol>
-Skill Catalog: process-selection
-cwd
-```
-
-首轮唯一业务派发：
-
-```text
-<skill name="process-selection" ...>
-<完整 process-selection SKILL.md>
-</skill>
-
-<process_selection_assignment>
-Load the process-selection method, evaluate this TaskInput,
-inspect serious ProcessSpec candidates through the catalog tools,
-and submit one decision.
-
-TaskInput:
-<canonical TaskInput JSON>
-</process_selection_assignment>
-```
-
-ST 不会收到全部 ProcessSpec。它按需调用：
-
-```text
-search_process_specs
-  → <process_spec_search_results>候选摘要</process_spec_search_results>
-get_process_spec
-  → <process_spec>某个确定版本的完整规范</process_spec>
-submit_process_selection
-  → <submission_capture_result>...</submission_capture_result>
-```
-
-### 7.2 selected / blocked
-
-`selected`：提交精确 ProcessSpec ID/version、rationale 及合法引用。
-
-`blocked`：当缺少决定性事实或无现有规范真正适用时，提交 reason + unresolved fact refs。
-
-ST 不使用 `TASK_SCOPE.md`、节点 Contract 或 `ipd_current_round`，也不设计 Workflow、员工和依赖。
-
----
-
-## 8. Workflow Designer
-
-### 8.1 稳定上下文
-
-```text
-Pi Base
-<core_rules>...</core_rules>
-<professional_role>Project Shepherd...</professional_role>
-<workflow_design_protocol>...</workflow_design_protocol>
-Skill Catalog:
-  workflow-design
-  <当前 Run Skill>
-cwd
-```
-
-工具：
-
-```text
-read
-workflow_draft_open
-workflow_draft_read
-workflow_draft_apply
-workflow_draft_validate
-workflow_draft_submit
-search_agent_cards
-get_agent_card
-```
-
-### 8.2 方法准备轮
-
-Session 创建后先收到：
+**当前不存在单独的“方法准备轮”。**同一次首次 user 派发同时包含：
 
 ```text
 <skill name="workflow-design" ...>
-<完整 workflow-design SKILL.md>
+  完整方法 Skill 正文
 </skill>
-
-<workflow_design_method_request>
-Load the workflow design method. Do not submit a Workflow yet.
-</workflow_design_method_request>
-```
-
-这一轮只让 Designer 建立稳定设计方法，不提交 Workflow。
-
-### 8.3 首次正式设计轮
-
-```text
-<skill name="<run-skill>" ...>
-<完整 Run Skill SKILL.md>
-</skill>
-
 <workflow_design_assignment>
-Load the task-specific method, then design this Workflow.
-
-TaskInput:
-<完整 TaskInput>
-
-ProcessSelection:
-<冻结 ProcessSelection>
-
-ProcessSpec:
-<选中版本的完整 ProcessSpec>
-
-Available non-employee resources:
-<Skills 摘要 + Tool IDs + unavailable AgentCards + Mechanical Check schemas>
-
-Search and inspect AgentCards before binding employees.
-
-Compiler diagnostics:
-None
+  方法使用说明
+  可选业务 Skill 的 id/filePath，或明确说明没有业务 Skill
+  TaskInput: 完整原任务、材料描述、未决事实
+  ProcessSelection: 确切所选规范引用、理由和合法引用
+  ProcessSpec: 所选版本完整规范
+  Available non-employee resources: 资源摘要
+  搜索并检查员工的要求
+  Compiler diagnostics: 首次通常为 None
 </workflow_design_assignment>
 ```
 
-员工资产仍然按需发现：
+资源摘要目前含 `unavailableProfiles/environmentPolicy/skills/tools/toolDependencies/externalReadTools/unavailableAgentCards/mechanicalChecks/environmentProfiles`。员工全文通过 `search_agent_cards/get_agent_card` 渐进读取，不全库预载。材料只有描述和 reference 时，不等于 Designer 已读到正文；其 `read` 不能读任意任务文件。
+
+### 草稿工具与修订
+
+当前模型侧工具是：
 
 ```text
-search_agent_cards
-  → <agent_card_search_results>候选摘要</agent_card_search_results>
-get_agent_card
-  → <agent_selection_profile>完整选择画像</agent_selection_profile>
+read, ipd_read_context
+search_agent_cards, get_agent_card
+workflow_draft_open, workflow_draft_read
+workflow_draft_topology, workflow_draft_configure_nodes
+workflow_draft_outputs, workflow_draft_criteria, workflow_draft_inputs
+workflow_draft_reviews, workflow_draft_stages, workflow_draft_governance
+workflow_draft_coverage, workflow_draft_completion
+workflow_draft_validate, workflow_draft_submit
+report_workflow_design_blocked
 ```
 
-### 8.4 Draft 与 Compiler 修订
+共 14 个草稿工具：10 个领域编辑，加 open/read/validate/submit。模型编辑的是 **AuthoringDraft V2**，代码生成 **WorkflowDefinition V3**。旧 `workflow_draft_apply` 不是当前模型工具。
 
-Workflow 通过 draft tools 增量建立；工具结果均有独立标签，模型不需要靠聊天历史自己维护整份 JSON。
+草稿在 Runtime 管理的文件中持久化，不靠模型记忆整份 JSON。`read` 为有界视图，支持游标及超长项片段。工具结果使用 `<workflow_draft_result>` 或 `<workflow_draft_error>`。普通编辑/验证失败留在当前工具往返中修正。
 
-Compiler 拒绝后**不重新发送 TaskInput / ProcessSpec / Run Skill / asset summary**，而是在原 Designer Session 中追加：
+候选提交成功后结束派发。若外层 Compiler 要求修订，**同一活跃 Designer 实例的原 Session**追加：
 
-```text
+```xml
 <workflow_design_revision>
-Draft revision: 6
+
+Draft revision: 9
 
 Compiler diagnostics:
-/nodes/1/inputs/0: required approved input is missing an approval review node
+/nodes/produce: [实际诊断文字]
 
 Revise the existing draft and submit the corrected revision.
+
 </workflow_design_revision>
 ```
 
-Designer 再通过 `workflow_draft_read` 恢复当前权威草稿并局部修改。
+不会重复发送完整 TaskInput/ProcessSpec/Skill；旧任务仍在有效历史或原生压缩摘要中，草稿、规范项和资源可以按需再读。控制角色的原始任务**没有**像节点 TASK_SCOPE 一样永久放进系统段，因此不能承诺其全文在历史压缩后始终内联可见。
 
----
+设计派发阈值为 120 次工具调用、8 次工具错误；准备控制面最多接收 10 次设计修订。真正设计阻塞用 `report_workflow_design_blocked`，不是删除要求来消除诊断。
 
-## 9. Execution Node
+进程退出后的准备恢复复用持久 TaskInput、ProcessSelection、候选/草稿等；如果需要重新调用控制 Agent，会建立新的控制 Session 并发送首次完整任务。它不等同于执行节点的原 Session 恢复。旧草稿被关闭或协议不兼容时仍可能需要可信控制处理，不能靠模型另建草稿绕过。
 
-Execution 的关键区别是：**长期稳定的“为什么做 / 必须做什么 / 谁来做 / 怎样提交”放在 systemPrompt；当前轮实际拿到的输入版本和反馈只放在动态 round context。**
+## 5. 执行与评审节点的稳定上下文
 
-### 9.1 稳定 systemPrompt
+系统 addendum 只放 `common.md`。其余通过 Pi 原生 contextFiles，依次形成：
 
-```text
-Pi Base
-<core_rules>...</core_rules>
+| 文件（默认位于 /ipd/context） | 内容与来源 |
+|---|---|
+| `TASK_SCOPE.md` | 原始请求及 source、此节点显式绑定的 task-material 描述与位置、全部 unresolved facts。来自 `taskContextForNode()`。 |
+| `NODE_CONTRACT.md`（执行） | 目标、职责/非职责、工作要求、约束、静态输入、输出 ID/类型/用途/路径/证据/标准引用、标准全文及 Blocking/Authority、权限与环境说明。 |
+| `REVIEW_CONTRACT.md`（评审） | 目标、职责、被评输出与标准、允许返工节点、组合对象/推导关系/修复授权/决策政策、评审要求、约束、标准及权限环境说明。 |
+| `PROFESSIONAL_ROLE.md` | 冻结 AgentCard 的运行画像，不是选择画像全文。 |
+| `EXECUTION_PROTOCOL.md` 或 `REVIEW_PROTOCOL.md` | 对应 prompts 文件全文；提交、证据、补正、返工和控制权边界。 |
+
+每个节点是**四个文件**，不是五个；两种契约和协议按角色二选一。它们包在：
+
+```xml
 <project_context>
-  <project_instructions path=".../TASK_SCOPE.md">
-    <task_scope>...</task_scope>
-  </project_instructions>
-  <project_instructions path=".../NODE_CONTRACT.md">
-    <execution_contract>...</execution_contract>
-  </project_instructions>
-  <project_instructions path=".../PROFESSIONAL_ROLE.md">
-    <professional_role>...</professional_role>
-  </project_instructions>
-  <project_instructions path=".../EXECUTION_PROTOCOL.md">
-    <execution_protocol>...</execution_protocol>
-  </project_instructions>
-</project_context>
-Skill Catalog
-cwd
-```
-
-### 9.2 TASK_SCOPE 与 Contract 的区别
-
-`TASK_SCOPE.md` 只投影：
-
-- 原始任务；
-- 全部 objectives；
-- requirement coverage 指定给当前节点的 task requirements；
-- 当前节点显式绑定的 task materials；
-- 全部 unresolved facts。
-
-`NODE_CONTRACT.md` 只投影：
-
-- node ID / objective；
-- responsibilities / out of scope；
-- work requirements / constraints；
-- 静态 input 声明；
-- declared outputs；
-- acceptance criteria；
-- read/write/external-action 权限。
-
-这两个对象都在 Session 生命周期内保持稳定。
-
-### 9.3 每个 round 实际新增什么
-
-持久 user message 是一次真实派发；不包含反复通知的状态副本：
-
-```text
-<node_round_dispatch>
-Begin IPD work round write-brief:round:2.
-Dispatch: quality_rework.
-Apply the formal review requirements in ipd_current_round, preserving work that remains valid, then submit a complete revised candidate via submit_artifact. Review references: review-brief:round:1:review.
-</node_round_dispatch>
-```
-
-在 `before_agent_start` 中更新 `systemPromptOptions.sections.ipd_current_round`，由 Pi 生成系统 section 或系统增量；不是 user 消息：
-
-```text
-<ipd_current_round>
-{
-  "round_id": "write-brief:round:2",
-  "run_id": "run-001",
-  "node_id": "write-brief",
-  "generation": 0,
-  "dispatch": "quality_rework",
-  "inputs": [
-    {
-      "input_id": "approved-plan",
-      "submission_id": "plan:round:1:submission",
-      "output_id": "plan",
-      "approval_review_node_ids": ["review-plan"],
-      "sealed_root": ".../submissions/plan:round:1:submission",
-      "submission_record": ".../submission.json"
-    }
-  ],
-  "feedback": [{"type":"quality_rework","source_id":"review-brief:round:1:review","issue":"Correct the unsupported claim"}]
-}
-</ipd_current_round>
-```
-
-完整 Manifest / evidence 不内联，需要时从 `submission_record` 读取。
-### 状态与事件的实际位置
-
-`renderCurrentRoundContext` 返回包含 run_id、node_id、round_id、generation、dispatch、inputs、feedback 的 JSON；Pi 为 section 添加 XML 标签。状态在首次执行、恢复、返工或补正的真实派发边界更新一次。工具续接时不调用此更新逻辑。
-
-```text
-system：稳定契约 + ipd_current_round 当前有效状态
-user：一次明确派发（execute / review / resume / quality_rework / mechanical_rework / submission_correction）
-assistant：工具调用
-tool：真实结果
-assistant：继续执行（前面不再多一条 Runtime user）
-```
-
-Pi 把变更保存为原生系统增量；支持中途系统消息的 Provider 在原位收到增量，其他 Provider 得到合并后的系统提示词。原生压缩保留当前系统状态，不依赖一个 alreadyInjected 标志，也不删除有效返工要求。相同 section 内容不会产生重复系统变更。
-
-检索工具的实际结果附带 `retrieval_receipt`：source_id、原始结果接收时间 retrieved_at、本次续读时间 received_at、URLs、outcome、已物化路径。它是工具结果，不是新派发；时间不是来源发布日期，也不保证重新联网刷新。长文续读要求把 get_search_content 显式绑定进节点。
-
-### 9.4 Execution 的三种正式结果
-
-当前实现不再只有“交 Artifact”这一条路径。
-
-**A. 正常提交**
-
-```text
-submit_artifact
-```
-
-成功只表示候选参数被捕获，之后仍要经过封存、机械检查和可能的独立 review。
-
-**B. 正式业务阻塞**
-
-```text
-report_node_blocked
-```
-
-用于：必需事实、材料、权限、授权或其他业务条件当前无法取得，并且因此无法形成合法 Artifact。
-
-它不是 submission correction，也不是技术重试。提交内容包括：
-
-- `reason`；
-- `missing_conditions`；
-- `affected_requirement_ids`；
-- `attempted_actions`；
-- `evidence`；
-- `needed_to_resume`。
-
-Runtime 将该 round 和 node 正式记录为 blocked。
-
-**C. 非业务阻塞问题**
-
-- malformed submission → 同 round `submission_correction`；
-- mechanical FAIL → 新 round `mechanical_failure`；
-- Review REWORK → 新 round `quality_rework`；
-- 模型请求重试由原生 Pi 管理；耗尽后的技术故障暂停 Run，显式恢复原 Session/round，不注入第二套 `technical_retry`。
-
-这四者不要混用。
-
----
-
-## 10. Review Node
-
-Review 与 Execution 共用 Task Scope / role / current-round 机制，但 Contract、协议和权限不同。
-
-### 10.1 稳定 systemPrompt
-
-```text
-Pi Base
-<core_rules>...</core_rules>
-<project_context>
-  <task_scope>...</task_scope>
-  <review_contract>...</review_contract>
-  <professional_role>...</professional_role>
-  <review_protocol>...</review_protocol>
-</project_context>
-Skill Catalog
-cwd
-```
-
-`REVIEW_CONTRACT.md` 包含：
-
-- review node ID / objective；
-- responsibilities / out of scope；
-- exact target node/output；
-- semantic criteria；
-- allowed rework execution nodes；
-- review requirements / constraints；
-- 被评输入只读、私有检查目录可写的环境权限，以及实际绑定的检查工具。
-
-Docker Review 可以获得 AgentCard 和 Workflow 共同授权且后端支持的 write/edit/bash 工具，用于私有检查副本；不允许修改被评提交或执行外部写操作。Legacy 共享工作区仍禁止上述工具。
-
-### 10.2 当前 round
-
-```text
-<node_round_dispatch>
-Begin IPD work round review-brief:round:1.
-Dispatch: review.
-Review the exact input versions against the assigned criteria, then call submit_review.
-</node_round_dispatch>
-
-<ipd_current_round>
-{
-  "round_id": "review-brief:round:1",
-  "inputs": [
-    {
-      "input_id": "candidate",
-      "submission_id": "write-brief:round:1:submission",
-      "output_id": "brief",
-      "approval_review_node_ids": [],
-      "sealed_root": ".../write-brief:round:1:submission",
-      "submission_record": ".../submission.json"
-    }
-  ],
-  "feedback": []
-}
-</ipd_current_round>
-```
-
-Reviewer 检查 sealed Submission，而不是生产节点 workspace 中仍可变化的文件。
-
-正式工具只有：
-
-```text
-<Baseline 锁定的检查工具；Docker 可含私有工作区文件和 Bash 工具>
-submit_review
-```
-
-### 10.3 PASS / REWORK / BLOCKED
-
-- `PASS`：每项 assigned criterion 都是 PASS 且证据完整；Runtime 登记 Approval；
-- `REWORK`：本轮结束，Runtime 只让明确责任 execution node 进入返工；
-- `BLOCKED`：缺少评审所需的访问、材料、证据或验证条件；Review node 记录 blocked。
-
-如果 producer 重新提交新版本，Reviewer **复用原 Session** 开新 review round；旧意见仍留在 Session 历史与 Run 记录中，但新 PASS 必须针对新 Submission。
-
----
-
-## 11. 不同事件到底改变什么
-
-| 事件 | Session | round_id | 稳定 systemPrompt/context files | `ipd_current_round` |
-|---|---|---|---|---|
-| 首次 execution/review | 新建 | 新建 | 创建并固定 | 当前输入 + 空 feedback |
-| 提交协议补正 | 复用 | 不变 | 不变 | 追加 `submission_correction` |
-| 原生 Pi 模型重试 | 复用 | 不变 | 不变 | 不额外追加 IPD 重试反馈 |
-| Mechanical FAIL | 复用 | 新 round | 不变 | `mechanical_failure` |
-| Review REWORK 后返工 | 复用 execution Session | 新 round | 不变 | `quality_rework` |
-| 新 Submission 复审 | 复用 reviewer Session | 新 round | 不变 | 指向新 Submission |
-| execution `report_node_blocked` | 复用但当前轮结束 | 当前 round → blocked | 不变 | 无后续自动 round |
-| 输入版本失效 | 先 abort 当前活动 | 旧 round 失效 | 不变 | 新 round 重新绑定 |
-| Run 成功 | release | - | Session 释放 | 无后续请求 |
-| Session lost | 不创建新 Session 冒充恢复 | 当前工作失败 | 磁盘记录保留 | 无合法续跑 |
-
-提交补正与质量返工是两个完全不同的概念：前者修“结构化提交协议”，后者修“交付质量”。
-
----
-
-## 12. Session 历史、Skill 与长上下文
-
-IPD 不自己重写 Pi 的 Session History，也不建立第二套 memory 系统。
-
-长期可靠性来自三层：
-
-```text
-稳定 systemPrompt/context files
-        +
-持续 AgentSession 历史
-        +
-由 Pi 保留、仅在真实派发时更新的 ipd_current_round 系统 section
-```
-
-正式输入和 evidence 保存在 sealed Submission 中；即便对话历史被压缩，模型仍可通过 `submission_record` 回到正式源。
-
-历史图片、重试和上下文压缩由原生 Pi 管理。IPD 不再根据后续 assistant 回复推断图片已被消费或自行删除图片；当前 round section 随原生系统状态保存、恢复；普通工具续接不会改变它，也不会追加 Runtime user 消息。
-
----
-
-## 13. 当前默认不会进入模型的内容
-
-默认不全量注入：
-
-- 全部 AgentCard 库；
-- 全部 ProcessSpec 库；
-- 未绑定 Skills / Tools / Knowledge Bases / 用户 Extensions；
-- Workflow 原始完整 JSON 到 execution/review 节点；
-- ExecutionBaseline 内部 Hash 与资产来源路径；
-- 其他节点 Session 历史；
-- 完整 Submission Manifest/evidence；
-- Runtime 内部事件全集；
-- 外层 Pi 完整对话历史。
-
-需要的资产通过 catalog tools 查，需要的提交细节通过 `submission_record` 查。
-
----
-
-## 14. 可还原的完整请求示例
-
-本节不再把 `common.md`、四类 protocol 和 AgentCard 全文复制四遍。那样虽然“看起来完整”，但会造成 README 与真实文件重复维护，并让读者难以看清结构。
-
-这里采用**可还原完整示例**：所有 IPD 自己生成的动态块、装配顺序、消息顺序、工具集合都具体展开；静态正文用其唯一权威文件名标识。把对应文件正文原样替换进去，即得到真实 Provider 请求。
-
-示例任务：基于 `market-sources.md` 形成一份经过独立评审的市场简报。
-
-### 14.1 Process Selector
-
-```text
-SYSTEM PROMPT
-
-<PI_BASE generated by Pi>
-
-<core_rules>
-  exact content of prompts/common.md
-</core_rules>
-
-<professional_role>
-  exact Runtime profile rendered from ipd-process-selector AgentCard
-</professional_role>
-
-<process_selection_protocol>
-  exact content of prompts/process-selector.md
-</process_selection_protocol>
-
-<Skill Catalog>
-  process-selection → locked SKILL.md path
-
-Current working directory: /repo/.pi/ipd/runs/run-001/workspace
-```
-
-Provider 首条 user message：
-
-```text
-<skill name="process-selection" location=".../process-selection/SKILL.md">
-  exact locked process-selection SKILL.md body
-</skill>
-
-<process_selection_assignment>
-Load the process-selection method, evaluate this TaskInput, inspect serious ProcessSpec candidates through the catalog tools, and submit one decision.
-
-TaskInput:
-{"schema_version":1,"task_input_id":"request-001","raw_task":{"text":"Create a reviewed market brief.","source":"external-agent-request"},"objectives":[],"requirements":[],"materials":[],"unresolved_facts":[]}
-</process_selection_assignment>
-```
-
-Provider tools：
-
-```text
-read
-search_process_specs
-get_process_spec
-submit_process_selection
-```
-
-典型后续消息：
-
-```text
-assistant → search_process_specs
- tool     → <process_spec_search_results>...</process_spec_search_results>
-assistant → get_process_spec
- tool     → <process_spec>...</process_spec>
-assistant → submit_process_selection
- tool     → <submission_capture_result>...</submission_capture_result>
-```
-
-### 14.2 Workflow Designer
-
-```text
-SYSTEM PROMPT
-
-<PI_BASE generated by Pi>
-
-<core_rules>
-  exact prompts/common.md
-</core_rules>
-
-<professional_role>
-  exact Runtime profile rendered from Project Shepherd AgentCard
-</professional_role>
-
-<workflow_design_protocol>
-  exact prompts/workflow-designer.md
-</workflow_design_protocol>
-
-<Skill Catalog>
-  workflow-design → locked SKILL.md
-  market-brief    → locked Run Skill SKILL.md
-
-Current working directory: /repo/.pi/ipd/runs/run-001/workspace
-```
-
-第一条 user message：
-
-```text
-<skill name="workflow-design" location=".../workflow-design/SKILL.md">
-  exact locked workflow-design SKILL.md body
-</skill>
-
-<workflow_design_method_request>
-Load the workflow design method. Do not submit a Workflow yet.
-</workflow_design_method_request>
-```
-
-第二条正式设计 user message：
-
-```text
-<skill name="market-brief" location=".../market-brief/SKILL.md">
-  exact locked Run Skill SKILL.md body
-</skill>
-
-<workflow_design_assignment>
-Load the task-specific method, then design this Workflow.
-
-TaskInput:
-{"schema_version":1,"task_input_id":"request-001","raw_task":{"text":"Create a reviewed market brief.","source":"external-agent-request"},"objectives":[],"requirements":[],"materials":[],"unresolved_facts":[]}
-
-ProcessSelection:
-{"schema_version":1,"process_selection_id":"run-001:selection","run_id":"run-001","task_input_ref":{"id":"request-001","hash":"<task-hash>"},"process_spec_ref":{"id":"project-reviewed-content-delivery","version":"1.0.0","hash":"<spec-hash>"},"rationale":"The task requires controlled content production and independent quality review before delivery.","task_requirement_refs":[],"process_requirement_refs":["content-development","inspection-validation"],"unresolved_fact_refs":[]}
-
-ProcessSpec:
-<选中版本的完整 ProcessSpec JSON>
-
-Available non-employee resources:
-<当前 Skills 摘要、Tool IDs、unavailable AgentCards、Mechanical Check schemas>
-
-Search and inspect AgentCards before binding employees.
-
-Compiler diagnostics:
-None
-</workflow_design_assignment>
-```
-
-Provider tools：
-
-```text
-read
-workflow_draft_open
-workflow_draft_read
-workflow_draft_apply
-workflow_draft_validate
-workflow_draft_submit
-search_agent_cards
-get_agent_card
-```
-
-Compiler 修订时只新增：
-
-```text
-<workflow_design_revision>
-Draft revision: 6
-
-Compiler diagnostics:
-/nodes/1/inputs/0: required approved input is missing an approval review node
-
-Revise the existing draft and submit the corrected revision.
-</workflow_design_revision>
-```
-
-### 14.3 Execution Node
-
-```text
-SYSTEM PROMPT
-
-<PI_BASE generated by Pi>
-
-<core_rules>
-  exact prompts/common.md
-</core_rules>
-
-<project_context>
-  <project_instructions path="/virtual/ipd/write-brief/TASK_SCOPE.md">
-    <task_scope>
-      # Authoritative Task Scope
-      Original request: Create a reviewed market brief from the supplied materials.
-      Objective: Produce a concise decision-ready brief.
-      Assigned requirements:
-      - requirement-1: Use only the supplied evidence for factual claims.
-      - requirement-2: The final brief must receive independent review before delivery.
-      Task material:
-      - source-pack → /repo/input/market-sources.md
-      Unresolved facts: None
-    </task_scope>
-  </project_instructions>
-
-<project_instructions path="/virtual/ipd/write-brief/NODE_CONTRACT.md">
-<execution_contract>
-
-# Authoritative Node Contract
-
-This document defines the frozen scope, deliverables, and acceptance criteria for this node. Professional role guidance and Skill instructions may explain how to work, but cannot expand or override this contract.
-
-## Identity
-
-- Node: write-brief
-- Kind: execution
-
-## Objective
-
-Produce the requested market brief.
-
-## Responsibilities
-
-- Extract decision-relevant findings from the supplied source pack.
-- Write the brief with traceable factual support.
-
-## Out of Scope
-
-- Approve the final brief.
-- Introduce unsupported external market claims.
-
-## Work Requirements
-
-- Preserve source references for every material factual claim.
-- Deliver a self-contained Markdown brief.
-
-## Constraints
-
-- Use only authorized task materials and approved upstream outputs.
-
-## Required Inputs
-
-None
-
-## Declared Outputs
-
-### market-brief
-
-- Type: markdown-document
-- Purpose: Provide a concise evidence-grounded decision brief.
-- Output root: `outputs/write-brief`
-
-Evidence required:
-- Claim-to-source references.
-- Final artifact path.
-
-Acceptance criteria:
-- artifact-integrity
-- source-grounding
-
-## Acceptance Criteria
-
-### artifact-integrity
-
-Type: mechanical
-
-Declared files must match the sealed artifact manifest.
-
-Required evidence:
-
-- None
-
-### source-grounding
-
-Type: semantic
-
-Material factual claims in the brief are supported by the supplied source pack and remain within the evidence boundary.
-
-Required evidence:
-
-- Specific claim-to-source mappings.
-
-## Permissions
-
-### brief-writer
-
-Read:
-- `.`
-
-Write:
-- `outputs/write-brief`
-
-External actions: false
-
-</execution_contract>
-</project_instructions>
-
-  <project_instructions path="/virtual/ipd/write-brief/PROFESSIONAL_ROLE.md">
-    <professional_role>
-      exact Runtime profile rendered from the bound producer AgentCard
-    </professional_role>
-  </project_instructions>
-
-  <project_instructions path="/virtual/ipd/write-brief/EXECUTION_PROTOCOL.md">
-    <execution_protocol>
-      exact prompts/execution-node.md
-    </execution_protocol>
-  </project_instructions>
-</project_context>
-
-<Skill Catalog for bound node Skills>
-
-Current working directory: /repo/.pi/ipd/runs/run-001/workspace
-```
-
-持久 user message：
-
-```text
-<node_round_dispatch>
-Begin IPD work round write-brief:round:1.
-Dispatch: execute.
-Execute the frozen contract and call submit_artifact when the complete candidate is ready.
-</node_round_dispatch>
-```
-
-本次派发之前更新的系统 section（Pi 原生保留，不逐工具调用重新通知）：
-
-```text
-<ipd_current_round>
-{"round_id":"write-brief:round:1","inputs":[],"feedback":[]}
-</ipd_current_round>
-```
-
-Provider tools：
-
-```text
-<Baseline 锁定业务工具，例如 read / write / edit>
-submit_artifact
-report_node_blocked
-```
-
-若业务条件缺失，模型可以正式提交：
-
-```json
-report_node_blocked({
-  "reason": "The required source pack cannot be read",
-  "missing_conditions": ["Readable access to /repo/input/market-sources.md"],
-  "affected_requirement_ids": ["requirement-1"],
-  "attempted_actions": ["Attempted to read the bound task material"],
-  "evidence": [],
-  "needed_to_resume": ["Provide readable access to the bound source pack"]
-})
-```
-
-这会形成正式 business block，而不是不断触发 `submit_artifact` 补正。
-
-### 14.4 Review Node
-
-```text
-SYSTEM PROMPT
-
-<PI_BASE generated by Pi>
-
-<core_rules>
-  exact prompts/common.md
-</core_rules>
-
-<project_context>
-
 Project-specific instructions and guidelines:
 
-<project_instructions path="/virtual/ipd/review-brief/TASK_SCOPE.md">
+<project_instructions path="/ipd/context/TASK_SCOPE.md">
 <task_scope>
-
-# Authoritative Task Scope
-
-This document preserves the task basis relevant to this node. It explains why this work exists; the node contract separately defines what this node must deliver.
-
-## Original Request
-
-Create a reviewed market brief.
-
-Source: external-agent-request
-
-## Objectives
-
-None
-
-## Assigned Requirements
-
-None
-
-## Task Materials
-
-None
-
-## Unresolved Facts
-
-None
-
+[完整任务范围]
 </task_scope>
 </project_instructions>
 
-  <project_instructions path="/virtual/ipd/review-brief/REVIEW_CONTRACT.md">
-    <review_contract>
-      # Authoritative Review Contract
-      Node: review-brief
-      Review target: write-brief / brief
-      Evaluate criteria:
-      - brief-quality
-      Allowed rework target:
-      - write-brief
-      Permissions:
-      - Read: outputs/write-brief
-      - Write: None
-      - External actions: false
-    </review_contract>
-  </project_instructions>
-
-  <project_instructions path="/virtual/ipd/review-brief/PROFESSIONAL_ROLE.md">
-    <professional_role>
-      exact Runtime profile rendered from the bound reviewer AgentCard
-    </professional_role>
-  </project_instructions>
-
-  <project_instructions path="/virtual/ipd/review-brief/REVIEW_PROTOCOL.md">
-    <review_protocol>
-      exact prompts/review-node.md
-    </review_protocol>
-  </project_instructions>
+[其余三个文件，同样各有 project_instructions 与内部语义标签]
 </project_context>
-
-<Skill Catalog for bound reviewer Skills>
-
-Current working directory: /repo/.pi/ipd/runs/run-001/workspace
 ```
 
-持久 user message：
+这些文件在 Session 创建时直接进入系统提示词，**不需要模型先调用 read 才知道契约**。Docker prepare 阶段还会将相同内容物化到只读路径，因此模型确实可以再读它们。正常返工复用同一冻结配置；恢复创建 Session 对象时由冻结信息重建这些段。
+
+两个重要的投影边界：
+
+- `TASK_SCOPE.md` 保留完整原任务，不做模型摘要；材料只选当前节点声明的那部分，未决事实目前不按节点过滤。
+- 执行契约的输出渲染**没有单独内联 output.description 或 process_evidence_requirement_refs**；标准渲染也不展开完整 check parameters。关键作业要求应在 `contract.work_requirements` 中明确。不能将 Baseline 内存在某字段等同于模型已看到该字段全文。
+
+### 路径与权限不是同一个概念
+
+默认私有环境：
 
 ```text
+/workspace                              节点私有 cwd，可放中间工作
+/ipd/context                            只读任务/契约/角色/协议
+/ipd/inputs/<input_id>                   当前确切输入，受控只读
+/ipd/skills/<skill_id>/<hash>            已锁定 Skill，只读
+/workspace/outputs/...                  声明产物的常规位置
+```
+
+文件访问、Bash cwd 和产物导出分别治理；私有 workspace 中间文件不必全部声明为 Artifact。契约还列出冻结网络策略、项目内依赖安装方式、探针要求、私有评审副本和恢复后重启服务说明。
+
+Reviewer 可使用实际授权的 Bash/写工具在私有目录做检查、渲染并保存 `outputs/review-evidence/`，不能改封存输入或代替生产者交付。Legacy 共享工作区模式仍有更严格的评审写入限制；它不是 Docker 失败后的自动降级。
+
+任务材料 reference 若是实际绝对文件/目录路径，当前 Docker Worker 才在 prepare 中按输入 ID 绑定；任意 URL 或消息引用并不会自动变成下载后的文件。README 的路径示例不保证所有 reference 都已可读。
+
+源码：[节点上下文](../src/adapter/node-context.ts)、[Worker](../src/adapter/pi-node-worker.ts)、[任务投影](../src/runtime/runtime-state.ts)。
+
+## 6. 当前轮次状态与派发消息
+
+### 6.1 状态：ipd_current_round 系统段
+
+真实 dispatch 的 prepare 阶段调用 `renderCurrentRoundContext(work)`，然后在 `before_agent_start` 设置 `systemPromptOptions.sections.ipd_current_round`。Pi 为其加标签、与已有系统状态做差异比较。
+
+当前 JSON 字段是：
+
+```text
+run_id, node_id, round_id, generation, attempt_id, dispatch
+inputs[]
+  input_id, submission_id, output_id, approval_review_node_ids
+  revision_id, purpose, release_ids
+  consumption                         交接信息/文件导航/消费目标
+  sealed_root, submission_record       节点可读取位置
+feedback[]
+  type, source_id, criterion_id, output_id, issue
+  diagnostics, evidence_ref, expected_correction, finding_id
+findings                              当前分配的问题单
+review_bundle                         评审的确切对象、关系和决策政策
+preservable_outputs                   允许保留的输出版本
+governance_contract                   工作流 requirements/decisions 与相关 stages
+```
+
+不存在的可选值在序列化时省略。这里只列上游 Submission 绑定；task materials 在 TASK_SCOPE 和静态输入契约中。
+
+`consumptionView()` 基于 output.handoff，并标记 `producer_authored_summary`；导航来自 Manifest，另加当前节点 objective。它不是自动核验的语义摘要。Manifest 和证据全文不再默认复制进状态段，模型通过 `submission_record` 和精确输入文件按需读取。
+
+`governance_contract` 当前包含工作流完整 requirements/decisions，只有 stages 按节点相关性过滤；不能笼统声称所有治理信息都已最小化为节点局部子集。
+
+### 6.2 事件：一次 node_round_dispatch 用户消息
+
+[buildNodeRoundPrompt()](../src/runtime/node-prompts.ts) 只发送一次简短派发：
+
+```xml
 <node_round_dispatch>
-Begin IPD work round review-brief:round:1.
-Dispatch: review.
-Review the exact input versions against the assigned criteria, then call submit_review.
+
+Begin IPD work round produce:round:1.
+Dispatch: execute.
+Execute the frozen contract and call submit_artifact when the complete candidate is ready.
+
 </node_round_dispatch>
 ```
 
-独立的 current-round 系统 section：
+类型按此优先级选择：`submission_correction → resume → quality_rework → mechanical_rework → review/execute`。多类反馈可同时在状态中，派发名称不是反馈全集。
+
+一次派发内的实际消息关系：
 
 ```text
-<ipd_current_round>
-{
-  "round_id":"review-brief:round:1",
-  "inputs":[{
-    "input_id":"candidate",
-    "submission_id":"write-brief:round:1:submission",
-    "output_id":"brief",
-    "approval_review_node_ids":[],
-    "sealed_root":".../write-brief:round:1:submission",
-    "submission_record":".../submission.json"
-  }],
-  "feedback":[]
-}
-</ipd_current_round>
+system：首次系统状态，或本次发生变化的 system sections
+user：一次真实派发
+assistant：调用 read
+toolResult：文件内容
+assistant：调用 bash/write/其他获准工具
+toolResult：实际结果或错误
+assistant：继续工作或正式提交
 ```
 
-Provider tools：
+工具续接没有新 `user: ipd_current_round`。当前段持续有效，但不会被表达为 Runtime 反复确认本轮或重复发来评审通知。成功提交工具带 `terminate: true`，其回执写入会话后结束派发；不保证模型立刻再收到一次调用去“确认提交成功”。
+
+## 7. 补正、返工、阻塞与恢复
+
+| 场景 | 下一次模型请求看到什么 | Session / round |
+|---|---|---|
+| 首次执行 | 稳定四文件 + 当前输入/治理状态 + execute 派发 | 新 Session / round 1 |
+| 首次评审 | 评审四文件 + 精确候选输入、review bundle、Findings + review 派发 | 独立 Reviewer Session / round 1 |
+| 普通工具或原生参数校验失败 | 最新 toolResult 错误；其余状态不变 | 原 Session / 原 round，不重新派发 |
+| 提交工具内部预校验拒绝 | `submission_validation_result` 具体诊断；可查询 correction base | 当前派发中继续，原 round |
+| 捕获后导出/封存等协议失败 | system 更新 feedback.diagnostics 等，新增 submission_correction 派发 | 原 Session / 同 round；不是质量返工 |
+| 机械 FAIL | 新状态的 mechanical_failure 反馈 + mechanical_rework 派发 | 原生产者 Session / 新业务 round |
+| 正式质量返工或依赖失效后的修复 | 新绑定、Findings、quality_rework、可保留输出 + 返工派发 | 原责任节点 Session / 新业务 round |
+| 新候选复审 | 新候选版本、review bundle、当前 Findings + review 派发 | 原 Reviewer Session / 新评审 round |
+| 原生模型重试 | Pi 管理重试；不伪造新的 IPD 用户反馈 | 原派发内；耗尽后由 Runtime 分类 |
+| 显式 resume | 保留历史与文件、当前 Attempt/输入/反馈 + resume 派发 | 能恢复时原 Session ID / 原业务 round |
+| 配置了 soft deadline | 一条明确的保存进展 steering 指令 | 原派发，不是评审反馈；默认不启用 |
+| 执行提交 report_node_blocked | 捕获阻塞报告后结束；无自动等待反馈对话 | Runtime 记录阻塞，等待外部条件与恢复 |
+| 评审 BLOCKED | 提交标准级报告，说明无法判断的条件 | Runtime 决定暂停/阻塞及已知缺陷的修复 |
+
+### 补正工具不是另一套审批
+
+执行节点额外获得 `submit_artifact/report_node_blocked/submission_context/correct_submission`；评审节点获得 `submit_review/submission_context/correct_submission`。两者都有 `ipd_read_context`，业务工具仍由绑定决定。
+
+`submission_context` 的 evidence 模式对 Reviewer 返回允许的确切证据元组，对生产者返回输出范围和保留候选的声明文件。它不读取文件，也不证明文件存在或质量通过。
+
+协议拒绝后，correction 模式按指定 JSON Pointer 返回小范围字段和 `base_hash`。`correct_submission` 只修改保留负载，然后调用原提交校验；不是改文件、改标准或自动批准。它的基底按 Run/节点/参与者/round/契约/输入限定，且仅在内存保留；进程重启或新业务轮次不能保证可复用。原生 Schema 在工具执行前拒绝时也可能没有基底。
+
+`ArtifactValidationError.diagnostics[]` 已透传到 Runtime 补正反馈。业务阻塞 Schema 当前没有旧的 `affected_requirement_ids` 字段。
+
+### 质量反馈的含义
+
+Review 总体决策是 `PASS/REWORK/BLOCKED`，单条标准是 `PASS/FAIL/BLOCKED`。只有 blocking 标准影响总体放行；advisory FAIL 不等于整轮 REWORK。不能再写成“所有标准一律 PASS 才允许总体 PASS”。
+
+执行修复通过 `resolution_claims` 声明，Reviewer 通过标准内的 `finding_resolutions` 验证。旧 Review 过时不自动关闭问题单；历史讨论也不授权继续使用已失效输入。
+
+### 暂停与进程恢复
+
+正常暂停保留原 Session 文件、身份/历史边界和工作进度，环境进程可停止而文件保留。恢复校验冻结基线、输入、工作区、环境引用和 Session 身份；合法时用 `SessionManager.open()` 恢复，而不是重新建一个没有历史的员工冒充恢复。异常退出还需隔离旧执行、核对外部操作结果；未知副作用不能盲目重放。
+
+资料缺失、环境丢失、历史边界变化或外部结果未核对，仍可能拒绝恢复。默认 `roundTimeoutMs = 0`，没有隐式 20/30 分钟整轮期限；模型网络等待、原生重试和工具超时是独立配置。
+
+## 8. 长历史、图片与容量管理
+
+当前不是“发现超限就永远抛错”，也不是“无限保留全部历史内容在每次请求里”。
+
+1. Pi 原生 Session 保存消息，按可信配置管理 token 压缩、重试与图片处理。
+2. IPD 的 `context` hook 在每次请求构造有界工具证据视图：优先将较早的大文本/图片块替换为带 `entry_id/block` 的引用，保留原消息身份、工具调用及原始证据。
+3. `turn_end` 使用原生 `context_edit` 记录投影；原 ToolResult 仍在 Session 中，不是被虚构摘要替代。
+4. `ipd_read_context` 分页回读本 Session 分支的原文（默认最多 8,000 字符），图片一次一张；不重新执行原工具，也不读取别人的 Session。
+5. `before_provider_request` 对实际序列化 payload 检查字节与图片上限。局部可修时进一步缩减请求视图，通过 `agent_before_settle` 继续；最多两次修复，不重放派发或工具副作用。无法安全缩减则拒绝请求。
+
+默认本地工作预算是 **4 MiB/请求、8 图/请求、4 图/消息**；模型显式 inputLimits 或可信配置可使其更低。这不是宣称所有供应商 API 都有相同限额。投影初始将 messages 目标设为字节预算的 70%，但最终还需计算系统、工具定义和供应商包装后的实际请求。
+
+只替换可定位的工具内容，不任意删除用户任务、assistant 工具参数或系统契约。最新回读页要实际送达一次；单图过大或不可缩减的任务/Schema 太大仍可失败。token 容量与 HTTP 请求字节限制不是同一件事。
+
+原生压缩保留有效系统状态，节点任务/契约/当前输入不会仅依赖历史摘要；控制角色首条 user 中的 Skill 和任务则可能被摘要替代。恢复读取原文或原文件仍应遵守现有授权。
+
+外部只读服务结果还可能经 [external-read-results](../src/adapter/external-read-results.ts) 转换：受控 PDF 提取文件导入节点 workspace，返回节点路径及 `retrieval_receipt`。取回时间不是发布日期，续读也不保证重新联网。长文工具所需伴随工具仍须显式绑定。
+
+源码：[请求视图](../src/adapter/request-view.ts)、[请求准入](../src/adapter/provider-request-admission.ts)、[Session 设置](../src/adapter/session-policy.ts)。
+
+## 9. 可还原的请求示例
+
+以下是**结构示例，不是某次历史请求抓包，也不是可直接运行的工作流参数**。静态正文标记如 `[common.md 全文]` 表示从唯一源文件原样展开一次（正文已自带标签，不要重复包标签）。实际工具 Schema 由该 Session 的 ToolDefinition 提供，不在示例中重复数百行。
+
+### 9.1 Selector：同一派发的第二次模型请求
 
 ```text
-<Baseline 锁定的检查工具；Docker 可含私有工作区文件和 Bash 工具>
-submit_review
+system
+  Pi Base
+  <addendum>
+    [common.md 全文]
+    [Selector 的 professional_role]
+    [process-selector.md 全文]
+  </addendum>
+  <skills>[process-selection 的目录]</skills>
+  <cwd>/repo/.pi/ipd/runs/run-demo/workspace</cwd>
+  toolsAdded: read, search_process_specs, get_process_spec,
+              submit_process_selection, ipd_read_context
+
+user
+  <skill name="process-selection" location="/locked/process-selection/SKILL.md">
+  References are relative to /locked/process-selection.
+  [方法 Skill 正文]
+  </skill>
+  <process_selection_assignment>
+  Load the process-selection method, evaluate this TaskInput,
+  inspect serious ProcessSpec candidates through the catalog tools,
+  and submit one decision.
+  TaskInput:
+  [第 3 节的完整 TaskInput JSON]
+  </process_selection_assignment>
+
+assistant
+  search_process_specs({"query":"brief","limit":5})
+toolResult
+  <process_spec_search_results>
+  [候选 id、version、适用/排除条件与数量摘要]
+  </process_spec_search_results>
+
+→ 下一次模型继续检查候选；此处没有新的 Runtime user 消息。
 ```
 
-`submit_review` 的结构化决策使用：
+### 9.2 Designer：第一次与 Compiler 修订请求
 
 ```text
-Overall decision: PASS | REWORK | BLOCKED
-Per criterion: PASS | FAIL | BLOCKED
-Evidence identity: submission_id + node_id + output_id + criterion_id
-Failed criterion: required_rework + rework_targets[{node_id, output_id}]
+system
+  Pi Base + <addendum>[common + Designer 画像 + designer 协议]</addendum>
+  <skills>workflow-design；可选业务 Skill 的目录</skills>
+  <cwd>宿主 Run workspace</cwd>
+  toolsAdded: 第 4 节的完整工具集合
+
+user（一次，而非两个方法/业务回合）
+  <skill name="workflow-design" location="/locked/workflow-design/SKILL.md">
+  References are relative to /locked/workflow-design.
+  [方法 Skill 正文]
+  </skill>
+  <workflow_design_assignment>
+  [方法说明；无业务 Skill 时明确 absence is not a resource gap]
+  TaskInput: [完整 V2 JSON]
+  ProcessSelection: [完整 V2 JSON]
+  ProcessSpec: [所选规范完整 V2 JSON]
+  Available non-employee resources: [实际资源摘要]
+  Search and inspect AgentCards before binding employees.
+  Compiler diagnostics: None
+  </workflow_design_assignment>
+
+assistant / toolResult
+  搜索员工 → 读取画像 → 建立草稿 → 小范围编辑 → 验证 → submit
+
+若外层 Compiler 请求修订：
+  [保留上述有效历史；必要时已由 Pi 压缩]
+  user: <workflow_design_revision>修订号 + 实际诊断 + 修改要求</workflow_design_revision>
+  assistant: workflow_draft_read({"view":"nodes","node_ids":["produce"],"sections":["inputs"]})
+  toolResult: <workflow_draft_result>限定视图</workflow_draft_result>
+  → 继续局部修订，不重发全部背景，不重开第二份草稿。
 ```
 
-Review tool 本身只捕获候选；Approval、返工流转、下游放行仍由 Runtime 决定。
+### 9.3 Execution：首次、工具续接与质量返工
 
----
-
-## 15. 外层 Pi
-
-外层 Pi 不是上述四类角色的一部分。加载 IPD Extension 后，它多出：
+假设 `produce` 无上游 Submission，要求基于原任务内联事实写简报，未绑定业务 Skill：
 
 ```text
-ipd
-ipd_get_run
-ipd_cancel_run
-ipd_read_events
-ipd_get_result
+system
+  Pi Base
+  <addendum>[common.md 全文]</addendum>
+  <project_context>
+    TASK_SCOPE.md        原任务、source、空材料/未决事实
+    NODE_CONTRACT.md     produce 职责、outputs/produce、标准、权限/环境
+    PROFESSIONAL_ROLE.md 该员工运行画像
+    EXECUTION_PROTOCOL.md [execution-node.md 全文]
+    （实际逐文件 project_instructions 包装见第 5 节）
+  </project_context>
+  <cwd>/workspace</cwd>
+  <ipd_current_round>
+  {
+    "run_id":"run-demo",
+    "node_id":"produce",
+    "round_id":"produce:round:1",
+    "generation":0,
+    "attempt_id":"produce:round:1:attempt:1:term:1:scope:1",
+    "dispatch":"execute",
+    "inputs":[],
+    "feedback":[],
+    "findings":[],
+    "preservable_outputs":[],
+    "governance_contract":{}
+  }
+  </ipd_current_round>
+  toolsAdded: read, write, submit_artifact, report_node_blocked,
+              submission_context, correct_submission, ipd_read_context
+
+user
+  [第 6.2 节的 execute 派发]
+
+assistant / toolResult
+  write → 写入结果 → read → 自检内容 → submit_artifact → 候选捕获
 ```
 
-`ipd` 创建 Run 后，回执正文直接包含可打开的 `Visualization` 和 `Snapshot` URL，内部控制面在后台继续。
-外层对话是否继续，不是 Run 完成条件。
-
-IPD Tool 的返回文本也使用稳定标签：
+若 Reviewer 在正式评审中提出一个缺陷，下一次生产派发为：
 
 ```text
-<ipd_run_receipt>...</ipd_run_receipt>
-<ipd_run_status>...</ipd_run_status>
-<ipd_run_cancelled>...</ipd_run_cancelled>
-<ipd_run_events>...</ipd_run_events>
-<ipd_run_result>...</ipd_run_result>
+[原系统与该生产者有效历史保留]
+system.sections.ipd_current_round 更新为：
+  round_id: produce:round:2
+  attempt_id: 本轮真实 Attempt ID
+  dispatch: quality_rework
+  inputs: 本轮重新解析的合法输入
+  feedback: [{
+    type: "quality_rework",
+    source_id: 实际 Review ID,
+    criterion_id: "fidelity",
+    output_id: "brief",
+    issue: "将提议状态误写成已批准。",
+    expected_correction: "恢复原事实中的未批准限定。",
+    finding_id: 实际 Finding ID
+  }]
+  findings / preservable_outputs / governance_contract: 当前真实投影
+
+user
+  <node_round_dispatch>
+  Begin IPD work round produce:round:2.
+  Dispatch: quality_rework.
+  Apply the formal review requirements in ipd_current_round, preserving work
+  that remains valid, then submit a complete revised candidate via submit_artifact.
+  Review references: [实际 sourceId].
+  </node_round_dispatch>
+
+assistant → edit
+toolResult → 修改结果
+assistant → 自检或提交，不是再次确认收到一份新 feedback。
 ```
 
-内部 ProcessSpec、Workflow、AgentCard 和节点 Session 历史不会自动回灌进外层 Pi 对话。
+恢复同一 round 时则更新 generation/Attempt，以 resume 派发要求检查保留进展、不要盲目重放副作用。若只是提交字段补正，不进入 round 2；反馈类型和派发为 submission_correction。
 
----
+### 9.4 Reviewer：确切输入、评审 bundle 与协议补正
 
-## 16. 当前边界
+Reviewer 不继承生产者 Session：
 
-- Process Selector / Workflow Designer 没有 `ipd_current_round`；它们用自己的持续 Session 和控制消息。
-- Execution 已有正式 `report_node_blocked` 业务阻塞接口；Review 仍使用 `submit_review` 的 `BLOCKED` 表达评审阻塞。
-- 当前进程退出后无法恢复原存活 AgentSession；磁盘状态不等于 Session 连续性。
-- 默认 Bash 使用 Docker 私有环境；Review 可运行授权检查，原提交保持只读。Legacy 需要显式启用，不作为 Docker 失败的降级路径。
-- 生产环境当前不永久保存完整 Provider PromptTrace；测试通过 faux Provider 检查最终 `systemPrompt/messages/tools`。
+```text
+system
+  Pi Base + <addendum>[common.md 全文]</addendum>
+  <project_context>
+    TASK_SCOPE.md / REVIEW_CONTRACT.md /
+    PROFESSIONAL_ROLE.md / REVIEW_PROTOCOL.md
+  </project_context>
+  <skills>[若绑定检查 Skill，则列目录]</skills>
+  <cwd>/workspace</cwd>
+  <ipd_current_round>
+    run_id/node_id/round_id/generation/attempt_id: 本次评审身份
+    dispatch: review
+    inputs: [{
+      input_id: "candidate",
+      submission_id: "produce:round:1:attempt:1:term:1:scope:1:submission",
+      output_id: "brief",
+      revision_id: 实际输出版本,
+      purpose: "test_subject",
+      approval_review_node_ids: [],
+      release_ids: [],
+      consumption: 生产者交接说明与 Manifest 文件导航（不是质量证明）,
+      sealed_root: "/ipd/inputs/candidate",
+      submission_record: "/ipd/inputs/candidate/submission.json"
+    }]
+    feedback: []
+    findings: 当前分配的问题单
+    review_bundle: 确切对象版本、标准对象集合、关系、决策政策
+    preservable_outputs: []
+    governance_contract: 工作流治理来源及相关阶段
+  </ipd_current_round>
+  toolsAdded: [获准检查工具], submit_review, submission_context,
+              correct_submission, ipd_read_context
 
----
+user
+  <node_round_dispatch>
+  Begin IPD work round review-produce:round:1.
+  Dispatch: review.
+  Review the exact input versions against the assigned criteria, then call submit_review.
+  </node_round_dispatch>
 
-## 17. 代码索引
+assistant → read("/ipd/inputs/candidate/submission.json")
+toolResult → 该输出范围内记录
+assistant → 读取实际文件 / 获准的副本检查 / submission_context
+toolResult → 实际证据或允许引用的确切标识符
+assistant → submit_review
+```
 
-| 内容 | 实现 |
+`candidate` 是示例显式 input ID；Authoring V2 自动生成的评审输入通常是 `reviewin-<hash>`，应复制真实状态中的路径。
+
+如果误把标准证据绑定到未分配的输出，工具拒绝并返回诊断；模型在当前派发内读 correction base，修正字段，再走完整校验。若捕获之后 Runtime 的证据封存或 Finding 校验才失败，则新增一次同 round 的 submission_correction 派发。新版本复审时，历史保留，但 inputs/review_bundle 指向新版本；旧结论不是新版本的批准。
+
+## 10. 外层 Pi、模板与不会自动注入的内容
+
+外层 Pi 保留它自己的用户历史和配置，不是内部 Selector/Designer/员工。IPD 扩展注册 `ipd`、`ipd_get_run`、`ipd_read_events`、`ipd_get_result`、`ipd_cancel_run` 和外部操作核对工具；`/ipd` 是交互命令，不是某个节点内的递归工作流权限。
+
+`ipd` 创建参数为必需 `request_id/task` 与可选 `skill_name/materials`。task 保留用户原文；materials 是用户提供的材料，不包含 Skill 文件或推断的新要求。外层入口生成 TaskInput V2，默认 `unresolved_facts: []`；其他可信程序入口可显式提供未决事实。
+
+选择了流程规范模板时，可跳过 Selector；同时选择合法工作流模板时，可跳过 Designer。仍须经过绑定、校验和冻结，不是绕过治理直接执行任意 JSON。因此这类 Run 可能没有任何控制角色模型请求。
+
+执行/评审默认不全量收到：
+
+- 外层 Pi 或其他节点的 Session 历史；
+- 完整 ProcessSpec、全部员工库或未绑定 Skill；
+- 整个 Workflow/Baseline、调度状态或全量事件；
+- 上游未授权输出或生产者仍可变的私有工作区；
+- 完整 Manifest/证据正文（提供精确按需读取入口）；
+- 未绑定知识库（当前非空知识库绑定直接被 Compiler 拒绝）。
+
+这不意味着所有提示内容都是局部最小集合：完整原任务、全部未决事实和工作流 requirements/decisions 仍可能进入节点上下文，详见第 5、6 节。
+
+## 11. 文件、标签和验证入口
+
+### 文件与中文镜像
+
+| 英文运行源 | 中文译文 |
 |---|---|
-| Pi systemPrompt 顺序 | [system-prompt.ts](../../coding-agent/src/core/system-prompt.ts) |
-| Prompt 标签 | [block.ts](../src/prompt/block.ts) |
-| 节点 Task Scope / Contract / current round | [node-context.ts](../src/adapter/node-context.ts) |
-| 节点 round 派发 | [node-prompts.ts](../src/runtime/node-prompts.ts) |
-| AgentCard Runtime / Selection 两种投影 | [render-agent-profile.ts](../src/adapter/render-agent-profile.ts) |
-| Session 资源和工具装配 | [pi-node-session-factory.ts](../src/adapter/pi-node-session-factory.ts) |
-| 节点 Session 复用 | [node-session-adapter.ts](../src/adapter/node-session-adapter.ts) |
-| Selector / Designer Session | [pi-control-roles.ts](../src/control/pi-control-roles.ts) |
-| 控制角色派发文本 | [control-role-prompts.ts](../src/control/control-role-prompts.ts) |
-| ProcessSpec / AgentCard 目录工具 | [asset-catalog-tools.ts](../src/control/asset-catalog-tools.ts) |
-| Workflow Draft 工具 | [workflow-draft-tools.ts](../src/control/workflow-draft-tools.ts) |
-| Artifact / Review / Business Block 提交 Schema | [structured-submissions.ts](../src/adapter/structured-submissions.ts) |
-| Runtime 补正、评审、返工、business block | [workflow-runtime.ts](../src/runtime/workflow-runtime.ts) |
-| 结构化反馈 | [runtime-state.ts](../src/runtime/runtime-state.ts) |
+| `prompts/common.md` 与四个角色协议 | `prompts/zh/` 同名文件 |
+| `assets/skills/process-selection/` | `assets/zh/skills/process-selection/` |
+| `assets/skills/workflow-design/` | `assets/zh/skills/workflow-design/` |
+
+中文目录是完整结构的阅读镜像，包括 references；运行时 `loadPrompt()` 仍读取英文目录，不自动切换语言。仓库现有 `.gitignore` 忽略 `zh/`，所以本地译文不会自动出现在普通 Git 状态中；本轮没有改变该策略。
+
+提示词读取会 trim 首尾空白。执行/评审协议及节点 common 在模块加载时缓存；Skill 包在接受/编译时锁定内容。编辑文件后，应重启 Pi 并创建使用新资产的 Run 来验证，不应期待已有 Session 或冻结 Run 自动更新。
+
+### 标签清单
+
+| 来源 | 实际标签/形式 |
+|---|---|
+| 通用、角色协议 | `core_rules`、`process_selection_protocol`、`workflow_design_protocol`、`execution_protocol`、`review_protocol` |
+| 画像 | `professional_role`、`agent_selection_profile` |
+| 任务/契约 | `task_scope`、`execution_contract`、`review_contract` |
+| 派发 | `process_selection_assignment`、`workflow_design_assignment`、`workflow_design_revision`、`node_round_dispatch` |
+| 轮次 | Pi 原生 section 包装的 `ipd_current_round` |
+| 目录 | `process_spec_search_results`、`process_spec`、`agent_card_search_results` 及相应 lookup_error |
+| 草稿 | `workflow_draft_result`、`workflow_draft_error` |
+| 提交 | `submission_capture_result`、`submission_validation_result` |
+| 原生结构 | `addendum`、`project_context/project_instructions`、`skills/available_skills`、`cwd`、显式展开的 `skill` |
+
+并非每个工具结果都有 XML 标签：`submission_context`、补正错误、请求视图引用等使用 JSON 或普通文本。标签便于辨认，不是权限校验器，也不能把其中的数据自动升级成指令。
+
+### 代码与测试索引
+
+| 关注点 | 入口 |
+|---|---|
+| 静态 prompt 与画像 | [prompt-loader](../src/adapter/prompt-loader.ts)、[render-agent-profile](../src/adapter/render-agent-profile.ts) |
+| 控制派发与 Session | [control-role-prompts](../src/control/control-role-prompts.ts)、[pi-control-roles](../src/control/pi-control-roles.ts) |
+| 草稿字段和结果 | [workflow-draft-schema](../src/control/workflow-draft-schema.ts)、[workflow-draft-tools](../src/control/workflow-draft-tools.ts) |
+| 工厂、资源、恢复 | [pi-node-session-factory](../src/adapter/pi-node-session-factory.ts)、[pi-node-worker](../src/adapter/pi-node-worker.ts) |
+| 稳定与动态节点上下文 | [node-context](../src/adapter/node-context.ts)、[node-prompts](../src/runtime/node-prompts.ts) |
+| 轮次与 Runtime 补正 | [workflow-runtime](../src/runtime/workflow-runtime.ts)、[node-session-adapter](../src/adapter/node-session-adapter.ts) |
+| 提交预校验与局部补正 | [structured-submissions](../src/adapter/structured-submissions.ts)、[submission-context](../src/adapter/submission-context.ts)、[submission-correction-tool](../src/adapter/submission-correction-tool.ts) |
+| 真实原生 Session 的无模型费测试 | [native-session-contract.test](../test/native-session-contract.test.ts)、[submission-correction-session.test](../test/submission-correction-session.test.ts) |
+| 控制消息/节点投影测试 | [control-role-prompts.test](../test/control-role-prompts.test.ts)、[node-context.test](../test/node-context.test.ts) |
+| 草稿协议测试 | [workflow-draft.test](../test/workflow-draft.test.ts) |
+
+Session JSONL 包含原始消息、系统段/工具声明、原生 context edits/compaction；Run 状态还有部分请求容量观测。它们有助于还原，但不等于逐次保存了供应商序列化后的完整 HTTP 请求。历史请求分析应核对当时加载的代码/资产/配置，不能用当前 README 代替抓包证据。
