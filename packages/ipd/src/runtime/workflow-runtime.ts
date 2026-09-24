@@ -625,6 +625,8 @@ export class WorkflowRuntime {
 				draft.status = "running";
 				delete draft.interruption;
 				delete draft.failure;
+				// The previous preservation receipt does not describe this resumed execution.
+				delete draft.cleanup;
 				for (const node of draft.nodes)
 					if (["paused", "blocked"].includes(node.status)) {
 						node.resumeRoundId = draft.rounds.filter((round) => round.nodeId === node.nodeId).at(-1)?.roundId;

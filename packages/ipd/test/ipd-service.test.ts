@@ -613,6 +613,17 @@ describe("IpdService", () => {
 			description: "Test Skill",
 			allowedTools: [],
 		};
+		let allowExecution!: () => void;
+		const executionGate = new Promise<void>((resolve) => {
+			allowExecution = resolve;
+		});
+		let allowCleanup!: () => void;
+		const cleanupGate = new Promise<void>((resolve) => {
+			allowCleanup = resolve;
+		});
+		const releaseRun = vi.fn(async () => {
+			await cleanupGate;
+		});
 		const oldAttemptId = "produce:round:1:attempt:1:term:1:scope:1";
 		const oldCommandId = `${oldAttemptId}:dispatch`;
 		await store.create({
@@ -693,6 +704,7 @@ describe("IpdService", () => {
 		});
 		const worker: NodeWorker = {
 			async runExecution() {
+				await executionGate;
 				const path = join(directory.workspace, "outputs", "produce");
 				await mkdir(path, { recursive: true });
 				await writeFile(join(path, "result.txt"), "recovered");
@@ -734,6 +746,7 @@ describe("IpdService", () => {
 					unresolved_issues: [],
 				};
 			},
+			releaseRun,
 		};
 		const checks = new CheckExecutorRegistry();
 		checks.add(createArtifactIntegrityCheckExecutor());
@@ -756,23 +769,42 @@ describe("IpdService", () => {
 				}),
 		});
 
-		await service.resumeRun(fixture.runId);
-		await expect.poll(async () => (await service.getRun(fixture.runId)).status).toBe("succeeded");
-		await expect.poll(async () => (await service.getRun(fixture.runId)).cleanup?.status).toBe("complete");
-		const recovered = await service.getRun(fixture.runId);
-		expect(recovered.attempts).toHaveLength(3);
-		expect(recovered.attempts[0]).toMatchObject({ attemptId: oldAttemptId, status: "superseded" });
-		expect(recovered.dispatchIntents[0]).toMatchObject({
-			commandId: oldCommandId,
-			status: "cancelled",
-			deliveryCount: 0,
-		});
-		expect(recovered.attempts.filter((attempt) => attempt.nodeId === "produce").at(-1)).toMatchObject({
-			index: 2,
-			controllerTerm: 2,
-			scopeEpoch: 2,
-			status: "completed",
-		});
-		expect(recovered.events.some((event) => event.type === "pending_dispatch_recovered")).toBe(true);
+		try {
+			await service.resumeRun(fixture.runId);
+			// The recovery receipt must not survive into the new execution.
+			expect((await service.getRun(fixture.runId)).cleanup).toBeUndefined();
+			allowExecution();
+			await expect.poll(() => releaseRun.mock.calls.length).toBe(1);
+			expect(await service.getRun(fixture.runId)).toMatchObject({
+				status: "succeeded",
+				cleanup: { status: "pending" },
+			});
+			expect(service.ownsRun(fixture.runId)).toBe(true);
+			allowCleanup();
+			// Wait for the service's final write and ownership release, not a stale disk flag.
+			await expect.poll(() => service.ownsRun(fixture.runId)).toBe(false);
+			const recovered = await service.getRun(fixture.runId);
+			expect(recovered).toMatchObject({ status: "succeeded", cleanup: { status: "complete" } });
+			expect(recovered.attempts).toHaveLength(3);
+			expect(recovered.attempts[0]).toMatchObject({ attemptId: oldAttemptId, status: "superseded" });
+			expect(recovered.dispatchIntents[0]).toMatchObject({
+				commandId: oldCommandId,
+				status: "cancelled",
+				deliveryCount: 0,
+			});
+			expect(recovered.attempts.filter((attempt) => attempt.nodeId === "produce").at(-1)).toMatchObject({
+				index: 2,
+				controllerTerm: 2,
+				scopeEpoch: 2,
+				status: "completed",
+			});
+			expect(recovered.events.some((event) => event.type === "pending_dispatch_recovered")).toBe(true);
+		} finally {
+			// Also settle the fixture when an assertion fails, before afterEach removes its root.
+			allowExecution();
+			allowCleanup();
+			await expect.poll(() => service.ownsRun(fixture.runId)).toBe(false);
+			await service.close();
+		}
 	});
 });
