@@ -1,0 +1,330 @@
+schema_version: 2
+process_spec_id: project-controlled-document-reconciliation
+version: 1.0.0
+name: Controlled Document Applicability and Change-Impact Assessment
+description: >-
+  A governed assessment process for determining which documented requirements, procedures, controls, or configuration
+  provisions apply within an explicitly defined organizational and temporal scope. It establishes a traceable source
+  basis, reconciles authority and conditional applicability, evaluates related changes and their consequences, and
+  delivers a verified assessment. Typical uses include procedure consolidation, policy or contract-amendment analysis,
+  configuration-status assessment, and documented change-impact reviews. The process separates source facts,
+  interpretive decisions, and proposed actions; it does not itself authorize changes to the underlying operation.
+source: >-
+  Project-derived process, not an official Huawei internal IPD template. It adapts the baseline, controlled-change,
+  review, and end-to-end traceability principles described in Huawei Cloud CodeArts Req public documentation:
+  https://support.huaweicloud.com/intl/zh-cn/productdesc-projectman/projectman_07_3003.html and
+  https://support.huaweicloud.com/intl/zh-cn/productdesc-projectman/projectman_07_3002.html.
+  The document-applicability activities, evidence requirements, and assessment criteria below are project-authored
+  engineering adaptations; the cited sources do not prescribe a universal document hierarchy or legal interpretation.
+default_executable: true
+
+applicable_when:
+  - >-
+    The requested result is a consolidated account of applicable documented provisions or their change impacts,
+    rather than a simple summary of individual files.
+  - >-
+    The assessment depends on reconciling multiple sources, revisions, approvals, applicability conditions, or
+    linked records, and the result must be independently inspectable.
+  - >-
+    The assignment and authorized source materials identify the assessment subject, relevant scope, temporal
+    perspective, and expected delivery, or provide enough evidence to establish these without inventing facts.
+  - >-
+    The work can be completed as a document-and-record assessment using authorized evidence and available
+    inspection methods, without requiring unprovided operational measurements or external adjudication.
+not_applicable_when:
+  - >-
+    Only a brief explanation, uncomplicated extraction, format conversion, or other low-risk single-source task
+    is required, with no material applicability or version-reconciliation problem.
+  - >-
+    The main task is to create a new policy, implement a software or operational change, conduct live compliance
+    testing, or issue a legally binding determination rather than assess the supplied documentary basis.
+  - >-
+    Essential authority, assessment scope, or source authenticity cannot be established from authorized evidence,
+    and the requested result requires certainty that the available materials cannot support.
+
+required_activities:
+  - activity_id: establish-assessment-basis
+    description: >-
+      Establish the assessment boundary and source basis. The assessment owner and document-control responsibility
+      identify the requested subject, organizations or locations, roles or populations, cutoff and comparison periods,
+      expected result, and access limits. Distinguish the date being assessed from any cutoff on evidence that may
+      be used. Inventory relevant source documents and supporting records, preserving
+      identity, location, revision, approval or issuance status, and distinct dates where provided. Record the
+      authority and applicability rules stated by the assignment or governing materials; do not infer precedence
+      from filenames, retrieval order, or apparent strictness. Identify material ambiguities and unavailable records
+      before extensive analysis. The result is ready when another analyst can identify the governing question and
+      retrieve the evidence needed to address it without guessing hidden assumptions.
+    required_capabilities:
+      - requirements-analysis
+
+  - activity_id: determine-contextual-applicability
+    description: >-
+      Determine applicability at the level actually amended or constrained, such as a clause, step, warning, field,
+      or parameter. The evidence-analysis responsibility extracts operative provisions and resolves competing
+      candidates against the established authority, scope, dates, and stated prerequisites. Preserve unchanged
+      portions when a change is partial. Separate document issuance, approval, effectivity, withdrawal, and the
+      satisfaction of conditional prerequisites; a recent or higher-authority document does not by itself prove
+      every provision is operative for every subject. Record supported winners, non-applicable or superseded
+      alternatives, and unresolved conflicts with exact source locations. Do not import professional assumptions
+      as additional rules. Submit once the requested provision population has been addressed with sufficient
+      evidence, not after accumulating an arbitrary number of sources or repeated paraphrases.
+    required_capabilities:
+      - evidence-synthesis
+
+  - activity_id: reconcile-relations-and-impacts
+    description: >-
+      Reconcile the applicability findings with referenced attachments, tables, cross-references, conditions, and
+      relevant event or transaction records. The analysis and change-impact responsibility verifies object identities
+      and relationships, distinguishes the target scope from any explicitly requested comparison scopes, and explains
+      supported consequences of changes. Historical reconsideration requires an applicable retroactive provision
+      or an explicit assessment requirement; current rules are not silently projected into the past. Preserve the
+      original recorded state and the assessed replacement, affected interval or population, triggering rule, and
+      supporting record relationships. State when a condition was or was not met using available evidence rather
+      than treating silence as proof. Record a supported absence of impact when appropriate instead of inventing
+      changes to fill a section. Integrate these results into a coherent assessment for independent examination.
+    required_capabilities:
+      - data-analysis
+
+  - activity_id: produce-verified-assessment
+    description: >-
+      Produce the requested formal result from the independently reviewed assessment, using the recipient's actual
+      format, field, naming, ordering, and delivery requirements. The reporting and data-production responsibility
+      preserves provision identity, source references, decisions, dependencies, and limitations during serialization
+      or presentation. Check required content, referential integrity, counts and derived summaries, and practical
+      readability or machine parsing as applicable. Correct observed production defects and repeat affected checks
+      on the definitive candidate. Maintain compact, inspectable verification evidence; do not create a second
+      analysis merely to restate accepted findings. Supply only the agreed user-facing file set, with internal
+      evidence and working records retained separately where authorized.
+    required_capabilities:
+      - data-analysis
+
+required_deliverables:
+  - deliverable_id: assessment-basis
+    activity_id: establish-assessment-basis
+    artifact_type: controlled-document-assessment-basis
+    description: >-
+      A concise assessment brief and source register, including the governing question, requested scope and temporal
+      perspective, authorized materials, authority rules and their sources, document status, and consequential gaps.
+      These may be organized together rather than duplicated across separate planning reports.
+    evidence_requirements:
+      - evidence_requirement_id: assessment-basis.evidence.scope
+        description: >-
+          Scope, cutoff or comparison periods, deliverable constraints, and access boundaries trace to the actual
+          assignment or identified source material; assumptions are distinguishable from supplied facts.
+      - evidence_requirement_id: assessment-basis.evidence.sources
+        description: >-
+          Relevant sources have retrievable identities and locations. Known missing, conflicting, draft, archived,
+          or superseded materials are recorded with their evidentiary status rather than silently discarded.
+      - evidence_requirement_id: assessment-basis.evidence.authority
+        description: >-
+          The precedence, eligibility, and change rules used in the assessment have an explicit source. Unspecified
+          precedence or conflicting metadata remains visible instead of being resolved by an invented convention.
+
+  - deliverable_id: applicability-findings
+    activity_id: determine-contextual-applicability
+    artifact_type: contextual-applicability-findings
+    description: >-
+      Provision-level findings for the requested assessment scope, including operative content, excluded or superseded
+      alternatives, conditional applicability, conflict decisions, and unresolved items. Preserve source wording and
+      identifiers where their exact meaning matters, together with the reasons for inclusion or exclusion.
+    evidence_requirements:
+      - evidence_requirement_id: applicability-findings.evidence.decisions
+        description: >-
+          Each material applicability decision links the assessed object, considered sources, relevant scope and
+          conditions, and the rule supporting its disposition. Inactive alternatives remain traceable where required.
+      - evidence_requirement_id: applicability-findings.evidence.time
+        description: >-
+          Decisions distinguish the dates and statuses relevant to the governing temporal question. Effectivity,
+          supersession, and prerequisite completion are supported separately, including material boundary cases.
+      - evidence_requirement_id: applicability-findings.evidence.conflicts
+        description: >-
+          Material conflicts record the competing provisions, accepted or unresolved outcome, and reason. Partial
+          amendments do not remove unaffected content; more restrictive wording is not automatically the winner.
+      - evidence_requirement_id: applicability-findings.evidence.coverage
+        description: >-
+          Findings cover the requested objects and applicable exceptions. Uncertainty reflects missing or genuinely
+          conflicting evidence, not unperformed reading or omitted analysis of available materials.
+
+  - deliverable_id: reconciled-assessment
+    activity_id: reconcile-relations-and-impacts
+    artifact_type: reconciled-document-assessment
+    description: >-
+      An integrated, evidence-linked assessment of effective provisions, their relationships, conditional variants,
+      and relevant change consequences. Includes locatable references to the assessment basis and applicability
+      findings, impact dispositions, unresolved questions, and conclusions for the requested scope. Existing records
+      may be referenced rather than reproduced, provided the review has access to their exact supporting versions.
+    evidence_requirements:
+      - evidence_requirement_id: reconciled-assessment.evidence.bindings
+        description: >-
+          Referenced attachments, rows, clauses, records, and applicability dependencies resolve to actual objects
+          and compatible source versions. Retired or inapplicable objects are not used as unexplained active bindings.
+      - evidence_requirement_id: reconciled-assessment.evidence.conditions
+        description: >-
+          Role, location, population, or other conditional variants are supported by the relevant prerequisite
+          evidence and dates. A result for one scope is not silently transferred to another.
+      - evidence_requirement_id: reconciled-assessment.evidence.impacts
+        description: >-
+          Each consequential change or historical reassessment identifies its basis, affected records or population,
+          original and assessed state, relevant timing, and reproducible derivation or record relationships. No-impact
+          conclusions have a stated scope and rationale.
+      - evidence_requirement_id: reconciled-assessment.evidence.consistency
+        description: >-
+          Effective findings, inactive alternatives, conflict decisions, relationships, impacts, and summaries agree.
+          A material conclusion can be traced back through the assessment to the underlying evidence, not just to
+          another analyst's completion statement.
+
+  - deliverable_id: assessment-delivery
+    activity_id: produce-verified-assessment
+    artifact_type: verified-document-assessment
+    description: >-
+      The definitive assessment artifact set requested by the recipient, preserving the reviewed conclusions and
+      their audit trail in the required form. Includes required disclosures and has associated internal verification
+      evidence for the exact candidate. A single requested report remains a single delivery; source inventories,
+      working extracts, and checking logs do not automatically become extra user-facing files.
+    evidence_requirements:
+      - evidence_requirement_id: assessment-delivery.evidence.fidelity
+        description: >-
+          The delivered conclusions, object relationships, source references, and known limitations agree with the
+          reviewed assessment. Changes after that review have an identifiable rationale and appropriate re-examination.
+      - evidence_requirement_id: assessment-delivery.evidence.validation
+        description: >-
+          Actual checks cover the applicable format and content contract, object identity, reference resolution,
+          derived summaries, and file usability. Their methods, observed results, and target version are inspectable;
+          successful writing or parsing alone is not evidence of substantive correctness.
+      - evidence_requirement_id: assessment-delivery.evidence.findings
+        description: >-
+          Material production or assessment defects have identifiable dispositions and, after correction, relevant
+          recheck evidence. Unperformed checks and residual uncertainty remain explicit and are not represented as PASS.
+      - evidence_requirement_id: assessment-delivery.evidence.boundary
+        description: >-
+          The delivery inventory matches the requested files and destinations. Protected sources are preserved, and
+          reported change consequences or proposed actions are not misrepresented as executed operational changes.
+
+required_reviews:
+  - review_id: assessment-soundness-review
+    deliverable_id: reconciled-assessment
+    description: >-
+      Independently examine the integrated assessment before it becomes the basis of formal reporting. The evidence
+      reviewer inspects the underlying source register and operative provisions as well as the integrated findings,
+      with domain input where the interpretation requires it. Verify the basis and material applicability, conflict,
+      conditional, and impact decisions together. Return defects to their actual analytical owner; do not replace
+      source-supported interpretation with the reviewer's preferred policy. This is an assessment-quality decision,
+      not an approval of the underlying procedure or permission to alter operations.
+    reviewer_capabilities:
+      - evidence-review
+    independent_agent: true
+    criteria:
+      - process_criterion_id: assessment-soundness-review.criterion.basis
+        description: >-
+          The subject, temporal perspective, scope, evidence boundary, and authority rules match the assignment and
+          supported source basis. Material sources and exclusions are accounted for without fabricated precedence.
+      - process_criterion_id: assessment-soundness-review.criterion.applicability
+        description: >-
+          Operative and non-operative provisions are justified at the appropriate object granularity. Authority,
+          timing, scope, conditions, and partial supersession are reconciled rather than replaced by latest-file selection.
+      - process_criterion_id: assessment-soundness-review.criterion.conflicts
+        description: >-
+          Conflict outcomes retain their competing evidence and justified resolution or uncertainty. Required objects
+          are not silently omitted, and unexplained contradictions or duplicated incompatible active provisions do not remain.
+      - process_criterion_id: assessment-soundness-review.criterion.conditions
+        description: >-
+          Material conditional variants and attachment or record bindings use the correct subject, prerequisite,
+          evidence, and source version. A prerequisite unmet for one subject is not satisfied by another subject's record.
+      - process_criterion_id: assessment-soundness-review.criterion.impacts
+        description: >-
+          Reported downstream and historical consequences follow the applicable change rules and relevant records.
+          Original observations remain distinguishable from reassessment; retroactivity and event relationships
+          are not inferred without support, and required effects are not lost during consolidation.
+      - process_criterion_id: assessment-soundness-review.criterion.evidence
+        description: >-
+          Material findings can be checked against locatable original evidence and reproducible derivations. Limits
+          are accurately disclosed; available work has actually been performed, rather than replaced by a plan or a
+          blanket inconclusive classification.
+
+  - review_id: assessment-delivery-review
+    deliverable_id: assessment-delivery
+    description: >-
+      Independently verify the exact formal candidate against the requested output contract and the reviewed
+      assessment. Inspect the actual artifacts and applicable checking evidence, including cross-section and
+      summary consistency. Evidence review may reuse still-applicable earlier judgments, but must identify new
+      substantive defects rather than treating prior review as immunity. Return serialization or integration faults
+      to the reporting owner and source-level faults to the responsible analyst, without reopening unrelated valid work.
+    reviewer_capabilities:
+      - evidence-review
+    independent_agent: true
+    criteria:
+      - process_criterion_id: assessment-delivery-review.criterion.completeness
+        description: >-
+          The actual delivery covers the requested information, objects, scope, fields, and file set. It contains
+          substantive results rather than placeholders, and introduces no unrequested mandatory deliverables.
+      - process_criterion_id: assessment-delivery-review.criterion.fidelity
+        description: >-
+          Formal conclusions, reasons, references, and disclosures correspond to the reviewed assessment and its
+          evidence versions; content has not changed silently during output production.
+      - process_criterion_id: assessment-delivery-review.criterion.integrity
+        description: >-
+          Applicable schema, identities, cross-references, ordering, counts, and summaries are consistent in the
+          exact candidate. The declared format is actually readable or parseable, and verification records support
+          their claimed scope without substituting syntactic validity for correct interpretation.
+      - process_criterion_id: assessment-delivery-review.criterion.disposition
+        description: >-
+          Required corrections have relevant recheck evidence. Remaining uncertainty or unfavorable business findings
+          are represented honestly; neither a favorable substantive conclusion nor an unsupported claim of complete
+          certainty is a condition for accepting an otherwise complete, correctly supported assessment. An unresolved
+          disposition is acceptable only where the assignment permits it; missing analysis or a required unanswered
+          question still prevents acceptance.
+      - process_criterion_id: assessment-delivery-review.criterion.preservation
+        description: >-
+          Sources and protected records are unchanged, only authorized outputs are delivered, and no recommendation,
+          inferred requirement, or historical reassessment is presented as a performed operational action.
+
+workflow_rules:
+  - rule_id: source-bound-authority
+    description: >-
+      Material rules and judgments must remain traceable to the assignment and authorized source records. Distinguish
+      documentary authority from evidentiary usefulness, and preserve conflicts between registers and primary records.
+      Neither filing status nor recent date alone determines applicability. Outside research is not required when the
+      defined evidence package is sufficient and is forbidden when the assignment excludes it.
+    enforced_by: review
+
+  - rule_id: contextual-and-temporal-integrity
+    description: >-
+      Applicability must preserve the governing subject, scope, temporal perspective, and prerequisites. Keep issuance,
+      effectivity, supersession, and conditional release distinct where they differ. Do not extend a local exception,
+      partial amendment, completed prerequisite, or retroactive provision beyond its supported reach.
+    enforced_by: review
+
+  - rule_id: reviewed-basis-and-versioned-handoff
+    description: >-
+      Independent analytical work must use an identifiable common assessment basis and compatible source versions.
+      Within the analytical phase, identified provisional findings may support related analyses while their tentative
+      status and dependencies remain visible. Integrated findings must complete the soundness review before formal
+      reporting relies on them. Candidate working interpretations are not approved policy. Subsequent material changes
+      require re-examination of the affected
+      conclusions and references before the definitive delivery is accepted.
+    enforced_by: review
+
+  - rule_id: independent-evidence-based-judgment
+    description: >-
+      Assessment and delivery reviews must be independent of the production contributions they judge. Check the
+      applicable evidence and fixed acceptance basis, not merely author assurances. Do not add preferred policies,
+      arbitrary evidence quotas, or new acceptance thresholds. Accepting the assessment establishes its quality,
+      not real-world compliance, operating authorization, or completion of proposed actions.
+    enforced_by: review
+
+  - rule_id: targeted-correction-and-recheck
+    description: >-
+      Each material defect must identify its affected provision, record, relationship, or artifact and the work
+      responsible for correcting it. Correct the origin and genuinely dependent conclusions; repeat the checks whose
+      basis changed. Preserve unrelated valid analyses and source records. A faulty assembly does not require every
+      contributing analysis to be recreated, while real downstream dependence must not be ignored to minimize rework.
+    enforced_by: review
+
+  - rule_id: bounded-work-and-preserved-delivery
+    description: >-
+      Complete the requested assessment without manufacturing an expanded audit, a new policy, or a second set of
+      redundant reports. Reuse accepted records through locatable references while retaining enough original evidence
+      for independent examination. Preserve protected inputs, keep internal working and verification material separate
+      where permitted, and deliver only the agreed artifact set. Unresolved material prerequisites must be reported,
+      not concealed by scope reduction or unsupported conclusions.
+    enforced_by: review

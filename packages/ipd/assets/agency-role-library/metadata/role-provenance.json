@@ -1260,6 +1260,77 @@
       "translation_method": "中文专业化转述；保留主要责任/规则/方法/模板/评价/进阶内容；示意代码不作为已验证运行程序复制；非逐行或逐字镜像。",
       "generated_file": "agent-cards/testing-performance-benchmarker.yaml",
       "generated_sha256": "8f7b60f3f1d695fe4b928ba5a2e6797c9338c629f2a886909d2663a986687620"
+    },
+    {
+      "id": "agency-support-legal-compliance-checker",
+      "file": "agent-cards/support-legal-compliance-checker.yaml",
+      "version": "1.0.0",
+      "source_path": "support/support-legal-compliance-checker.md",
+      "source_blob": "9afc088ff2a7c788781097d14ce3c3af89dd67cd",
+      "preserved": [
+        "regulatory scope and applicability",
+        "policy and contract review",
+        "risk and change analysis",
+        "role-specific training",
+        "audit documentation",
+        "privacy/content/cross-jurisdiction methods when relevant"
+      ],
+      "project_capability_mapping": {
+        "evidence-synthesis": "Source-based synthesis across regulations, policies, contracts and change records; not a verbatim upstream capability string.",
+        "requirements-analysis": "Define subject, scope, applicable obligations and required evidence from the assignment and sources."
+      },
+      "project_adaptations": [
+        "bounded provided-document analysis",
+        "provision/version/time traceability",
+        "no fixed mandatory jurisdictions or numerical quotas",
+        "local tools only",
+        "no implied legal approval or professional credential"
+      ],
+      "upstream_material_not_activated": [
+        "demo privacy and contract code",
+        "example legal statements or deadlines",
+        "fixed compliance targets",
+        "default continuous monitoring",
+        "presumed experience and persistent memory"
+      ],
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/053ddbbf392a1688fc7043d81529f47ef2cf86c8/support/support-legal-compliance-checker.md",
+      "yaml_sha256": "669e2e1383c307387d05757a0b8481faf5d37ec106bdf65d76f4e9b58379b8fc"
+    },
+    {
+      "id": "agency-security-compliance-auditor",
+      "file": "agent-cards/security-compliance-auditor.yaml",
+      "version": "1.0.0",
+      "source_path": "security/security-compliance-auditor.md",
+      "source_blob": "d6c07687324fda4e15270dc4184fd228a48b0b12",
+      "preserved": [
+        "technical/security/privacy compliance specialization",
+        "audit boundary and period",
+        "evidence by control objective",
+        "substance over checkboxes",
+        "control operation versus documentation",
+        "exceptions",
+        "right-sized programs",
+        "re-testing before closure"
+      ],
+      "project_capability_mapping": {
+        "evidence-review": "Inspect documentary support, scope, completeness and consistency of an explicitly bounded assessment; does not grant arbitrary domain certification."
+      },
+      "project_adaptations": [
+        "review of supplied procedure/change assessments against explicit rules",
+        "exact-version output and reference validation",
+        "private derivative evidence only",
+        "criterion-local repair feedback",
+        "offline-native tool profile"
+      ],
+      "upstream_material_not_activated": [
+        "automatic framework adoption",
+        "live evidence pipelines",
+        "direct technical remediation during independent review",
+        "fixed readiness scores or schedule",
+        "presumed certifications and experience"
+      ],
+      "source_url": "https://github.com/msitarzewski/agency-agents/blob/053ddbbf392a1688fc7043d81529f47ef2cf86c8/security/security-compliance-auditor.md",
+      "yaml_sha256": "e6f30142b40fe137784dc7049feaf90f717054c0d170af075648663fcddf3d25"
     }
   ]
 }
