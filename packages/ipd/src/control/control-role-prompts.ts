@@ -1,4 +1,5 @@
 // 构造流程选择和工作流设计各轮的控制消息。
+import type { LockedSkill } from "../contracts/baseline.ts";
 import type { JsonValue } from "../contracts/primitives.ts";
 import type { ProcessSelection, ProcessSpec } from "../contracts/process-spec.ts";
 import type { TaskInput } from "../contracts/task-input.ts";
@@ -12,24 +13,22 @@ export function buildProcessSelectionPrompt(selectionSkillId: string, task: Task
 	)}`;
 }
 
-export function buildWorkflowDesignMethodPrompt(designSkillId: string): string {
-	return `/skill:${designSkillId} ${wrapPromptBlock(
-		"workflow_design_method_request",
-		"Load the workflow design method. Do not submit a Workflow yet.",
-	)}`;
-}
-
 export function buildInitialWorkflowDesignPrompt(
-	runSkillId: string | undefined,
+	designSkillId: string,
 	task: TaskInput,
 	selection: ProcessSelection,
 	spec: ProcessSpec,
 	assetSummary: JsonValue,
 	compilerDiagnostics: readonly string[],
+	runSkill?: Pick<LockedSkill, "id" | "filePath">,
 ): string {
-	return `${runSkillId ? `/skill:${runSkillId} ` : ""}${wrapPromptBlock(
+	const businessMethod = runSkill
+		? `A supplementary business Skill is bound: ${canonicalJson({ id: runSkill.id, filePath: runSkill.filePath })}. Read this exact SKILL.md with the authorized read tool when relevant, then consult its references as needed. Its guidance does not replace the task or ProcessSpec.`
+		: "No business Run Skill is selected; its absence is not a resource gap.";
+	// Native Skill expansion and the real assignment must reach the same first model request.
+	return `/skill:${designSkillId} ${wrapPromptBlock(
 		"workflow_design_assignment",
-		`${runSkillId ? "Use the supplied business Skill as supplementary method guidance." : "No business Run Skill is selected; its absence is not a resource gap."} Design this Workflow from the original task, ProcessSpec, available employees, tools and environment capabilities. Bind suitable Skills only where they help the work.\n\nTaskInput:\n${canonicalJson(task)}\n\nProcessSelection:\n${canonicalJson(selection)}\n\nProcessSpec:\n${canonicalJson(spec)}\n\nAvailable non-employee resources:\n${canonicalJson(assetSummary)}\n\nSearch and inspect AgentCards before binding employees.\n\nCompiler diagnostics:\n${compilerDiagnostics.length > 0 ? compilerDiagnostics.join("\n") : "None"}`,
+		`Use the loaded workflow-design method for this assignment; consult detailed references only as needed. ${businessMethod} Design this Workflow from the original task, ProcessSpec, available employees, tools and environment capabilities. Bind suitable Skills only where they help the work.\n\nTaskInput:\n${canonicalJson(task)}\n\nProcessSelection:\n${canonicalJson(selection)}\n\nProcessSpec:\n${canonicalJson(spec)}\n\nAvailable non-employee resources:\n${canonicalJson(assetSummary)}\n\nSearch and inspect AgentCards before binding employees.\n\nCompiler diagnostics:\n${compilerDiagnostics.length > 0 ? compilerDiagnostics.join("\n") : "None"}`,
 	)}`;
 }
 

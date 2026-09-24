@@ -28,7 +28,6 @@ import {
 import {
 	buildInitialWorkflowDesignPrompt,
 	buildProcessSelectionPrompt,
-	buildWorkflowDesignMethodPrompt,
 	buildWorkflowDesignRevisionPrompt,
 } from "./control-role-prompts.ts";
 import type { WorkflowDraftManager } from "./workflow-draft.ts";
@@ -345,23 +344,17 @@ export class PiWorkflowDesigner implements WorkflowDesigner {
 					controlTools: [...tools.tools, ...createAgentCardCatalogTools(this.agentCards), blockTool],
 				},
 			});
-			await active.adapter.dispatch(
-				runId,
-				"workflow-designer",
-				"workflow-designer",
-				"design-method",
-				buildWorkflowDesignMethodPrompt(this.designSkill.id),
-			);
 		}
 		const prompt = active.initialized
 			? buildWorkflowDesignRevisionPrompt(draft.revision, compilerDiagnostics)
 			: buildInitialWorkflowDesignPrompt(
-					this.runSkill?.id,
+					this.designSkill.id,
 					task,
 					selection,
 					spec,
 					this.assetSummary,
 					compilerDiagnostics,
+					this.runSkill,
 				);
 		const { submitted, blocked } = await active.adapter.dispatch(
 			runId,
