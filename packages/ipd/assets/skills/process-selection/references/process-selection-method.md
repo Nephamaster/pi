@@ -1,162 +1,51 @@
-# Process Selection Decision Method
+# Decision Method for Difficult Selections
 
-Use this reference when:
+Read when plausible candidates compete, catalog search is inconclusive, or an unknown may change selection. Use this as judgment guidance, not a fixed score or a request for another report.
 
-- the ProcessSpec catalog contains many candidates;
-- several candidates appear applicable;
-- unresolved facts may affect the choice.
+## Establish the discriminating facts
 
-This is not a fixed scoring formula.
+Identify the task's principal responsibility and deliverable first, then the characteristics that change governance: whether professional judgments must be separated, how incorrect work could spread, what actual validation is needed, which constraints are fixed, and what remains unknown. A "presentation" can be ordinary formatting or a research-backed decision artifact; a "report" can be the principal deliverable or merely a by-product of software testing.
 
-## 1. Build a Task Governance Profile
+Do not invent business criticality, urgency, regulation, or missing material contents to justify a heavier specification. Only characterize risks supported by the task and the nature of the requested work. Keep such reasoning concise and do not turn it into a second authoritative TaskInput.
 
-Extract only TaskInput characteristics supported by actual sources.
+## Compare only meaningful alternatives
 
-Consider at least:
+Apply the following order:
 
-| Dimension | Question |
+1. Reject known exclusions.
+2. Establish positive applicability from actual facts.
+3. Check whether mandatory responsibilities, artifacts, reviews, and rules address the task.
+4. Compare unnecessary obligations and the principal alternative.
+
+The order matters: a clearly excluded process does not become acceptable because it has more reviews. A specialized process is preferable only when its specialization is relevant. A generic process can win when it adequately controls the task without unrelated obligations.
+
+A compact internal comparison may record candidate, supporting fact, exclusion, useful governance, unrelated mandatory work, and unresolved condition. Do not compute an invented total score or require this table as a delivered file.
+
+## Decide whether an unknown is actually decisive
+
+| Unknown | Correct treatment |
 |---|---|
-| task nature | Is the primary work research, content delivery, software implementation, product verification, data analysis, or another class? |
-| final delivery | Does the user need a file, system, analytical conclusion, decision material, or immediate answer? Is acceptance explicit? |
-| professional breadth | Are several materially different professional responsibilities required? |
-| object complexity | Is the object text, data, software, software+hardware, a physical product, etc.? |
-| requirement stability | Are objectives and key inputs stable, or do unknowns still determine the process type? |
-| quality risk | Are errors difficult to detect early or expensive to fix late? |
-| verification cost | Does the result require independent verification, real environments, professional testing, or high-cost validation? |
-| delivery cadence | One-time delivery, rapid iteration, or long staged maturity? |
+| May trigger an exclusion or change necessary professional/quality responsibility | Resolve from authorized supplied information, choose a separately justified alternative, or submit blocked. |
+| Changes later formatting or task execution, but not process class or required governance | Continue selection; preserve an existing fact reference if relevant. |
+| Affects only a minor preference between two adequately justified candidates | Make a reasoned selection; do not block solely because optimality is unprovable. |
+| Does not affect selection | Do not force it into the rationale. It remains available in the original TaskInput. |
 
-These dimensions are for understanding, not numeric scoring.
+For example, an unknown font may not affect formal content-delivery governance. Unknown whether an artifact is a physical product or a software-only service can affect whether hardware qualification is mandatory. These examples illustrate the decision, not universal applicability rules.
 
-## 2. Use Three Selection Layers
+A missing employee is not ordinarily an unknown task fact. Report it only in its correct resource context if exposed; do not choose a conceptually unsuitable process just to make staffing pass.
 
-### A. Hard Exclusion
+## Search recovery and stopping
 
-Any `not_applicable_when` explicitly triggered by TaskInput eliminates the candidate.
+The current catalog search uses case-insensitive text matching. Search in the catalog's language, use significant words or known domain synonyms, and inspect exact candidates. An empty query result is not proof of absence. A `"*"` search is useful for orienting in a small catalog; the response is still limited, and the current tool has no page cursor.
 
-If a decisive unknown prevents you from determining whether an exclusion applies, mark the candidate as unresolved rather than assuming it passes.
+If all visible results are unsuitable, search for the actual unmet responsibility instead of repeatedly searching the task's file extension. If bounded catalog access prevents a reliable conclusion, describe that access/discovery limitation rather than claiming to have rejected every stored specification.
 
-### B. Positive Applicability
+Once a well-supported candidate covers the necessary governance and the main plausible alternative does not change the decision, submit. Do not continue reading background, enumerate the entire organization, or request more facts solely to improve a confidence adjective.
 
-Check whether `applicable_when` has concrete evidence in TaskInput.
+## Outcome wording
 
-You should be able to identify actual task facts.
+A selected rationale should connect task characteristics to named process obligations and explain the important alternative if one exists. A blocked reason should identify the missing condition or conflict, the applicability judgment it changes, and what is needed to resume. Keep unknown facts unknown.
 
-"Semantic similarity" is not enough.
+Avoid unsupported statements such as "the catalog has no process" after one empty search, "all materials were reviewed" when only references were supplied, or "the chosen process is executable" before resource and workflow checks.
 
-### C. Governance Fit
-
-For candidates that pass the first two layers, compare:
-
-- whether required activities cover the task's major responsibilities;
-- whether required deliverables match the controlled artifacts the task needs;
-- whether required reviews correspond to real quality risks;
-- whether workflow rules match the task's organization;
-- whether obvious irrelevant mandatory work exists.
-
-## 3. Candidate Comparison Table
-
-You may internally use:
-
-| Candidate | Exclusion | Positive Evidence | Main Governance Value | Obvious Process Tax | Decisive Unknown | Conclusion |
-|---|---|---|---|---|---|---|
-| Spec A | none | strong | directly covers research + formal delivery | low | none | preferred |
-| Spec B | none | medium | delivery covered, professional validation weak | low | none | under-governed |
-| Spec C | triggered | - | - | - | - | eliminated |
-
-Do not convert this table into a fake total score.
-
-A hard exclusion cannot be outweighed by other positive points.
-
-## 4. Professional Spec vs Generic Spec
-
-When both a professional spec and a general/default spec are applicable:
-
-- prefer the professional spec if it truly provides better-fit responsibility and review for the task object and risk;
-- do not prefer it merely because it is "professional" if it imposes large irrelevant mandatory work;
-- choose the generic spec when it sufficiently governs the task and the professional spec lacks real applicability;
-- block when decisive facts are missing and the two choices imply materially different mandatory governance.
-
-A default spec is an ordinary candidate, not an automatic fallback.
-
-## 5. Classify Unresolved Facts
-
-### Non-Decisive Unknown
-
-Does not change the selected process type, only later execution detail.
-
-Action:
-
-- selection may proceed;
-- include the fact in `unresolved_fact_refs` when relevant.
-
-### Decisive Unknown
-
-Changes:
-
-- positive applicability;
-- exclusion applicability;
-- which candidate is better;
-- the task's process class.
-
-Action:
-
-- `blocked`;
-- explain what must be known and why it changes the process decision.
-
-### Selection-Irrelevant Unknown
-
-Does not affect process applicability or governance type.
-
-Action:
-
-- do not force it into the rationale for completeness;
-- TaskInput remains the source of truth for downstream handling.
-
-## 6. Typical `blocked` Conditions
-
-Normally block when:
-
-1. no ProcessSpec applicability condition can be reliably supported by TaskInput;
-2. all plausible candidates are explicitly excluded;
-3. several candidates have materially different governance but decisive information is missing;
-4. user requirements conflict such that the process class cannot be determined;
-5. no current ProcessSpec honestly covers the task class.
-
-Do not automatically treat "the employee pool lacks a capability" as case 5.
-
-That is normally a later implementation gap.
-
-## 7. Recommended Rationale Structure
-
-For `selected`, compress the rationale into three logical parts:
-
-```text
-Task characteristics:
-What delivery, complexity, and quality-control needs matter.
-
-Process fit:
-Which applicability conditions and mandatory responsibilities of the selected spec address those needs.
-
-Comparison:
-Why it is better than the main alternative, if one exists,
-and which non-decisive unresolved facts remain.
-```
-
-For `blocked`, answer:
-
-```text
-What fact is missing or conflicting;
-which applicability/exclusion judgment it affects;
-why reliable selection is impossible without inventing facts.
-```
-
-Avoid:
-
-- "After comprehensive consideration, choose X";
-- reproducing the whole ProcessSpec;
-- exposing long internal reasoning;
-- invented risk scores or confidence percentages.
-
-## 8. Final Decision Principle
-
-> **Eliminate clearly inapplicable specs first. Among genuinely applicable candidates, choose the one that sufficiently controls the task's major complexity and quality risks without obvious irrelevant process tax. If decisive information is missing, stop guessing and return blocked.**
+When correcting a rejected submission, preserve the decision unless the diagnostic reveals a genuine selection error. Fix an invalid reference from the fetched specification rather than changing the specification to avoid the reference check.

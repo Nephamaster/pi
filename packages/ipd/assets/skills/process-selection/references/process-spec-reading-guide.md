@@ -1,140 +1,38 @@
-# ProcessSpec Reading Guide
+# Reading a ProcessSpec for Selection
 
-This reference explains how ST should interpret ProcessSpec fields during **process selection**.
+Read this file when a field's meaning affects inclusion or exclusion. It explains ProcessSpec V2, not an execution graph. The actual registered specification supplies the requirements; examples here add none.
 
-It does not teach Workflow design and does not equate ProcessSpec fields with nodes.
+## Fields and questions
 
-## 1. `applicable_when`
+| Field | Selection question | Mistake to avoid |
+|---|---|---|
+| `applicable_when` | Which actual task characteristics support applicability? Does a stated condition contain prerequisites? | Treating matching words as evidence; assuming an unprovided fact. |
+| `not_applicable_when` | Does a known fact trigger an exclusion? Is a decisive condition still unknown? | Offsetting a hard exclusion with other positive features. |
+| `required_activities` | Do these professional responsibilities belong to this task? | Counting activities as nodes, or planning employee assignments. |
+| `required_deliverables` | Are these real artifacts or control responsibilities necessary for the work? | Assuming every artifact must be delivered to the user, or that irrelevant artifacts may be deleted later. |
+| `required_reviews` | Do the required object, timing, expertise, independence, and standards address material risks? | Replacing independent judgment with producer self-checking. |
+| `workflow_rules` | Do these cross-work rules fit the task and avoid unrelated obligations? | Treating a natural-language rule as already enforced code. |
+| `source` | Is this a formal internal specification, project-authored process, or public-methodology adaptation? | Describing a project adaptation as an official Huawei template. |
+| `default_executable` | How is this asset classified by the host? | Treating it as unconditional applicability, sufficient resources, or permission to fall back. |
 
-Describes the task types, objects, delivery modes, or governance situations the ProcessSpec is intended for.
+Interpret applicability statements according to their actual meaning. Some describe alternative task classes; others contain joint prerequisites. Do not mechanically assume all list items are conjunctive or that any matching phrase is sufficient. Name a material ambiguity instead of silently choosing the easier interpretation.
 
-During selection, look for positive evidence in TaskInput.
+## Identity and traceability
 
-Correct interpretation:
+Use the exact `process_spec_id` and `version` returned by `get_process_spec`. `submit_process_selection.process_requirement_refs` accepts supporting activity IDs, deliverable IDs, review IDs, and workflow-rule IDs from that specification. It is not a requirement-coverage table and need not enumerate the entire process.
 
-> The current task has these characteristics, so this ProcessSpec may apply.
+ProcessSpec V2 also contains nested `evidence_requirement_id` and `process_criterion_id` entries. They matter to later workflow authoring, but are not extra ID categories for the selection submission. Do not substitute an evidence or criterion ID for an activity/review reference simply because it is precise.
 
-Incorrect interpretation:
+`required_capabilities` and `reviewer_capabilities` describe later staffing needs. Understand the responsibility; do not select staff or relax capability requirements. `independent_agent: true` requires later production/judgment separation; role names alone do not establish independence.
 
-> The task name and ProcessSpec name contain similar words, therefore it applies.
+## Internal artifacts and actual user delivery
 
-If one applicability condition contains several substantive prerequisites, verify that those prerequisites are actually supported.
+A research basis, design specification, or verification record may be a necessary internal artifact even when the user requests one final file. This is not automatically irrelevant process work. Conversely, a mandatory manufacturing qualification artifact is not made appropriate by renaming it a report when the task has no manufacturing scope.
 
-Do not fill missing prerequisites using model common sense.
+Distinguish the responsibility from a particular implementation. Combining aligned work packages can preserve an obligation; deleting a required deliverable or independent review cannot. You select an unchanged specification, not an implicit future tailoring plan.
 
-## 2. `not_applicable_when`
+## Source and authority boundaries
 
-Defines explicit boundaries where the ProcessSpec should not be used.
+A reputable source does not make a process suitable for every task. Judge the registered normative content and applicability, and preserve its stated authority. Public IPD background helps explain organization; it does not authorize new corporate investment decisions, release permissions, numerical targets, or benchmark-specific requirements.
 
-It often has stronger selection priority than general positive similarity.
-
-If TaskInput clearly triggers one exclusion condition, eliminate the candidate.
-
-If the answer depends on a decisive unresolved fact, do not default to "not excluded." Consider a blocked decision.
-
-## 3. `required_activities`
-
-Defines which **responsibilities must exist** after selecting the ProcessSpec.
-
-ST does not determine how many nodes will later represent one activity.
-
-ST asks:
-
-- Does this responsibility genuinely belong in the governance scope of the current task?
-- Does the ProcessSpec require obviously irrelevant mandatory activity?
-
-`required_capabilities` describes the professional capability normally required to perform the activity.
-
-It does not mean ST should select an employee now.
-
-## 4. `required_deliverables`
-
-Defines controlled artifacts the process requires and what evidence those artifacts must provide.
-
-ST asks whether the current task genuinely needs:
-
-- that kind of artifact; or
-- the governance responsibility represented by that artifact.
-
-Do not assume a required deliverable is the user-facing final deliverable.
-
-It may be an internal:
-
-- baseline;
-- analysis;
-- design specification;
-- verification record;
-- quality report.
-
-If a ProcessSpec mandates a completely irrelevant real-world deliverable, that is evidence the ProcessSpec may be unsuitable.
-
-It is not something the Workflow Designer may simply delete later.
-
-## 5. `required_reviews`
-
-Defines which artifacts require independent professional judgment and what quality aspects matter.
-
-During selection, ask:
-
-> Does the current task actually need this independent quality control, and does it correspond to a material risk?
-
-`independent_agent: true` means later design must preserve producer/reviewer separation.
-
-ST only understands this as an organizational obligation.
-
-ST does not choose the Reviewer.
-
-## 6. `workflow_rules`
-
-Defines cross-activity, cross-deliverable, or whole-process organizational and quality principles.
-
-Selection asks:
-
-- does this rule provide necessary governance value for the task?
-- or does it impose an obviously unnecessary constraint?
-
-`enforced_by` indicates the intended enforcement layer such as:
-
-- compiler;
-- runtime;
-- review.
-
-ST does not validate the implementation of those enforcement layers and must not remove a rule because engine support is currently limited.
-
-## 7. `source`
-
-Explains provenance and authority boundaries.
-
-Examples:
-
-- project-authored bootstrap spec;
-- public-source engineering mapping;
-- formal internal ProcessSpec.
-
-These sources have different authority.
-
-ST should use the registered ProcessSpec's declared applicability and normative content.
-
-Do not describe a project-derived ProcessSpec as an official Huawei internal template.
-
-Likewise, authoritative provenance does not mean the ProcessSpec applies to every task.
-
-## 8. "More Complete" Does Not Mean "More Appropriate"
-
-A ProcessSpec with more phases, reviews, roles, or activities is not automatically better.
-
-Good selection balances task complexity and governance cost:
-
-```text
-Under-governance
-→ important responsibilities and quality risks remain uncontrolled
-
-Good fit
-→ sufficient responsibility, deliverables, and reviews
-  without obvious unrelated process tax
-
-Over-governance
-→ substantial mandatory work is irrelevant to the current task
-```
-
-ST should seek the middle state rather than assuming "more process is safer."
+Keep facts actually supplied in TaskInput separate from material locators, assumptions, and missing facts. A structured selection records a reasoned choice, not a certification that attachments were read or that the downstream workflow can execute.

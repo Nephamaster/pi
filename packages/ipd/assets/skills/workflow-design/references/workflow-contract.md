@@ -1,278 +1,97 @@
-# WorkflowDefinition Contract Checklist
+# Authoring Contract Guide
 
-This reference explains **how to fill the concrete Workflow configuration**.
+Read the relevant section when deciding what a current draft tool should express. **The editable surface is Authoring V2.** The final section maps to generated Workflow V3 only for diagnostic interpretation. Do not send generated V3 nodes or inputs as tool payloads.
 
-For the meaning of IPD, ProcessSpec, nodes, dependencies, parallelism, and rework, first read [Design Concepts and Judgment Principles](design-concepts.md).
+## 1. Work and resource configuration
 
-The current Schema exposed by the draft tools is the final authority for actual fields.
+`workflow_draft_configure_nodes.nodes[]` addresses an existing `node_id` and optionally changes:
 
-Do not copy this entire document into node prompts.
-
-## 1. Header, Identity, and Resources
-
-The header contains:
-
-- `schema_version`;
-- `workflow_id`;
-- `workflow_version`;
-- `name`.
-
-It may also contain `prerequisites`, `stages`, `requirements`, and `decisions`. `schema_version` is `3`.
-
-Trusted `task_input_ref` and `process_selection_ref` are filled by the draft manager.
-
-The Workflow Designer does not calculate their trusted hashes.
-
-Custom node, criterion, output, and participant IDs should be stable and begin with a letter, using only:
-
-- letters;
-- digits;
-- `.`;
-- `_`;
-- `-`.
-
-When referencing existing IDs from TaskInput, ProcessSpec, AgentCard, etc., copy them exactly.
-
-The current implementation binds one employee per node.
-
-A participant definition contains:
-
-- `participant_id`;
-- `agent_ref(id/version)`;
-- `required_capabilities`;
-- `skills`;
-- `tools`;
-- `knowledge_bases`;
-- `permissions`.
-
-Skill and Tool references must use real registered IDs.
-
-AgentCard and Knowledge Base references use exact versions.
-
-Do not add Schema fields such as:
-
-- ad-hoc `model`;
-- custom hashes;
-- free-text prompt bypass fields.
-
-Model selection is resolved from the employee asset and Run configuration.
-
-AgentCard professional Skills do not mean every node automatically loads all Skills.
-
-Bind only the methods the node actually needs.
-
-Tools and Knowledge Bases must also exist and remain within the employee asset's authorization boundary.
-
-## 2. Node Work Contract
-
-| Field | Meaning |
+| Section | Contents |
 |---|---|
-| `objective` | The concrete result this work package must achieve; should be possible to judge completion. |
-| `responsibilities` | Specific responsibilities this node must own. |
-| `non_responsibilities` | Adjacent work that this node explicitly does not own, preventing responsibility drift. |
-| `work_requirements` | Task-specific requirements for input handling, work method, delivery, and self-checking. |
-| `constraints` | Hard constraints derived from TaskInput and ProcessSpec, including scope, factual, permission, and evidence constraints. |
+| `contract` | Objective, responsibilities, non-responsibilities, work requirements, constraints, optional requirement/decision references. |
+| `employee` | Actual `agent_ref: {id, version}` and optional explicit `participant_id`. |
+| `resources` | Required capabilities; named Skill/Tool references; `knowledge_bases: []`; permissions. |
+| `environment_ref` | A registered alternative execution profile, or `null` to clear the override. Omit for the configured resolver. |
 
-Node-specific stable instructions belong in `contract.work_requirements` or `contract.constraints`.
+Tool/Skill references use `{"id":"registered-name"}`; employee references use an exact version. The schema has versioned knowledge references, but the current Compiler rejects every non-empty `knowledge_bases` binding with `knowledge_base_unsupported`; leave it empty. Do not insert ad-hoc model fields, hashes, or free-text prompt side channels. Model selection comes from the employee and Run. Bind only actual executable resources within the employee's authorization; a visible role description is not proof that every tool it mentions exists.
 
-Do not create a free-text prompt side channel.
+Resource `permissions` uses `read_paths`, `write_paths`, and `external_actions`. Paths must be authorized, normalized, relative, and aligned with the actual environment. The card is an authorization ceiling, not a request for maximum privilege. Keep the real material and candidate inputs explicit; broad-looking read paths do not authorize unrelated data.
 
-Generic professional principles from AgentCard also do not automatically become node acceptance criteria.
+One employee per node is the current implementation limit. Do not create generic placeholder employees to make an incomplete draft look complete.
 
-## 3. Inputs, Outputs, and Paths
+## 2. Controlled outputs
 
-### Task Material Input
+`workflow_draft_outputs.upsert[]` identifies `node_id` and `output_id`, then supplies `artifact_type`, `description`, `business_purpose`, `path_prefix`, `evidence_requirements`, and `process_evidence_requirement_refs` as applicable to the complete result.
 
-Use `kind=task_material`.
+Evidence requirement references are exact nested `evidence_requirement_id` entries from the selected ProcessSpec, not the deliverable ID. Implement their meaning in the actual content/evidence instructions. A familiar output label is not sufficient implementation of a different process artifact type.
 
-Provide:
+Use an owned relative path such as `outputs/produce/content-output`, not a sealed Submission path or an absolute host path. No `..` or trailing slash. Keep exportable outputs under the environment's authorized export root. In shared-workspace compatibility mode, different producer roots cannot overlap; private environments still require correct export ownership.
 
-- `input_id`;
-- `material_id`;
-- `required`.
+Standards are attached through `workflow_draft_criteria.output_bindings`, not an output `criterion_refs` field. Every controlled output must have the mechanical and semantic checks required by the current Compiler.
 
-`material_id` must exist in `TaskInput.materials`.
+## 3. Standards, source authority, and process coverage
 
-A required material whose ID exists but whose content cannot actually be read is not satisfied.
+A criterion edit addresses `criterion_id`, a `definition` object, and optional replacement `output_bindings`.
 
-### Node Output Input
+| Definition kind | Required completed meaning |
+|---|---|
+| `mechanical` | Concrete description, registered `check_id`, its actual `parameters`, and evidence requirements. Manifest integrity is not business or visual correctness. |
+| `semantic` | Concrete judgment description, non-empty evidence requirements, and exact applicable `process_criterion_refs` (an array, empty only when no process criterion applies). |
 
-Use `kind=node_output`.
+Optional `requirement_refs` and `blocking` express authority. Do not merge unrelated subjects under one criterion just to reduce the number of IDs. Reuse a definition deliberately; if one review applies one standard to multiple outputs, configure their complete composite subject set.
 
-Provide:
+Keep three relationships distinct:
 
-- `input_id`;
-- `source.node_id`;
-- `source.output_id`;
-- `required`;
-- `availability`;
-- `approval_review_node_ids`.
+| Relationship | How it is authored |
+|---|---|
+| Original task meaning | Preserved raw task; task-specific contracts, outputs, and actual acceptance conditions. |
+| Source/decision authority | `workflow_draft_governance.requirements` and `decisions`, referenced by contracts/criteria where needed. |
+| ProcessSpec implementation | `workflow_draft_coverage` rows for `process_activity`, `process_deliverable`, `process_review`, and `process_rule`; plus nested evidence/criterion bindings. |
 
-Execution nodes consuming controlled upstream work should use `approved` and list the exact review nodes responsible for approval of that output.
+`requirements` entries have `requirement_id`, `description`, `authority`, `strength`, `source_ref`, and `source_quote`. User quotes must occur in the raw task; process quotes resolve to actual selected entries. Use the source helper instead of inventing a spec/version-qualified source string. Advisory requirements cannot support blocking acceptance. A design choice remains identified as such, supported by independent requirements; it is not a newly discovered user demand.
 
-An explicit StageScope may authorize `submitted` for a specific internal consumer/input pair. Its exits declare the outputs and Gate IDs required by cross-stage consumers. Input `purpose` distinguishes `content_basis` (default), `test_subject`, and `historical_reference`; a false test subject need not make the report observing its failure false.
+Coverage rows name the ProcessSpec item, responsible nodes, concrete output refs, and criterion refs. Mandatory activity responsibility belongs to capable execution work; required review responsibility belongs to a capable review node. Do not attach everything to the last node or equate complete IDs with semantic quality. No `task_requirement` coverage type exists.
 
-A review node reading the candidate it reviews should use `submitted`.
+## 4. Inputs and real dependencies
 
-A review must not require its own approval before it can start.
+`workflow_draft_inputs.upsert[]` addresses `consumer_node_id` and `input_id`. Choose a task-material source by registered material ID, or a node-output source by exact node/output identity. Material contents must ultimately be readable by the assigned execution capability; a descriptor alone does not prove access.
 
-Do not mark a genuinely required input as `required=false` merely to avoid blocking.
+Node-output sources require explicit `required`, `purpose`, and `access`. Use approved work when approval is a prerequisite, named `stage_candidate` access only for permitted internal uses, and `review_candidate` for the reviewer's subject. Do not mark an essential input optional to evade blocking.
 
-### Execution Outputs
+`content_basis` expresses correctness dependence; `test_subject` identifies what was inspected; `historical_reference` preserves history. Purpose is a truth about use, not an optimization switch for suppressing invalidation.
 
-Each output includes:
+## 5. Review subjects, stages, and repair mappings
 
-- `output_id`;
-- `artifact_type`;
-- `description`;
-- `business_purpose`;
-- `path_prefix`;
-- `evidence_requirements`;
-- `criterion_refs`.
+`workflow_draft_reviews.upsert[]` names `review_node_id`, `assignments`, and `allowed_rework_node_ids`, with optional `required_relations`, `remediation_mappings`, and `decision_policy`.
 
-`path_prefix` is relative to the node's business workspace (`/workspace` in Docker), not the sealed Submission directory.
+An assignment associates one semantic `criterion_id` with `mode` and its exact `subjects`. Code creates review targets, explicit composite subjects, and necessary required candidate inputs. Mechanical criteria belong to checkers, not duplicate semantic review votes. The fixed aggregation is `all_required`; do not author alternative voting, arbitrary routing, or automatic replacement.
 
-Use normalized relative paths:
+Independence concerns the actual scoped participants, Sessions, and production contributions. Distinct role labels do not prove it; a shared capable role asset does not itself erase separation between independently assigned instances. Respect the selected process and current independence validation.
 
-- no `..`;
-- no trailing `/`.
+Reviewer `external_actions` remains false. In legacy shared-workspace mode, write paths and mutation/Shell tools are forbidden. In a supported private inspection environment, an authorized Reviewer may create its own test/render evidence while sealed source submissions stay read-only. Do not confuse permission to validate with ownership of the delivered artifact.
 
-A good default is one owned root such as:
+For A → B → joint R, approved A as B's prerequisite would create a cycle if R approves A only after B exists. A legal stage instead names member work, permits B's exact candidate input, and requires R at its exits. `workflow_draft_stages` edits members/exits; code derives internal uses from input access. An exit uses `output: {node_id, output_id}` and `gate_node_ids`. Preserve actual process timing; a stage is not a way to bypass an earlier mandatory Gate.
 
-```text
-outputs/<node_id>
-```
+For composite judgments, enumerate all subjects. `required_relations` entries use `consumer` and `basis` output refs to demand exact derivation in the frozen review bundle. The actual consumer must already have the truthful production dependency.
 
-Different execution-node write roots must not be equal or parent/child of one another.
+A `remediation_mappings` entry has `criterion_id`, `observed`, and `owner`. The owner must be a directly depended-on output with required review access and an allowed repair node. This only permits evidence-based attribution; it does not automatically blame every listed owner. Keep integration-only errors at the integrator. Keep independent D intact when only A and A's actual consumers are affected.
 
-Review nodes always require `external_actions = false`. In legacy shared-workspace mode they must use:
+## 6. Completion and prerequisites
 
-```text
-write_paths = []
-external_actions = false
-```
+Set all four completion groups: `required_node_ids`, `final_outputs`, `delivery_outputs`, and `required_review_node_ids`. Delivery is a subset of terminal outputs, limited to what the user should receive. Internal evidence need not become extra user-facing files. Required process reviews must actually gate success.
 
-Docker reviews have a private inspection workspace and read-only sealed inputs. Bind available AgentCard-authorized
-write/edit/Bash or managed-process tools when independent tests or renders require them. The Reviewer may copy the exact
-input into `/workspace/check` and inspect that copy, but must not change the original submission or replace the producer's
-delivery. Record which submission and checking method the conclusion covers. Do not create a separate production node
-solely because an independent check needs temporary files.
+Optional `prerequisites` uses `minimum_materials` and `retrieval_tools`. In the verified code, insufficient material count can be satisfied by a listed, registered retrieval tool actually bound to execution. This check does not prove source quality, content availability, or that network policy permits every destination. Do not manufacture a retrieval dependency for a task whose authorized inline inputs are sufficient.
 
-Use the resource catalog's environment capabilities and network policy. Registered external read services are explicitly
-identified separately from container tools; bind their real names and do not invent a search/fetch implementation. A missing
-project npm/Python dependency can be installed privately when its software source is authorized. Missing promised base-image
-software is a platform configuration issue, not a reason to change task acceptance criteria.
+## 7. Generated V3: diagnostic mapping only
 
-## 4. Criteria, Review, and Rework
+| Authoring V2 choice | Generated Workflow V3 result |
+|---|---|
+| `employee` + `resources` | Single entry in `agents[]`. |
+| Criterion `output_bindings` | Producer output `criterion_refs`. |
+| Input `access` | `availability`, approval-review references, and stage membership/use relationships. |
+| Review `assignments` | `targets`, `criterion_subjects`, and required candidate-reading inputs. |
+| Stage members/exits + candidate input policy | `stages[].internal_uses` and exit constraints. |
+| Coverage tool rows | `requirement_coverage`. |
+| Trusted Run input/selection | `task_input_ref` and `process_selection_ref`, computed by trusted code. |
 
-### Mechanical Criterion
-
-Fields include:
-
-- `criterion_id`;
-- `description`;
-- `check_id`;
-- `parameters`;
-- `evidence_requirements`.
-
-`check_id` and its parameter Schema must come from the real mechanical-check catalog.
-
-Mechanical checks may claim only what they actually validate.
-
-For example, `artifact-integrity` must not be described as proving business correctness, factual correctness, or visual quality if it does not implement those checks.
-
-### Semantic Criterion
-
-Fields include:
-
-- `criterion_id`;
-- `description`;
-- non-empty `evidence_requirements`.
-
-A semantic criterion should state:
-
-- the judgment object;
-- the acceptable condition;
-- required verification;
-- required evidence.
-
-Define each standard once, then reference it from outputs, reviews, and coverage.
-
-Do not create slightly different versions of the same criterion in multiple places.
-
-### Review
-
-`review.targets` precisely identifies:
-
-- `node_id`;
-- `output_id`;
-- semantic criteria to evaluate.
-
-Every semantic criterion must have real Reviewer coverage.
-
-One criterion covering multiple target outputs must list their exact set in `criterion_subjects`. `required_relations` declares exact content derivations that must hold inside the frozen ReviewBundle. A `remediation_mappings` entry can authorize a direct upstream owner for an observed downstream defect; it requires a bound owner input, real content dependency and supported root-cause evidence.
-
-Criteria may use `requirement_refs` and `blocking`. Header `requirements` records `requirement_id`, `description`, `authority` (`user/process/design/recommendation`), `strength` (`required/advisory`), `source_ref` and `source_quote`. Header `decisions` records `decision_id`, `description`, `requirement_refs` and `rationale`. User quotes must occur in the raw task, and process quotes must resolve to the selected specification. Advisory requirements cannot back blocking criteria; ProcessSpec requirements cannot be weakened. Unannotated criteria are explicitly attributed to the frozen workflow design, not to the user.
-
-Reviewers submit criterion-level Finding resolutions; producers submit exact repair claims and may retain valid output revisions. Evidence references must resolve to sealed files. The fixed `all_required` decision policy cannot override a required FAIL or BLOCKED with PASS votes. Independence concerns actual scoped participants, Sessions and production contributions; using another AgentCard name alone proves nothing.
-
-`allowed_rework_node_ids` should contain only execution nodes actually responsible for correcting potential defects.
-
-Do not add:
-
-- voting;
-- dynamic Reviewer replacement;
-- budget thresholds;
-- arbitrary script-based routing
-
-as first-version workflow control.
-
-## 5. Requirement Coverage
-
-`requirement_coverage.source` must be one of:
-
-- `process_activity`;
-- `process_deliverable`;
-- `process_review`;
-- `process_rule`.
-
-Each coverage record should truthfully include:
-
-- `requirement_id`;
-- `responsible_node_ids`;
-- `output_refs`;
-- `criterion_refs`.
-
-A ProcessSpec required activity should be owned by an execution node with appropriate capability.
-
-A required deliverable should map to a real output.
-
-A required review should map to a review node with the required professional capability and independence.
-
-Natural-language quality requirements must be instantiated as actual criteria.
-
-Merely placing the ProcessSpec ID in coverage is not sufficient.
-
-## 6. Completion and User Delivery
-
-`completion` contains four non-empty groups:
-
-- `required_node_ids` — nodes that must complete for Run success;
-- `final_outputs` — internal terminal artifacts that must exist and satisfy requirements;
-- `delivery_outputs` — outputs actually delivered to the user, and must be a subset of `final_outputs`;
-- `required_review_node_ids` — reviews that must succeed for final success.
-
-Internal evidence, source records, design specifications, and validation reports may be necessary final outputs without being user-facing delivery outputs.
-
-Only files the user should actually receive belong in `delivery_outputs`.
-
-If the user limits the number or type of final files, obey that constraint.
-
-Do not deliver both:
-
-- a final artifact; and
-- another wrapper package containing a duplicate of the same artifact
-
-unless the user actually asked for both.
-
-Do not expand the final user-facing file set merely because internal process traceability requires more artifacts.
+These fields help interpret Compiler paths. They are not additional authoring obligations. Do not compute trusted hashes, manually create derived edges, or submit a whole WorkflowDefinition as an edit. Fix the authoring object named in the diagnostic using the appropriate domain tool.
