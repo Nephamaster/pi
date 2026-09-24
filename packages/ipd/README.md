@@ -2,8 +2,12 @@
 
 Private IPD V2 package for governed multi-Agent task execution on Pi.
 
-The package provides an explicitly loaded Pi Extension; it is not enabled by default. The example entry is
-`examples/ipd-extension.ts`.
+For module responsibilities, implementation mechanisms, lifecycle branches and current improvement areas, read
+[IPD 模块实现说明](docs/implementation-guide.md).
+
+In this repository, the trusted project entry `.pi/extensions/ipd.ts` loads IPD automatically when running
+`./pi-test.sh` from the repository root. Other projects must load the extension explicitly; the example entry is
+`examples/ipd-extension.ts`. Actual Run execution also requires the configured model and Docker environment below.
 
 ## Runtime flow
 
