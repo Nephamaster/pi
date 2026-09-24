@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
 	buildInitialWorkflowDesignPrompt,
 	buildProcessSelectionPrompt,
-	buildWorkflowDesignMethodPrompt,
 	buildWorkflowDesignRevisionPrompt,
 } from "../src/index.ts";
 import { createCompilerFixture } from "./fixtures.ts";
@@ -11,15 +10,16 @@ describe("control-role prompt projection", () => {
 	it("designs from the original task and assets without requiring a business Skill", () => {
 		const fixture = createCompilerFixture();
 		const prompt = buildInitialWorkflowDesignPrompt(
-			undefined,
+			"workflow-design",
 			fixture.taskInput,
 			fixture.processSelection,
 			fixture.processSpec,
 			{ tools: ["bash"], environmentProfiles: ["general-purpose"] },
 			[],
 		);
-		expect(prompt).toMatch(/^<workflow_design_assignment>/);
-		expect(prompt).not.toContain("/skill:");
+		expect(prompt).toMatch(/^\/skill:workflow-design <workflow_design_assignment>/);
+		expect(prompt.match(/\/skill:/g)).toHaveLength(1);
+		expect(prompt).not.toContain("workflow_design_method_request");
 		expect(prompt).toContain(fixture.taskInput.raw_task.text);
 		expect(prompt).toContain("general-purpose");
 		expect(prompt).toContain("absence is not a resource gap");
@@ -35,22 +35,25 @@ describe("control-role prompt projection", () => {
 
 	it("sends frozen design inputs once and keeps revision prompts incremental", () => {
 		const fixture = createCompilerFixture();
-		const method = buildWorkflowDesignMethodPrompt("workflow-design");
-		expect(method).toMatch(/^\/skill:workflow-design <workflow_design_method_request>/);
-		expect(method).toContain("</workflow_design_method_request>");
+		const runSkill = { id: "task-skill", filePath: "/locked/business skill/SKILL.md" };
 		const initial = buildInitialWorkflowDesignPrompt(
-			"task-skill",
+			"workflow-design",
 			fixture.taskInput,
 			fixture.processSelection,
 			fixture.processSpec,
 			{ skills: ["task-skill"], tools: ["read"] },
 			[],
+			runSkill,
 		);
 		expect(initial).toContain("TaskInput:");
 		expect(initial).toContain("ProcessSelection:");
 		expect(initial).toContain("ProcessSpec:");
 		expect(initial).toContain("Available non-employee resources:");
-		expect(initial).toContain("/skill:task-skill");
+		expect(initial).toMatch(/^\/skill:workflow-design <workflow_design_assignment>/);
+		expect(initial.match(/\/skill:/g)).toHaveLength(1);
+		expect(initial).not.toContain("/skill:task-skill");
+		expect(initial).toContain(runSkill.filePath);
+		expect(initial).toContain("authorized read tool when relevant");
 		expect(initial).toContain("<workflow_design_assignment>");
 		expect(initial).toContain("</workflow_design_assignment>");
 
