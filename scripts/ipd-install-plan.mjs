@@ -76,8 +76,8 @@ export function assertIpdDependencyDeclarations(root) {
 		// Match sync-versions.js's canonical workspace spelling; this is not a SemVer parser.
 		assert.equal(
 			edge.specifier,
-			`^${version}`,
-			`${IPD} ${edge.section}.${edge.name} must match the workspace declaration ^${version}; run the reviewed version/lock update.`,
+			version,
+			`${IPD} ${edge.section}.${edge.name} must match the workspace declaration ${version}; run the reviewed version/lock update.`,
 		);
 	}
 }

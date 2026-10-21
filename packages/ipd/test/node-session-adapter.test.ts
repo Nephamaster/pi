@@ -7,7 +7,9 @@ class FakeSession implements NodeSessionHandle {
 	readonly sessionFile = "/tmp/fake-session.jsonl";
 	readonly messages: NodeSessionHandle["messages"] = [];
 	readonly sessionManager = { getLeafId: () => null };
-	async steer(): Promise<void> {}
+	async steer(): ReturnType<NodeSessionHandle["steer"]> {
+		return "queued";
+	}
 	isIdle = true;
 	disposed = false;
 	hold = false;
@@ -24,7 +26,7 @@ class FakeSession implements NodeSessionHandle {
 		this.isIdle = false;
 		this.prompts.push(text);
 		for (const event of this.promptEvents) this.emit(event);
-		this.emit({ type: "agent_settled" });
+		this.emit({ type: "agent_settled", aborted: false });
 		if (this.hold) {
 			await new Promise<void>((resolve) => {
 				this.resume = resolve;

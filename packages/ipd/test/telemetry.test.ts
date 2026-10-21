@@ -18,6 +18,7 @@ describe("FileIpdTelemetry", () => {
 				called++;
 				span.setAttributes({ nodeId: "produce", prompt: "secret-task" });
 				span.addEvent("ipd.step", { toolName: "read", payload: "secret-file" });
+				span.addLink({ context: telemetry.context(), attributes: { payload: "secret-link" } });
 				throw error;
 			}),
 		).rejects.toBe(error);

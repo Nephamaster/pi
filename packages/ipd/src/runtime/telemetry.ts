@@ -65,6 +65,8 @@ export class FileIpdTelemetry {
 				}
 				const span: TelemetrySpan = {
 					...this.context(attributes, id),
+					// This metadata-only sink does not export opaque cross-context span links.
+					addLink: () => {},
 					setAttributes: (values) => {
 						if (!settled) attributes = { ...attributes, ...safe(values) };
 					},

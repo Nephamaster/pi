@@ -18,10 +18,12 @@ import {
 import { ExtensionRunner, emitProjectTrustEvent } from "../src/core/extensions/runner.ts";
 import type {
 	ExtensionActions,
+	ExtensionAPI,
 	ExtensionContextActions,
 	ExtensionFactory,
 	ExtensionUIContext,
 	ProviderConfig,
+	ToolDefinition,
 } from "../src/core/extensions/types.ts";
 import { ProviderRequestRejection } from "../src/core/extensions/types.ts";
 import { KeybindingsManager, type KeyId } from "../src/core/keybindings.ts";
@@ -90,6 +92,7 @@ describe("ExtensionRunner", () => {
 		getActiveTools: () => [],
 		getAllTools: () => [],
 		getToolDefinitions: () => [],
+		getSettings: () => ({}),
 		setActiveTools: () => {},
 		refreshTools: () => {},
 		getCommands: () => [],
@@ -111,6 +114,45 @@ describe("ExtensionRunner", () => {
 		getSystemPrompt: () => "",
 		getScopedModels: () => [],
 	};
+
+	it("binds tool definitions and settings together without bypassing stale-runtime checks", async () => {
+		const runtime = createExtensionRuntime();
+		let api: ExtensionAPI | undefined;
+		const extension = await loadExtensionFromFactory(
+			(pi) => {
+				api = pi;
+			},
+			tempDir,
+			createEventBus(),
+			runtime,
+		);
+		expect(() => api!.getToolDefinitions()).toThrow("not initialized");
+		expect(() => api!.getSettings()).toThrow("not initialized");
+		const definitions: ToolDefinition[] = [
+			{
+				name: "lookup",
+				label: "Lookup",
+				description: "Read-only lookup",
+				parameters: { type: "object", properties: {} },
+				execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+			},
+		];
+		const settings = { defaultTools: ["lookup"] };
+		const runner = new ExtensionRunner([extension], runtime, tempDir, sessionManager, modelRegistry);
+		runner.bindCore(
+			{
+				...extensionActions,
+				getToolDefinitions: () => definitions,
+				getSettings: () => settings,
+			},
+			extensionContextActions,
+		);
+		expect(api!.getToolDefinitions()).toBe(definitions);
+		expect(api!.getSettings()).toBe(settings);
+		runner.invalidate();
+		expect(() => api!.getToolDefinitions()).toThrow("stale");
+		expect(() => api!.getSettings()).toThrow("stale");
+	});
 
 	describe("scopedModels", () => {
 		it("reflects the getScopedModels context action on ctx.scopedModels", async () => {
@@ -878,15 +920,42 @@ describe("ExtensionRunner", () => {
 			runner.onError((error) => errors.push(error.error));
 			runner.bindCore(extensionActions, extensionContextActions);
 
-			const chained = await runner.emitBeforeAgentStart("hello", undefined, {
-				cwd: tempDir,
-				customPrompt: "base",
-			});
+			const chained = await runner.emitBeforeAgentStart(
+				{ messageType: "user", prompt: "hello" },
+				{
+					cwd: tempDir,
+					customPrompt: "base",
+				},
+			);
 
 			expect(errors).toEqual([]);
 			expect(chained.messages).toEqual([]);
 			expect(buildSystemPrompt(chained.systemPromptOptions)).toMatch(/base[\s\S]*\nfirst\nsecond$/);
 		});
+	});
+
+	// Issue #10285: the MCP extension renders calls to tools that are not registered.
+	it("resolves tool renderers in extension load order, each able to defer to the next", async () => {
+		const runtime = createExtensionRuntime();
+		const eventBus = createEventBus();
+		const renderCall = () => ({ render: () => [], invalidate: () => {} });
+		const first = await loadExtensionFromFactory(
+			(pi) => pi.registerToolRenderer((toolName, next) => (toolName === "a" ? { renderCall } : next())),
+			tempDir,
+			eventBus,
+			runtime,
+		);
+		const second = await loadExtensionFromFactory(
+			(pi) => pi.registerToolRenderer((_toolName, next) => next() ?? { renderShell: "self" }),
+			tempDir,
+			eventBus,
+			runtime,
+		);
+		const runner = new ExtensionRunner([first, second], runtime, tempDir, sessionManager, modelRegistry);
+
+		expect(runner.resolveToolRenderers("a", () => undefined)).toEqual({ renderCall });
+		expect(runner.resolveToolRenderers("b", () => undefined)).toEqual({ renderShell: "self" });
+		expect(runner.resolveToolRenderers("b", () => ({ renderCall }))).toEqual({ renderCall });
 	});
 
 	describe("boundary chaining", () => {

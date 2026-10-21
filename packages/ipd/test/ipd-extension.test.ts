@@ -1,7 +1,7 @@
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
-	ExtensionContext,
+	ExtensionToolContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
@@ -59,7 +59,7 @@ describe("IPD create-run tool", () => {
 		const provider = vi.fn().mockResolvedValue({ pauseRun: operation, resumeRun: operation });
 		registerIpdCreateRunTool(api, provider);
 		const tool = tools.find((item) => item.name === `ipd_${action}_run`)!;
-		const context = {} as ExtensionContext;
+		const context = {} as ExtensionToolContext;
 		await tool.execute("call", { run_id: "run" }, undefined, undefined, context);
 		expect(provider).toHaveBeenCalledWith(context, "run");
 		expect(operation).toHaveBeenCalledWith("run");
@@ -99,7 +99,7 @@ describe("IPD create-run tool", () => {
 			{ request_id: "request-1", skill_name: "pptx", task },
 			undefined,
 			undefined,
-			{} as ExtensionContext,
+			{} as ExtensionToolContext,
 		);
 		expect(firstResult.terminate).toBe(true);
 
@@ -129,10 +129,10 @@ describe("IPD create-run tool", () => {
 			{ request_id: "request-2", skill_name: "pptx", task, materials },
 			undefined,
 			undefined,
-			{} as ExtensionContext,
+			{} as ExtensionToolContext,
 		);
 		expect(createRun).toHaveBeenCalledWith("request-2", expect.objectContaining({ materials }), "pptx");
-		await tool.execute("call-3", { request_id: "request-3", task }, undefined, undefined, {} as ExtensionContext);
+		await tool.execute("call-3", { request_id: "request-3", task }, undefined, undefined, {} as ExtensionToolContext);
 		expect(createRun).toHaveBeenCalledWith(
 			"request-3",
 			expect.objectContaining({ raw_task: { text: task, source: "external-agent-request" } }),
@@ -257,7 +257,7 @@ describe("IPD create-run tool", () => {
 			{ run_id: "run-1", reason: "No longer needed" },
 			undefined,
 			undefined,
-			{} as ExtensionContext,
+			{} as ExtensionToolContext,
 		);
 		expect(cancelRun).toHaveBeenCalledWith("run-1", "No longer needed");
 		expect(result.content.find((item) => item.type === "text")?.text).toContain('"status":"cancelled"');

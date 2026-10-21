@@ -12,7 +12,7 @@ const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 function traceBuild(t, name, failAt = "") {
 	const directory = mkdtempSync(join(tmpdir(), "ipd-build-contract-test-"));
 	t.after(() => rmSync(directory, { recursive: true, force: true }));
-	for (const pkg of ["chord", "tui", "telemetry", "ai", "durable", "agent", "session-backends/sqlite-node", "protocol", "client", "server", "coding-agent", "ipd"]) {
+	for (const pkg of ["telemetry", "chord", "tui", "codemode", "mcp", "ai", "durable", "env", "agent", "coding-agent", "ipd"]) {
 		mkdirSync(join(directory, "packages", pkg), { recursive: true });
 	}
 	mkdirSync(join(directory, "bin"));

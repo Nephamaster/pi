@@ -114,7 +114,7 @@ test("malformed runtime dependency specifications fail", (t) => {
 });
 
 test("IPD dependency declarations follow the existing sync-versions convention", (t) => {
-	const { root, add } = fixture(t, { ipd: { dependencies: { [AI]: `^${VERSION}` } } });
+	const { root, add } = fixture(t, { ipd: { dependencies: { [AI]: VERSION } } });
 	add("ai", AI);
 	assert.doesNotThrow(() => assertIpdDependencyDeclarations(root));
 });
@@ -122,7 +122,13 @@ test("IPD dependency declarations follow the existing sync-versions convention",
 test("stale IPD dependency ranges are rejected before package installation", (t) => {
 	const { root, add } = fixture(t, { ipd: { dependencies: { [AI]: "^0.85.1" } } });
 	add("ai", AI);
-	assert.throws(() => assertIpdDependencyDeclarations(root), /must match the workspace declaration \^0.87.1/);
+	assert.throws(() => assertIpdDependencyDeclarations(root), /must match the workspace declaration 0.87.1/);
+});
+
+test("IPD dependency declarations reject ranges even when they include the workspace version", (t) => {
+	const { root, add } = fixture(t, { ipd: { dependencies: { [AI]: `^${VERSION}` } } });
+	add("ai", AI);
+	assert.throws(() => assertIpdDependencyDeclarations(root), /must match the workspace declaration/);
 });
 
 const packedManifest = {
